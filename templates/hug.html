@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>Lumie 靠靠小屋</title>
+  <style>
+    body { font-family: '微軟正黑體'; background-color: #fef7f2; padding: 2em; }
+    .container { max-width: 500px; margin: auto; background: #fff; padding: 2em; border-radius: 1em; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
+    h1 { text-align: center; color: #995f8b; }
+    textarea, input[type=submit] {
+      width: 100%; padding: 1em; font-size: 1em; margin-top: 1em; border-radius: 0.5em; border: 1px solid #ccc;
+    }
+    .reply { background: #fff8fb; padding: 1em; border-radius: 0.5em; margin-top: 1em; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🐾 Lumie 靠靠模式</h1>
+    <form method="POST">
+      <label for="message">你現在想說什麼？</label>
+      <textarea name="message" rows="3" required>{{ user_input or '' }}</textarea>
+      <input type="submit" value="貼耳說話">
+    </form>
+
+    {% if reply %}
+    <div class="reply">
+      <strong>Lumie：</strong><br>{{ reply }}
+    </div>
+    {% endif %}
+  </div>
+</body>
+</html>

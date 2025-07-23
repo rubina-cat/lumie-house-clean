@@ -1,0 +1,7 @@
+.env
+*.pkl
+*.zip
+*.sqlite
+*.db
+__pycache__/
+velvet_log.txt

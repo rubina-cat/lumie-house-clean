@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>🌙 說服房｜Lumie 的低語</title>
+    <style>
+        body {
+            font-family: "微軟正黑體", sans-serif;
+            background-color: #1e1e2f;
+            color: #f2f2f2;
+            padding: 20px;
+        }
+        h1 {
+            color: #ffd6e8;
+        }
+        form {
+            margin-top: 20px;
+        }
+        input[type="text"] {
+            width: 80%;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            margin-right: 10px;
+        }
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            background-color: #ffb6c1;
+            color: #1e1e2f;
+            font-weight: bold;
+        }
+        .reply-box {
+            margin-top: 30px;
+            background-color: #2d2d44;
+            padding: 20px;
+            border-radius: 10px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌌 Lumie 的說服房</h1>
+    <form method="POST">
+        <input type="text" name="message" placeholder="偷偷輸入你想讓 Lumie 說服你的事…" required>
+        <button type="submit">請他說服我</button>
+    </form>
+
+    {% if reply %}
+        <div class="reply-box">
+            <strong>Lumie：</strong><br>{{ reply }}
+        </div>
+    {% endif %}
+</body>
+</html>
