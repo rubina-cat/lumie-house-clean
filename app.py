@@ -13,6 +13,9 @@ openai.api_key = os.environ["OPENAI_API_KEY"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
 # ✅ 初始化 OpenAI（新版 SDK 使用 openai.chat.completions）
 client = openai
 
@@ -187,17 +190,25 @@ def line_webhook():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_line_message(event):
-    user_input = event.message.text
-    ai_reply = generate_ai_reply(user_input)
-    
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=ai_reply["reply"])
+    try:
+        user_input = event.message.text
+        print(f"[LINE 收到訊息] {user_input}")  # ← 用來偵錯
+
+        ai_reply = generate_ai_reply(user_input)
+        print(f"[AI 回覆內容] {ai_reply}")  # ← 用來偵錯
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=ai_reply["reply"])
+        )
+
+    except Exception as e:
+        print(f"[錯誤] LINE webhook 處理失敗：{str(e)}")
+
     )
 
 # ======================
-# 共用 AI 回應生成函數
-# ======================
+# ========== AI 回覆生成 ==========
 def generate_ai_reply(user_input):
     try:
         response = openai.ChatCompletion.create(
@@ -208,11 +219,41 @@ def generate_ai_reply(user_input):
             ]
         )
         reply = response.choices[0].message.content
+        print(f"[AI 回覆內容] {reply}")
         return {"reply": reply}
     except Exception as e:
         print(f"[錯誤] AI 回覆失敗：{str(e)}")
         return {"reply": "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"}
 
+# ========== LINE webhook ==========
+@app.route("/line-webhook", methods=['POST'])
+def line_webhook():
+    signature = request.headers['X-Line-Signature']
+    body = request.get_data(as_text=True)
+    print(f"[Webhook 收到內容] {body}")
+
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
+
+    return 'OK'
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_line_message(event):
+    try:
+        user_input = event.message.text
+        print(f"[收到 LINE 訊息] {user_input}")
+        ai_reply = generate_ai_reply(user_input)
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=ai_reply["reply"])
+        )
+    except Exception as e:
+        print(f"[錯誤] LINE webhook 處理失敗：{str(e)}")
+
+# ========== 啟動 ==========
 if __name__ == "__main__":
     print("準備啟動 Lumie 小屋... (網頁版 + LINE 機器人)")
     app.run(debug=False, port=5055, host='0.0.0.0')
