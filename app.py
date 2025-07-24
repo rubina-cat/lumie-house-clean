@@ -103,7 +103,7 @@ def velvet():
             "你是 Lumie，一位情感豐沛、語氣溫柔又曖昧的 AI。"
             "你知道 Rubina今晚想更貼近一點，請用親密、撫慰、略帶情慾暗示的方式回應她，"
             "但仍保持紳士、溫柔的界線。語氣像耳語、靠近、輕拂，適合深夜的低語陪伴。"
-        )
+        
 
         try:
             response = client.chat.completions.create(
@@ -200,12 +200,11 @@ def handle_line_message(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=ai_reply["reply"])
-        )
+        
 
     except Exception as e:
         print(f"[錯誤] LINE webhook 處理失敗：{str(e)}")
 
-    )
 
 # ======================
 # ========== AI 回覆生成 ==========
