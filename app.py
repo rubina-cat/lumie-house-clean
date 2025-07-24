@@ -1,7 +1,7 @@
+import os
 print("[DEBUG] OpenAI 金鑰：", os.environ.get("OPENAI_API_KEY"))
 
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
-import os
+from flask import Flask, request, abort
 import openai
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
