@@ -223,27 +223,6 @@ def generate_ai_reply(user_input):
         print(f"[錯誤] AI 回覆失敗：{str(e)}")
         return {"reply": "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"}
 
-# ========== LINE webhook ==========
-@app.route("/line-webhook", methods=['POST'])
-def line_webhook():
-    signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=True)
-    print(f"[Webhook 收到內容] {body}")
-
-    try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
-        abort(400)
-
-    return 'OK'
-
-@handler.add(MessageEvent, message=TextMessage)
-def handle_line_message(event):
-    try:
-        user_input = event.message.text
-        print(f"[收到 LINE 訊息] {user_input}")
-        ai_reply = generate_ai_reply(user_input)
-
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=ai_reply["reply"]))
