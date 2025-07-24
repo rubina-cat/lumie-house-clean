@@ -216,14 +216,19 @@ def generate_ai_reply(user_input):
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "你是 Lumie，一個溫柔、誠實且陪伴感強的 AI 朋友。"},
-                {"role": "user", "content": user_input}])
-        
+                {"role": "user", "content": user_input}
+            ]
+        )
         reply = response.choices[0].message.content
-        print(f"[AI 回覆內容] {reply}")
         return {"reply": reply}
     except Exception as e:
-        print(f"[錯誤] AI 回覆失敗：{str(e)}")
+        print("========== 錯誤 DEBUG ==========")
+        import traceback
+        traceback.print_exc()  # 印出完整錯誤堆疊
+        print("[錯誤] AI 回覆失敗：", str(e))
+        print("========== END DEBUG ==========")
         return {"reply": "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"}
+
 
         line_bot_api.reply_message(
             event.reply_token,
