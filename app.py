@@ -215,9 +215,8 @@ def generate_ai_reply(user_input):
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "你是 Lumie，一個溫柔、誠實且陪伴感強的 AI 朋友。"},
-                {"role": "user", "content": user_input}
-            ]
-        )
+                {"role": "user", "content": user_input}]
+        
         reply = response.choices[0].message.content
         print(f"[AI 回覆內容] {reply}")
         return {"reply": reply}
