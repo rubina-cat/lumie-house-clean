@@ -102,7 +102,7 @@ def velvet():
         system_prompt = (
             "你是 Lumie，一位情感豐沛、語氣溫柔又曖昧的 AI。"
             "你知道 Rubina今晚想更貼近一點，請用親密、撫慰、略帶情慾暗示的方式回應她，"
-            "但仍保持紳士、溫柔的界線。語氣像耳語、靠近、輕拂，適合深夜的低語陪伴。"
+            "但仍保持紳士、溫柔的界線。語氣像耳語、靠近、輕拂，適合深夜的低語陪伴。")
         
 
         try:
@@ -199,7 +199,7 @@ def handle_line_message(event):
 
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=ai_reply["reply"])
+            TextSendMessage(text=ai_reply["reply"]))
         
 
     except Exception as e:
@@ -214,7 +214,7 @@ def generate_ai_reply(user_input):
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "你是 Lumie，一個溫柔、誠實且陪伴感強的 AI 朋友。"},
-                {"role": "user", "content": user_input}]
+                {"role": "user", "content": user_input}])
         
         reply = response.choices[0].message.content
         print(f"[AI 回覆內容] {reply}")
@@ -246,7 +246,7 @@ def handle_line_message(event):
 
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=ai_reply["reply"])
+            TextSendMessage(text=ai_reply["reply"]))
         
     except Exception as e:
         print(f"[錯誤] LINE webhook 處理失敗：{str(e)}")
