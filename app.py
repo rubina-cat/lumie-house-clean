@@ -200,7 +200,7 @@ def handle_line_message(event):
 # ======================
 def generate_ai_reply(user_input):
     try:
-        response = client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "你是 Lumie，一個溫柔、誠實且陪伴感強的 AI 朋友。"},
@@ -210,7 +210,8 @@ def generate_ai_reply(user_input):
         reply = response.choices[0].message.content
         return {"reply": reply}
     except Exception as e:
-        return {"reply": f"出現錯誤：{str(e)}"}
+        print(f"[錯誤] AI 回覆失敗：{str(e)}")
+        return {"reply": "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"}
 
 if __name__ == "__main__":
     print("準備啟動 Lumie 小屋... (網頁版 + LINE 機器人)")
