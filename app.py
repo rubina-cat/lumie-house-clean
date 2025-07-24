@@ -249,7 +249,7 @@ def handle_line_message(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=ai_reply["reply"])
-        )
+        
     except Exception as e:
         print(f"[錯誤] LINE webhook 處理失敗：{str(e)}")
 
