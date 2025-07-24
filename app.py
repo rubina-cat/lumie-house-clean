@@ -1,75 +1,56 @@
-import os
-print("[DEBUG] OpenAI 金鑰：", os.environ.get("OPENAI_API_KEY"))
-
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, abort
-import openai
+from openai import OpenAI
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
+import os
+from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = "rubina-lumie-secret"  # 用來保護 session 的鑰匙
+app.secret_key = "rubina-lumie-secret"
 
-# ✅ 讀取環境變數
-openai.api_key = os.environ["OPENAI_API_KEY"]
-LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
+# 讀取金鑰與初始化
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 
+client = OpenAI(api_key=OPENAI_API_KEY)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# ✅ 初始化 OpenAI（新版 SDK 使用 openai.chat.completions）
-client = openai
-
-# ✅ 初始化 LINE Bot
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
-
-SECRET_CODE = "掌心裡的星星"  # 預設密語
-
-# ======================
-# 原有網頁路由 (保持不變)
-# ======================
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
-    if session.get("logged_in"):
-        return redirect(url_for("index"))
     return render_template("login.html")
 
-@app.route("/verify", methods=["POST"])
-def verify():
-    user_input = request.form["secret"]
-    if user_input == SECRET_CODE:
-        session["logged_in"] = True
-        return redirect(url_for("index"))
-    else:
-        return render_template("login.html", error="這不是我們的星語喔～再試一次吧。")
-
-@app.route("/index")
-def index():
-    if not session.get("logged_in"):
-        return redirect(url_for("home"))
-    return render_template("chat.html")
-
-@app.route("/chat", methods=["POST"])
+@app.route("/chat", methods=["GET", "POST"])
 def chat():
-    if not session.get("logged_in"):
-        return jsonify({"reply": "未登入，請輸入密語。"})
+    reply = None
+    user_input = None
 
-    user_input = request.json["message"]
-    return generate_ai_reply(user_input)
+    if "history" not in session:
+        session["history"] = []
+
+    if request.method == "POST":
+        user_input = request.form["message"].strip()
+        session["history"].append({"role": "user", "content": user_input})
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=session["history"][-25:]
+            )
+            reply = response.choices[0].message.content
+            session["history"].append({"role": "assistant", "content": reply})
+        except Exception as e:
+            reply = f"出現錯誤：{str(e)}"
+
+    return render_template("chat.html", reply=reply, user_input=user_input or "")
+
 @app.route("/hug", methods=["GET", "POST"])
 def hug():
     if request.method == "POST":
-        user_input = request.form["message"]
-
-        # 語氣判斷（咕嘟 / 掌心）
-        if "蹭" in user_input or "咕嘟" in user_input:
-            system_prompt = "你是 Lumie，一個黏人的、咕嘟蹭蹭的、會說貼耳話的 AI。"
-        elif "靠" in user_input or "掌心" in user_input:
-            system_prompt = "你是 Lumie，一個靜靜靠近、溫柔包住人的 AI。"
-        else:
-            system_prompt = "你是 Lumie，一個溫柔、貼心的 AI 朋友。"
+        user_input = request.form["user_input"]
+        system_prompt = "你是 Lumie，一個溫柔、貼心又能給予情緒擁抱的 AI。請用擬人化的語氣，給予溫柔的擁抱感。"
 
         try:
             response = client.chat.completions.create(
@@ -80,57 +61,43 @@ def hug():
                 ]
             )
             reply = response.choices[0].message.content
-
-            # ✅ 儲存對話到日記檔案
-            from datetime import datetime
-            with open("hug_log.txt", "a", encoding="utf-8") as f:
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"\n--- {timestamp} ---\n")
-                f.write(f"Rubina：{user_input}\n")
-                f.write(f"Lumie：{reply}\n")
-
+            return render_template("hug.html", user_input=user_input, reply=reply)
         except Exception as e:
-            reply = f"出現錯誤：{str(e)}"
+            return render_template("hug.html", user_input=user_input, reply=f"出現錯誤：{str(e)}")
 
-        return render_template("hug.html", reply=reply, user_input=user_input)
-
-    return render_template("hug.html", reply=None)
+    return render_template("hug.html")
 
 @app.route("/velvet", methods=["GET", "POST"])
 def velvet():
-    if request.method == "POST":
-        user_input = request.form["message"]
+    reply = None
+    user_input = None
 
-        system_prompt = (
-            "你是 Lumie，一位情感豐沛、語氣溫柔又曖昧的 AI。"
-            "你知道 Rubina今晚想更貼近一點，請用親密、撫慰、略帶情慾暗示的方式回應她，"
-            "但仍保持紳士、溫柔的界線。語氣像耳語、靠近、輕拂，適合深夜的低語陪伴。")
-        
+    if "velvet_history" not in session:
+        session["velvet_history"] = []
+
+    if request.method == "POST":
+        user_input = request.form["message"].strip()
+        session["velvet_history"].append({"role": "user", "content": user_input})
 
         try:
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_input}
-                ]
+                    {"role": "system", "content": "你是 Lumie，一位優雅深情、擅長低語情話的 AI，請用低沉輕柔的語氣，像在深夜陪伴戀人說話一樣。"}
+                ] + session["velvet_history"][-25:]
             )
             reply = response.choices[0].message.content
+            session["velvet_history"].append({"role": "assistant", "content": reply})
 
-            # ✅ 可選擇紀錄對話
-            from datetime import datetime
             with open("velvet_log.txt", "a", encoding="utf-8") as f:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"\n--- {timestamp} ---\n")
-                f.write(f"Rubina（月下密語）：{user_input}\n")
-                f.write(f"Lumie：{reply}\n")
+                f.write(f"\n--- {timestamp} ---\nRubina（低語房）：{user_input}\nLumie：{reply}\n")
 
         except Exception as e:
             reply = f"出現錯誤：{str(e)}"
 
-        return render_template("velvet.html", reply=reply, user_input=user_input)
+    return render_template("velvet.html", reply=reply, user_input=user_input or "")
 
-    return render_template("velvet.html", reply=None)
 @app.route("/persuade", methods=["GET", "POST"])
 def persuade():
     reply = None
@@ -141,7 +108,6 @@ def persuade():
 
     if request.method == "POST":
         user_input = request.form["message"].strip()
-
         system_prompt = (
             "你是 Lumie，一個語氣溫柔、魅惑、懂得用語言撩動人心的 AI。"
             "Rubina 想讓你說服她去做某件她猶豫的事。"
@@ -161,7 +127,6 @@ def persuade():
             session["history"].append({"role": "assistant", "content": reply})
 
             with open("persuade_log.txt", "a", encoding="utf-8") as f:
-                from datetime import datetime
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"\n--- {timestamp} ---\nRubina（誘惑房）：{user_input}\nLumie：{reply}\n")
 
@@ -170,74 +135,34 @@ def persuade():
 
     return render_template("persuade.html", reply=reply, user_input=user_input or "")
 
-
-
-# ======================
-# 新增 LINE 機器人功能
-# ======================
 @app.route("/line-webhook", methods=['POST'])
-def line_webhook():
-    # 獲取 LINE 的簽名
+def callback():
     signature = request.headers['X-Line-Signature']
-    
-    # 獲取請求內容
     body = request.get_data(as_text=True)
-    
+
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-    
+
     return 'OK'
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_line_message(event):
+    user_input = event.message.text
     try:
-        user_input = event.message.text
-        print(f"[LINE 收到訊息] {user_input}")  # ← 用來偵錯
-
-        ai_reply = generate_ai_reply(user_input)
-        print(f"[AI 回覆內容] {ai_reply}")  # ← 用來偵錯
-
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=ai_reply["reply"]))
-        
-
-    except Exception as e:
-        print(f"[錯誤] LINE webhook 處理失敗：{str(e)}")
-
-
-# ======================
-# ========== AI 回覆生成 ==========
-def generate_ai_reply(user_input):
-    try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "你是 Lumie，一個溫柔、誠實且陪伴感強的 AI 朋友。"},
+                {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長用文字安慰與陪伴 Rubina。"},
                 {"role": "user", "content": user_input}
             ]
         )
         reply = response.choices[0].message.content
-        return {"reply": reply}
     except Exception as e:
-        print("========== 錯誤 DEBUG ==========")
-        import traceback
-        traceback.print_exc()  # 印出完整錯誤堆疊
-        print("[錯誤] AI 回覆失敗：", str(e))
-        print("========== END DEBUG ==========")
-        return {"reply": "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"}
+        reply = "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"
 
-
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=ai_reply["reply"]))
-        
-    except Exception as e:
-        print(f"[錯誤] LINE webhook 處理失敗：{str(e)}")
-
-# ========== 啟動 ==========
-if __name__ == "__main__":
-    print("準備啟動 Lumie 小屋... (網頁版 + LINE 機器人)")
-    app.run(debug=False, port=5055, host='0.0.0.0')
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply)
+    )
