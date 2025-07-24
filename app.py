@@ -119,6 +119,17 @@ def persuade():
             reply = f"出現錯誤：{str(e)}"
     return render_template("persuade.html", reply=reply, user_input=user_input or "")
 
+
+@app.route("/verify", methods=["POST"])
+def verify():
+    input_secret = request.form.get("secret", "")
+    if input_secret == "lumie-rubina-secret":
+        session["authenticated"] = True
+        return redirect(url_for("chat"))  # 登入後導向 chat 頁面或其他主頁
+    else:
+        return render_template("login.html", error="密語錯誤，請再試一次。")
+
+
 @app.route("/line-webhook", methods=["POST"])
 def callback():
     signature = request.headers["X-Line-Signature"]
