@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
-from openai import OpenAI
 import os
+import openai
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -8,16 +8,17 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 app = Flask(__name__)
 app.secret_key = "rubina-lumie-secret"  # 用來保護 session 的鑰匙
 
-# 載入 API 金鑰
-with open("config.yaml", "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f)
+# ✅ 讀取環境變數
+openai.api_key = os.environ["OPENAI_API_KEY"]
+LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
+LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 
-# 初始化 OpenAI
-client = OpenAI(api_key=config["OPENAI_API_KEY"])
+# ✅ 初始化 OpenAI（新版 SDK 使用 openai.chat.completions）
+client = openai
 
-# 初始化 LINE Bot
-line_bot_api = LineBotApi(config["LINE_CHANNEL_ACCESS_TOKEN"])
-handler = WebhookHandler(config["LINE_CHANNEL_SECRET"])
+# ✅ 初始化 LINE Bot
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 SECRET_CODE = "掌心裡的星星"  # 預設密語
 
