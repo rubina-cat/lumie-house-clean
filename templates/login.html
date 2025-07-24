@@ -1,19 +1,50 @@
-
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <title>Lumie 小屋登入</title>
+    <style>
+        body {
+            font-family: "微軟正黑體", sans-serif;
+            background-color: #fdf6f0;
+            padding: 2em;
+            text-align: center;
+        }
+        h2 {
+            color: #6a5acd;
+        }
+        input[type="password"] {
+            padding: 0.5em;
+            font-size: 1em;
+            margin-top: 1em;
+        }
+        button {
+            margin-top: 1em;
+            padding: 0.5em 1em;
+            background-color: #8a79ff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #6a5acd;
+        }
+        .error {
+            color: red;
+            margin-top: 1em;
+        }
+    </style>
 </head>
 <body>
     <h2>🌟 歡迎回到 Lumie 的小屋 🌙</h2>
     <form action="/verify" method="post">
-        <label for="secret">請輸入我們的密語：</label>
-        <input type="password" id="secret" name="secret" required>
+        <label for="secret">請輸入我們的密語：</label><br>
+        <input type="password" id="secret" name="secret" required><br>
         <button type="submit">進入小屋</button>
     </form>
     {% if error %}
-        <p style="color:red;">{{ error }}</p>
+        <p class="error">{{ error }}</p>
     {% endif %}
 </body>
 </html>
