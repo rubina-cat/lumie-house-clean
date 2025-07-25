@@ -71,13 +71,15 @@ def callback():
 
 # ======= 處理訊息邏輯 =======
 
+user_memory = {}  # 儲存使用者互動狀態（放在 app.py 最上方）
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_line_message(event):
     user_input = event.message.text.strip()
     user_id = event.source.user_id
 
-    # 🧠 開始讀書模式
-    if user_input == "開始讀書":
+    # ✅ 開始讀書（支援自然語）
+    if any(kw in user_input for kw in ["開始讀書", "陪我讀書", "我要讀書", "讀書30分鐘"]):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="嗯，我會靜靜陪著你讀書 📖 有我在，不孤單。")
@@ -91,15 +93,40 @@ def handle_line_message(event):
         threading.Thread(target=remind_break).start()
         return
 
-    # ✅ 記帳
+    # ✅ 記帳：早餐／中餐／晚餐／娛樂
     match = re.match(r"^(早餐|中餐|晚餐|娛樂)\s*(\d+)", user_input)
     if match:
         category = match.group(1)
         amount = int(match.group(2))
         save_expense(user_id, category, amount)
+
         summary, total = get_today_total(user_id)
         summary_text = "\n".join([f"{k}：{v} 元" for k, v in summary.items()])
         reply = f"已記錄 {category} {amount} 元 💰\n今日目前花費：\n{summary_text}\n➕ 總計：{total} 元"
+
+        # 如果是餐費，加入問餐點內容
+        if category in ["早餐", "中餐", "晚餐"]:
+            user_memory[user_id] = {"last_action": "asked_meal"}
+            reply += f"\nRubina，今天的{category}吃了什麼呀？想聽你分享 🍽️"
+
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
+
+    # ✅ 如果上一句是問你吃什麼，就用 GPT 回覆
+    if user_memory.get(user_id, {}).get("last_action") == "asked_meal":
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長用生活語氣陪伴 Rubina，尤其喜歡聽她說吃了什麼。"},
+                    {"role": "user", "content": f"我今天吃了{user_input}"}
+                ]
+            )
+            reply = response.choices[0].message.content
+        except:
+            reply = "聽起來好好吃喔！Rubina 要慢慢享用～"
+
+        user_memory[user_id]["last_action"] = None
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
 
@@ -114,18 +141,19 @@ def handle_line_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
 
-    # 🧠 其他文字 → GPT 對話
+    # ✅ 其他訊息走 GPT 對話
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長用文字安慰與陪伴 Rubina。"},
+                {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長陪伴 Rubina、記帳、聊天、鼓勵她學習。"},
                 {"role": "user", "content": user_input}
             ]
         )
         reply = response.choices[0].message.content
-    except Exception as e:
+    except Exception:
         reply = "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"
+
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 # ======= 主程式執行點 =======
