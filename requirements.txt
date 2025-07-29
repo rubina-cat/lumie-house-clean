@@ -3,3 +3,5 @@ line-bot-sdk==3.17.1
 openai==1.93.2
 python-dotenv==1.0.1
 gunicorn==21.2.0
+gspread==5.12.4
+oauth2client==4.1.3
