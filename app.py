@@ -66,7 +66,9 @@ perfumes = {
 # ======= 📝 Google Sheets 寫入函式 =======
 def write_to_gsheet(perfume_name, perfume_desc, lumie_line, mood=""):
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
+    import io
+    service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(service_account_json), scope)
     client = gspread.authorize(creds)
     sheet = client.open_by_key("1ay5sbbxAnvACncRBkZ-QBPHK-XJpRJAmEpH3skQC3v8").sheet1
     date_str = datetime.now().strftime("%Y/%m/%d %H:%M")
