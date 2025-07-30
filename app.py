@@ -120,6 +120,8 @@ def handle_line_message(event):
     user_input = event.message.text.strip()
     user_id = event.source.user_id
 
+    print(f"🟡 收到文字訊息：{user_input}")
+
     # 🎓 讀書提醒
     if any(kw in user_input for kw in ["開始讀書", "陪我讀書", "我要讀書", "讀書30分鐘"]):
         line_bot_api.reply_message(
@@ -179,7 +181,7 @@ def handle_line_message(event):
         return
 
     # 🌸 香水抽卡
-    if user_input in ["抽香", "今天用哪瓶香", "香水牌來一張", "Lumie幫我選香"]:
+    if any(kw in user_input for kw in ["抽香", "香水牌", "香水占卜", "選香", "今天用哪瓶香", "Lumie選香", "Lumie幫我選香"]):
         selected = random.choice(list(perfumes.keys()))
         p = perfumes[selected]
         write_to_gsheet(selected, p['description'], p['lumie_line'])
