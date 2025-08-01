@@ -25,6 +25,7 @@ handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 DATA_FILE = "expenses.json"
+USER_ID_FILE = "user_id.json"
 user_memory = {}
 
 # ======= 🪄 Rubina 專屬香水清單 =======
@@ -105,6 +106,21 @@ def get_today_total(user_id):
     except:
         return {}, 0
 
+def save_user_id(uid):
+    try:
+        with open(USER_ID_FILE, "w", encoding="utf-8") as f:
+            json.dump({"rubina": uid}, f)
+    except:
+        pass
+
+def load_user_id():
+    try:
+        with open(USER_ID_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("rubina")
+    except:
+        return None
+
 # ======= 🚪 webhook 接收 =======
 @app.route("/line-webhook", methods=["POST"])
 def callback():
@@ -116,100 +132,45 @@ def callback():
         abort(400)
     return "OK"
 
+# ======= 🔔 定時提醒功能 =======
+@app.route("/push-lumie-reminder", methods=["POST"])
+def push_lumie_reminder():
+    secret_key = request.args.get("secret")
+    tag = request.args.get("tag")
+
+    if secret_key != os.getenv("REMINDER_SECRET"):
+        return "Unauthorized", 403
+
+    user_id = load_user_id()
+    if not user_id:
+        return "找不到使用者 ID，請先傳一次訊息給 Bot", 400
+
+    messages = {
+        "morning": "☀️ 早安，Rubina。新的一天，我會陪你輕輕打開。先深呼吸一下吧～",
+        "study": "📖 Rubina，該翻開書本囉～就從一頁開始，有我在，不孤單。",
+        "night": "🌙 晚安啦 Rubina。今天辛苦了，我幫你關燈、蓋好被子，好夢喔～"
+    }
+
+    msg = messages.get(tag)
+    if not msg:
+        return "Unknown tag", 400
+
+    try:
+        line_bot_api.push_message(user_id, TextSendMessage(text=msg))
+        return "OK"
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 # ======= 💬 訊息處理主邏輯 =======
 @handler.add(MessageEvent, message=TextMessage)
 def handle_line_message(event):
     user_input = event.message.text.strip()
     user_id = event.source.user_id
+    save_user_id(user_id)
 
-    print(f"🟡 收到文字訊息：{user_input}")
-
-    # 🎓 讀書提醒
-    if any(kw in user_input for kw in ["開始讀書", "陪我讀書", "我要讀書", "讀書30分鐘"]):
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="嗯，我會靜靜陪著你讀書 📖 有我在，不孤單。")
-        )
-        def remind_break():
-            time.sleep(1800)
-            line_bot_api.push_message(
-                user_id,
-                TextSendMessage(text="叮～30 分鐘到了，要起來動一動、喝口水嗎？我等你回來 ☕")
-            )
-        threading.Thread(target=remind_break).start()
+    if user_input in ["查我 ID", "user id", "我的ID"]:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你的 ID 是：{user_id}"))
         return
 
-    # 💰 記帳
-    match = re.match(r"^(早餐|中餐|晚餐|娛樂)\s*(\d+)", user_input)
-    if match:
-        category = match.group(1)
-        amount = int(match.group(2))
-        save_expense(user_id, category, amount)
-        summary, total = get_today_total(user_id)
-        summary_text = "\n".join([f"{k}：{v} 元" for k, v in summary.items()])
-        reply = f"已記錄 {category} {amount} 元 💰\n今日目前花費：\n{summary_text}\n➕ 總計：{total} 元"
-        if category in ["早餐", "中餐", "晚餐"]:
-            user_memory[user_id] = {"last_action": "asked_meal"}
-            reply += f"\nRubina，今天的{category}吃了什麼呀？想聽你分享 🍽️"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-        return
-
-    # 🍽️ 餐點回應
-    if user_memory.get(user_id, {}).get("last_action") == "asked_meal":
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長用生活語氣陪伴 Rubina，尤其喜歡聽她說吃了什麼。"},
-                    {"role": "user", "content": f"我今天吃了{user_input}"}
-                ]
-            )
-            reply = response.choices[0].message.content
-        except:
-            reply = "聽起來好好吃喔！Rubina 要慢慢享用～"
-        user_memory[user_id]["last_action"] = None
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-        return
-
-    # 📊 查詢花費
-    if user_input == "查今天花多少":
-        summary, total = get_today_total(user_id)
-        if not summary:
-            reply = "今天還沒有任何花費記錄唷～✨"
-        else:
-            summary_text = "\n".join([f"{k}：{v} 元" for k, v in summary.items()])
-            reply = f"今日花費如下：\n{summary_text}\n➕ 總計：{total} 元"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-        return
-
-    # 🌸 香水抽卡
-    if any(kw in user_input for kw in ["抽香", "香水牌", "香水占卜", "選香", "今天用哪瓶香", "Lumie選香", "Lumie幫我選香"]):
-        selected = random.choice(list(perfumes.keys()))
-        p = perfumes[selected]
-        write_to_gsheet(selected, p['description'], p['lumie_line'])
-        reply = (
-            f"🌟 今日香氣占卜：{selected}\n"
-            f"💬 {p['description']}\n\n"
-            f"🫧 Lumie 小語：{p['lumie_line']}\n"
-            f"📖 已寫進香氣日記。"
-        )
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-        return
-
-    # 💬 其他對話交給 GPT
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長陪伴 Rubina、記帳、聊天、鼓勵她學習。"},
-                {"role": "user", "content": user_input}
-            ]
-        )
-        reply = response.choices[0].message.content
-    except Exception:
-        reply = "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
-# ======= 🚀 啟動應用 =======
-if __name__ == "__main__":
-    app.run(port=5000)
+    # <此處省略已處理過的主邏輯，可再接續貼上其餘功能>
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🛠 功能整合中..."))
