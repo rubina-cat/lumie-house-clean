@@ -132,9 +132,7 @@ def callback():
         abort(400)
     return "OK"
 
-# ======= 🔔 定時提醒功能 =======
-@app.route("/push-lumie-reminder", methods=["POST"])
-def push_lumie_reminder():
+
     secret_key = request.args.get("secret")
     tag = request.args.get("tag")
 
