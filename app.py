@@ -133,7 +133,7 @@ def callback():
     return "OK"
 
 # ======= 🔔 定時提醒功能 =======
-@app.route("/push-lumie-reminder", methods=["GET", "POST"])
+@app.route("/push-lumie-reminder", methods=["POST"])
 def push_lumie_reminder():
     secret_key = request.args.get("secret")
     tag = request.args.get("tag")
