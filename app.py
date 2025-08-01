@@ -172,5 +172,19 @@ def handle_line_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你的 ID 是：{user_id}"))
         return
 
-    # <此處省略已處理過的主邏輯，可再接續貼上其餘功能>
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text="🛠 功能整合中..."))
+    # ...（這裡是其他的功能區塊，例如記帳、抽香等）...
+
+    # 💬 其他對話交給 GPT
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長陪伴 Rubina、記帳、聊天、鼓勵她學習。"},
+                {"role": "user", "content": user_input}
+            ]
+        )
+        reply = response.choices[0].message.content
+    except Exception:
+        reply = "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"
+
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
