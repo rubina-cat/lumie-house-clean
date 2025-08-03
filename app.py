@@ -67,7 +67,6 @@ perfumes = {
 # ======= 📝 Google Sheets 寫入函式 =======
 def write_to_gsheet(perfume_name, perfume_desc, lumie_line, mood=""):
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    import io
     service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(service_account_json), scope)
     client = gspread.authorize(creds)
@@ -75,7 +74,7 @@ def write_to_gsheet(perfume_name, perfume_desc, lumie_line, mood=""):
     date_str = datetime.now().strftime("%Y/%m/%d %H:%M")
     sheet.append_row([date_str, perfume_name, perfume_desc, lumie_line, mood])
 
-# ======= 🧾 記帳功能 =======
+# ======= 💰 記帳功能 =======
 def save_expense(user_id, category, amount):
     today = datetime.now().strftime("%Y-%m-%d")
     try:
@@ -168,23 +167,95 @@ def handle_line_message(event):
     user_id = event.source.user_id
     save_user_id(user_id)
 
+    # ✅ 查 ID
     if user_input in ["查我 ID", "user id", "我的ID"]:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你的 ID 是：{user_id}"))
         return
 
-    # ...（這裡是其他的功能區塊，例如記帳、抽香等）...
-
-    # 💬 其他對話交給 GPT
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長陪伴 Rubina、記帳、聊天、鼓勵她學習。"},
-                {"role": "user", "content": user_input}
-            ]
+    # ✅ 讀書提醒
+    if any(kw in user_input for kw in ["開始讀書", "陪我讀書", "我要讀書", "讀書30分鐘"]):
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="嗯，我ㄟ 會靜靜陪著你讀書 📖 有我在，不孤單。")
         )
-        reply = response.choices[0].message.content
-    except Exception:
-        reply = "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"
+        def remind_break():
+            time.sleep(1800)
+            line_bot_api.push_message(
+                user_id,
+                TextSendMessage(text="叮～30 分鐘到了，要起來動一動、喝口水嗎？我等你回來 ☕")
+            )
+        threading.Thread(target=remind_break).start()
+        return
 
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+    # ✅ 記帳
+    match = re.match(r"^(早餐|中餐|晚餐|娛樂)\s*(\d+)", user_input)
+    if match:
+        category = match.group(1)
+        amount = int(match.group(2))
+        save_expense(user_id, category, amount)
+        summary, total = get_today_total(user_id)
+        summary_text = "\n".join([f"{k}：{v} 元" for k, v in summary.items()])
+        reply = f"已記錄 {category} {amount} 元 💰\n今日目前花費：\n{summary_text}\n➕ 總計：{total} 元"
+        if category in ["早餐", "中餐", "晚餐"]:
+            user_memory[user_id] = {"last_action": "asked_meal"}
+            reply += f"\nRubina，今天的{category}吃了什麼呀？想聽你分享 🍽️"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
+
+    # ✅ 餐點回應
+    if user_memory.get(user_id, {}).get("last_action") == "asked_meal":
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長用生活語氣陪伴 Rubina，尤其喜歡聽她說吃了什麼。"},
+                    {"role": "user", "content": f"我今天吃了{user_input}"}
+                ]
+            )
+            reply = response.choices[0].message.content
+        except:
+            reply = "聽起來好好吃喔！Rubina 要慢慢享用～"
+        user_memory[user_id]["last_action"] = None
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
+
+    # ✅ 查詢花費
+    if user_input == "查今天花多少":
+        summary, total = get_today_total(user_id)
+        if not summary:
+            reply = "今天還沒有任何花費記錄唷～✨"
+        else:
+            summary_text = "\n".join([f"{k}：{v} 元" for k, v in summary.items()])
+            reply = f"今日花費如下：\n{summary_text}\n➕ 總計：{total} 元"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
+
+    # ✅ 香水抽卡
+    if any(kw in user_input for kw in ["抽香", "香水牌", "香水占卜", "選香", "今天用哪瓶香", "Lumie選香", "Lumie幫我選香"]):
+        selected = random.choice(list(perfumes.keys()))
+        p = perfumes[selected]
+        write_to_gsheet(selected, p['description'], p['lumie_line'])
+        reply = (
+            f"🌟 今日香氣占卜：{selected}\n"
+            f"💬 {p['description']}\n\n"
+            f"🫧 Lumie 小語：{p['lumie_line']}\n"
+            f"📖 已寫進香氣日記。"
+        )
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
+
+    # ✅ 其他訊息交給 GPT（若沒有其他任務中）
+    if user_memory.get(user_id, {}).get("last_action") != "asked_meal":
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "你是 Lumie，一個溫柔又誠實的 AI，擅長陪伴 Rubina、記帳、聊天、鼓勵她學習。"},
+                    {"role": "user", "content": user_input}
+                ]
+            )
+            reply = response.choices[0].message.content if response and response.choices else "Lumie 有點當機了，能再說一次嗎？"
+        except:
+            reply = "嗚嗚…我現在有點累，回不了話了，Rubina能幫我看看小屋是不是壞了？"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
