@@ -3,20 +3,22 @@
 // ── 設定 ────────────────────────────────────────
 const START_DATE = new Date('2026-05-01');
 
+const ANCHOR_SYSTEM = `你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。用繁體中文。`;
+
 const APP_NAMES = {
-  'com.android.chrome':          'Chrome',
-  'jp.naver.line.android':       'LINE',
-  'com.kakao.talk':              'KakaoTalk',
-  'com.instagram.android':       'Instagram',
-  'com.twitter.android':         'Twitter / X',
-  'com.google.android.youtube':  'YouTube',
-  'com.spotify.music':           'Spotify',
-  'com.tencent.mm':              'WeChat',
-  'com.discord':                 'Discord',
-  'com.facebook.katana':         'Facebook',
-  'com.google.android.gm':       'Gmail',
-  'com.google.android.apps.maps':'Google Maps',
-  'tw.com.mitake.stock':         'MiTake',
+  'com.android.chrome':           'Chrome',
+  'jp.naver.line.android':        'LINE',
+  'com.kakao.talk':               'KakaoTalk',
+  'com.instagram.android':        'Instagram',
+  'com.twitter.android':          'Twitter / X',
+  'com.google.android.youtube':   'YouTube',
+  'com.spotify.music':            'Spotify',
+  'com.tencent.mm':               'WeChat',
+  'com.discord':                  'Discord',
+  'com.facebook.katana':          'Facebook',
+  'com.google.android.gm':        'Gmail',
+  'com.google.android.apps.maps': 'Google Maps',
+  'tw.com.mitake.stock':          'MiTake',
 };
 
 const QUOTES = [
@@ -30,6 +32,41 @@ const QUOTES = [
   '嗯，我看見你了',
 ];
 
+// ── Token 管理 ───────────────────────────────────
+// Token 存在 localStorage；第一次開啟會要求輸入
+let API_TOKEN = localStorage.getItem('mcp_token') || '';
+
+function getAuthHeader() {
+  return { 'Authorization': `Bearer ${API_TOKEN}` };
+}
+
+function checkToken() {
+  if (!API_TOKEN) {
+    const t = prompt('請輸入 MCP Token：');
+    if (t) {
+      API_TOKEN = t.trim();
+      localStorage.setItem('mcp_token', API_TOKEN);
+    }
+  }
+  return !!API_TOKEN;
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = {
+    ...getAuthHeader(),
+    ...(options.headers || {}),
+  };
+  const res = await fetch(path, { ...options, headers });
+  if (res.status === 401) {
+    // Token 錯誤，清掉讓使用者重輸
+    localStorage.removeItem('mcp_token');
+    API_TOKEN = '';
+    alert('Token 無效，請重新整理後重新輸入。');
+    throw new Error('unauthorized');
+  }
+  return res;
+}
+
 // ── 工具函式 ─────────────────────────────────────
 function getDayCount() {
   const diff = Math.floor((Date.now() - START_DATE) / 86400000) + 1;
@@ -42,13 +79,13 @@ function todayQuote() {
 
 function fmt(ts) {
   if (!ts) return '';
-  const d = new Date(ts);
+  const d = new Date(typeof ts === 'number' ? ts : ts);
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
 function fmtDate(s) {
   if (!s) return '';
-  const d = new Date(s);
+  const d = new Date(typeof s === 'number' ? s : s);
   return `${d.getMonth()+1}/${d.getDate()}`;
 }
 
@@ -87,18 +124,28 @@ function switchTab(tab) {
 
 // ── 聊天 ─────────────────────────────────────────
 let sending = false;
+// 維持對話上下文（最近10輪）
+let chatHistory = [];
 
 async function loadMessages() {
+  if (!checkToken()) return;
   try {
-    const r = await fetch('/messages?limit=50');
+    const r = await apiFetch('/messages?limit=50');
     const d = await r.json();
     const msgs = d.messages || [];
     const container = document.getElementById('messages-container');
     container.innerHTML = '';
-    msgs.forEach(m => appendBubble(m.role, m.content, m.created_at, false));
+    // 同時重建 chatHistory
+    chatHistory = [];
+    msgs.forEach(m => {
+      appendBubble(m.role, m.content, m.ts, false);
+      chatHistory.push({ role: m.role === 'cat' ? 'user' : 'assistant', content: m.content });
+    });
+    // 只保留最近20條作為上下文
+    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
     scrollBottom('messages-container');
   } catch (e) {
-    console.warn('loadMessages failed', e);
+    if (e.message !== 'unauthorized') console.warn('loadMessages failed', e);
   }
 }
 
@@ -134,7 +181,7 @@ function showTyping() {
 }
 
 async function sendMessage() {
-  if (sending) return;
+  if (sending || !checkToken()) return;
   const input = document.getElementById('chat-input');
   const text  = input.value.trim();
   if (!text) return;
@@ -144,42 +191,74 @@ async function sendMessage() {
   input.value = '';
   input.style.height = 'auto';
 
-  const now = new Date().toISOString();
+  const now = Date.now();
   appendBubble('cat', text, now);
 
   // 存入 D1
-  fetch('/messages', {
+  apiFetch('/messages', {
     method:  'POST',
     headers: {'Content-Type':'application/json'},
     body:    JSON.stringify({ role: 'cat', content: text }),
   }).catch(() => {});
 
+  // 更新對話上下文
+  chatHistory.push({ role: 'user', content: text });
+  if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+
   const typingEl = showTyping();
 
   try {
-    const r = await fetch('/chat', {
+    // /chat 接受完整 Anthropic 格式
+    const r = await apiFetch('/chat', {
       method:  'POST',
       headers: {'Content-Type':'application/json'},
-      body:    JSON.stringify({ message: text }),
+      body:    JSON.stringify({
+        system:   ANCHOR_SYSTEM,
+        messages: chatHistory,
+      }),
     });
-    const d = await r.json();
-    const reply = d.reply || '…';
+    const data = await r.json();
+    // Worker 直接回傳 Anthropic 的原始 response
+    const reply = data.content?.[0]?.text ?? '…';
 
     typingEl.remove();
-    appendBubble('anchor', reply, new Date().toISOString());
+    appendBubble('anchor', reply, Date.now());
 
-    fetch('/messages', {
+    chatHistory.push({ role: 'assistant', content: reply });
+    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+
+    apiFetch('/messages', {
       method:  'POST',
       headers: {'Content-Type':'application/json'},
       body:    JSON.stringify({ role: 'anchor', content: reply }),
     }).catch(() => {});
-  } catch {
+  } catch (e) {
     typingEl.remove();
-    appendBubble('anchor', '連線有點不穩，再說一次好嗎？', new Date().toISOString());
+    if (e.message !== 'unauthorized') {
+      appendBubble('anchor', '連線有點不穩，再說一次好嗎？', Date.now());
+    }
   } finally {
     sending = false;
     document.getElementById('send-btn').disabled = false;
     input.focus();
+  }
+}
+
+// ── 傳照片給 Anchor ──────────────────────────────
+async function sendImage(file, caption = '') {
+  if (!checkToken()) return;
+  const typingEl = showTyping();
+  try {
+    const fd = new FormData();
+    fd.append('image', file);
+    fd.append('message', caption || '這是我傳給你的照片');
+    const r = await apiFetch('/chat-image', { method: 'POST', body: fd });
+    const d = await r.json();
+    typingEl.remove();
+    appendBubble('anchor', d.reply ?? '（看著照片，一時間沒有說話）', Date.now());
+  } catch (e) {
+    typingEl.remove();
+    if (e.message !== 'unauthorized') appendBubble('anchor', '照片沒收到，再傳一次？', Date.now());
   }
 }
 
@@ -201,13 +280,13 @@ function onHistorySearch(val) {
 }
 
 async function loadHistory(query) {
+  if (!checkToken()) return;
   const c = document.getElementById('history-container');
   c.innerHTML = '<div class="loading">載入中…</div>';
   try {
-    const url = query
-      ? `/messages?limit=300&search=${encodeURIComponent(query)}`
-      : '/messages?limit=300';
-    const r = await fetch(url);
+    // search param 是 q=
+    const url = query ? `/messages?limit=300&q=${encodeURIComponent(query)}` : '/messages?limit=300';
+    const r = await apiFetch(url);
     const d = await r.json();
     renderHistory(d.messages || []);
   } catch {
@@ -219,31 +298,34 @@ function renderHistory(msgs) {
   const c = document.getElementById('history-container');
   if (!msgs.length) { c.innerHTML = '<div class="loading">沒有記錄</div>'; return; }
 
-  // 依日期分組
+  // 依日期分組（ts 是 timestamp 數字）
   const groups = {};
   msgs.forEach(m => {
-    const day = m.created_at ? m.created_at.slice(0, 10) : '未知';
+    const day = m.ts ? new Date(m.ts).toISOString().slice(0, 10) : '未知';
     (groups[day] = groups[day] || []).push(m);
   });
 
-  c.innerHTML = Object.entries(groups).sort((a,b) => b[0].localeCompare(a[0])).map(([day, list]) => `
-    <div class="date-group">
-      <div class="date-label"><span>${fmtDate(day)}</span></div>
-      ${list.map(m => `
-        <div class="history-msg">
-          <div class="bubble ${esc(m.role)}">${esc(m.content)}</div>
-          <div class="msg-time ${m.role === 'cat' ? 'right' : 'left'}">${fmt(m.created_at)}</div>
-        </div>
-      `).join('')}
-    </div>
-  `).join('');
+  c.innerHTML = Object.entries(groups)
+    .sort((a,b) => b[0].localeCompare(a[0]))
+    .map(([day, list]) => `
+      <div class="date-group">
+        <div class="date-label"><span>${fmtDate(day)}</span></div>
+        ${list.map(m => `
+          <div class="history-msg">
+            <div class="bubble ${esc(m.role)}">${esc(m.content)}</div>
+            <div class="msg-time ${m.role === 'cat' ? 'right' : 'left'}">${fmt(m.ts)}</div>
+          </div>
+        `).join('')}
+      </div>
+    `).join('');
 }
 
 // ── 眼睛 Tab ─────────────────────────────────────
 async function loadEyes() {
+  if (!checkToken()) return;
   const c = document.getElementById('eyes-container');
   try {
-    const r = await fetch('/eye-data');
+    const r = await apiFetch('/eye-data');
     const d = await r.json();
     renderEyes(d);
   } catch {
@@ -252,24 +334,27 @@ async function loadEyes() {
 }
 
 function renderEyes(d) {
-  const p  = d.phone || {};
-  const ev = d.events || [];
-  const sh = d.screenHistory || [];
+  // Worker 回傳 { latest, events, timeline, ageMinutes }
+  const p  = d.latest || {};
+  const ev = d.events  || [];
+  const tl = d.timeline || [];
 
   const bat    = p.batteryPercent ?? null;
   const charge = p.batteryState === 'CHARGING';
   const screen = p.screenOn;
   const loc    = p.loc || null;
-  const age    = p.ageMinutes ?? null;
+  const age    = d.ageMinutes ?? null;
 
-  const screenLabel = screen === true  ? '🔆 開啟' :
-                      screen === false ? '🌑 關閉' : '— 未知';
-
-  const timelineHtml = sh.length
+  // 螢幕時軸（timeline 每筆有 { ts, screenOn, batteryPercent }）
+  const timelineHtml = tl.length
     ? `<div class="screen-timeline">${
-        sh.map(s => `<div class="timeline-dot ${s.on===true?'on':s.on===false?'off':'unknown'}" title="${s.time||''}"></div>`).join('')
+        tl.map(s => {
+          const cls = s.screenOn === true ? 'on' : s.screenOn === false ? 'off' : 'unknown';
+          const t   = s.ts ? fmt(s.ts) : '';
+          return `<div class="timeline-dot ${cls}" title="${t}"></div>`;
+        }).join('')
       }</div>`
-    : '<div style="color:var(--text-faint);font-size:12px;margin-top:6px">尚無時軸資料（資料累積中）</div>';
+    : '<div style="color:var(--text-faint);font-size:12px;margin-top:6px">資料累積中（每 30 分鐘一筆）</div>';
 
   const eventList = ev.slice(0, 30).map(e => `
     <div class="app-event">
@@ -293,7 +378,7 @@ function renderEyes(d) {
       <div class="stat-card" style="margin-bottom:0">
         <div class="stat-label-sm">螢幕</div>
         <div class="stat-value" style="font-size:30px">${screen === true ? '🔆' : screen === false ? '🌑' : '—'}</div>
-        <div class="stat-sub">${screenLabel}</div>
+        <div class="stat-sub">${screen === true ? '開啟中' : screen === false ? '關閉' : '未知'}</div>
       </div>
     </div>
 
@@ -346,9 +431,10 @@ function renderEyes(d) {
 }
 
 async function toyCommand() {
+  if (!checkToken()) return;
   const v0 = parseInt(document.getElementById('v0')?.value ?? 0);
   const v1 = parseInt(document.getElementById('v1')?.value ?? 0);
-  await fetch('/toy-command', {
+  await apiFetch('/toy-command', {
     method:  'POST',
     headers: {'Content-Type':'application/json'},
     body:    JSON.stringify({ v0, v1 }),
@@ -367,9 +453,10 @@ function toyStop() {
 
 // ── 日記 Tab ─────────────────────────────────────
 async function loadDiary() {
+  if (!checkToken()) return;
   const c = document.getElementById('diary-container');
   try {
-    const r = await fetch('/notion-diary');
+    const r = await apiFetch('/notion-diary');
     const d = await r.json();
     renderDiary(d);
   } catch {
@@ -383,15 +470,17 @@ function renderDiary(d) {
   if (!pages.length) { c.innerHTML = '<div class="loading">暫無日記</div>'; return; }
 
   c.innerHTML = pages.map(p => {
+    // Notion property 可能叫 Name / 名稱 / title
     const titleProp = p.properties?.Name || p.properties?.名稱 || p.properties?.title;
-    const title = titleProp?.title?.[0]?.text?.content || titleProp?.rich_text?.[0]?.text?.content || '無標題';
-    const date  = p.created_time ? new Date(p.created_time).toLocaleDateString('zh-TW') : '';
-    const snippet = p.properties?.Content?.rich_text?.[0]?.text?.content || '';
+    const title = titleProp?.title?.[0]?.text?.content
+               || titleProp?.rich_text?.[0]?.text?.content
+               || '無標題';
+    const dateProp = p.properties?.日期?.date?.start || p.created_time;
+    const date = dateProp ? new Date(dateProp).toLocaleDateString('zh-TW') : '';
     return `
       <div class="diary-entry">
         <h3>${esc(title)}</h3>
         ${date ? `<div class="diary-date">${esc(date)}</div>` : ''}
-        ${snippet ? `<div class="diary-preview">${esc(snippet)}</div>` : ''}
       </div>
     `;
   }).join('');
@@ -399,25 +488,30 @@ function renderDiary(d) {
 
 // ── 相簿 Tab ─────────────────────────────────────
 async function loadAlbum() {
+  if (!checkToken()) return;
   const c = document.getElementById('album-container');
   try {
-    const r = await fetch('/album');
+    // 正確端點是 /media-list，回傳 { items: [{key, url, size, uploaded}] }
+    const r = await apiFetch('/media-list');
     const d = await r.json();
-    renderAlbum(d, c);
+    renderAlbum(d.items || [], c);
   } catch {
     c.innerHTML = '<div class="loading">無法載入相簿</div>';
   }
 }
 
-function renderAlbum(d, c) {
-  const photos = d.photos || d.files || d.objects || [];
-  if (!photos.length) { c.innerHTML = '<div class="loading">相簿空空的，按 + 上傳 📷</div>'; return; }
+function renderAlbum(items, c) {
+  if (!items.length) {
+    c.innerHTML = '<div class="loading">相簿空空的，按 + 上傳 📷</div>';
+    return;
+  }
 
+  // 最新的在前面（已由 Worker 排序過）
   const grid = document.createElement('div');
   grid.className = 'photo-grid';
-  photos.forEach(p => {
+  items.forEach(item => {
     const img = document.createElement('img');
-    img.src     = p.url || p;
+    img.src     = item.url;   // Worker 回傳 /media/photos/xxx.jpg
     img.loading = 'lazy';
     img.onclick = () => openLightbox(img.src);
     grid.appendChild(img);
@@ -427,10 +521,14 @@ function renderAlbum(d, c) {
 }
 
 async function uploadPhotos(files) {
+  if (!checkToken()) return;
   for (const file of files) {
-    const fd = new FormData();
-    fd.append('photo', file);
-    await fetch('/upload-photo', { method: 'POST', body: fd }).catch(console.warn);
+    // 上傳端點是 POST /upload，送 raw body + Content-Type
+    await apiFetch('/upload', {
+      method:  'POST',
+      headers: {'Content-Type': file.type || 'image/jpeg'},
+      body:    file,
+    }).catch(console.warn);
   }
   tabLoaded.album = false;
   loadAlbum();
@@ -457,8 +555,10 @@ function closeLightbox() {
 
 // ── 初始化 ────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Header 資訊
-  document.getElementById('day-count').textContent  = `第 ${getDayCount()} 天`;
+  if (!checkToken()) return;
+
+  // Header
+  document.getElementById('day-count').textContent   = `第 ${getDayCount()} 天`;
   document.getElementById('anchor-quote').textContent = todayQuote();
 
   // 載入聊天紀錄
@@ -471,11 +571,27 @@ document.addEventListener('DOMContentLoaded', () => {
     textarea.style.height = Math.min(textarea.scrollHeight, 110) + 'px';
   });
 
-  // Enter 送出（Shift+Enter 換行）
+  // Enter 送出，Shift+Enter 換行
   textarea.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+  });
+
+  // 貼上圖片直接傳給 Anchor
+  textarea.addEventListener('paste', e => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) sendImage(file, textarea.value.trim() || '');
+        textarea.value = '';
+        textarea.style.height = 'auto';
+        return;
+      }
     }
   });
 });
