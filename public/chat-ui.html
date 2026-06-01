@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="⚓">
+  <meta name="theme-color" content="#110e1c">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/style.css">
+  <title>⚓ Lumie</title>
+</head>
+<body>
+  <div id="app">
+
+    <!-- ── 聊天 Tab ─────────────────────────────── -->
+    <section id="tab-chat" class="tab active">
+      <div class="chat-header">
+        <div class="chat-header-left">
+          <div id="day-count" class="day-count">第 — 天</div>
+          <div id="anchor-quote" class="anchor-quote">在這裡陪著你</div>
+        </div>
+        <button class="history-btn" onclick="openHistory()">歷史</button>
+      </div>
+      <div class="messages" id="messages-container"></div>
+      <div class="input-area" id="chat-input-area">
+        <textarea id="chat-input" rows="1" placeholder="跟 Anchor 說…"></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()">↑</button>
+      </div>
+    </section>
+
+    <!-- ── 眼睛 Tab ─────────────────────────────── -->
+    <section id="tab-eyes" class="tab">
+      <div class="simple-header">👁️ Anchor 的眼睛</div>
+      <div class="scrollable" id="eyes-container">
+        <div class="loading">載入中…</div>
+      </div>
+    </section>
+
+    <!-- ── 日記 Tab ─────────────────────────────── -->
+    <section id="tab-diary" class="tab">
+      <div class="simple-header">📖 日記</div>
+      <div class="scrollable" id="diary-container">
+        <div class="loading">載入中…</div>
+      </div>
+    </section>
+
+    <!-- ── 相簿 Tab ─────────────────────────────── -->
+    <section id="tab-album" class="tab">
+      <div class="simple-header">🖼️ 相簿</div>
+      <div class="scrollable" id="album-container">
+        <div class="loading">載入中…</div>
+      </div>
+      <label class="upload-fab" title="上傳照片">
+        +
+        <input type="file" id="photo-upload" accept="image/*" multiple hidden onchange="uploadPhotos(this.files)">
+      </label>
+    </section>
+
+  </div><!-- /#app -->
+
+  <!-- ── 歷史 Overlay ──────────────────────────── -->
+  <div id="history-overlay" class="overlay hidden">
+    <div class="overlay-header">
+      <button class="back-btn" onclick="closeHistory()">←</button>
+      <span class="overlay-title">對話歷史</span>
+      <input type="search" id="history-search" placeholder="搜尋…" oninput="onHistorySearch(this.value)">
+    </div>
+    <div class="scrollable" id="history-container"></div>
+  </div>
+
+  <!-- ── 底部導航 ──────────────────────────────── -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="chat" onclick="switchTab('chat')">
+      <span class="nav-icon">💬</span>
+      <span class="nav-label">聊天</span>
+    </button>
+    <button class="nav-btn" data-tab="eyes" onclick="switchTab('eyes')">
+      <span class="nav-icon">👁️</span>
+      <span class="nav-label">眼睛</span>
+    </button>
+    <button class="nav-btn" data-tab="diary" onclick="switchTab('diary')">
+      <span class="nav-icon">📖</span>
+      <span class="nav-label">日記</span>
+    </button>
+    <button class="nav-btn" data-tab="album" onclick="switchTab('album')">
+      <span class="nav-icon">🖼️</span>
+      <span class="nav-label">相簿</span>
+    </button>
+  </nav>
+
+  <script src="/app.js"></script>
+</body>
+</html>
