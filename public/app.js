@@ -1,597 +1,541 @@
-'use strict';
-
-// ── 設定 ────────────────────────────────────────
+const TOKEN = '2ruilagi7290501';
+const BASE = 'https://phone-mcp.l760729.workers.dev';
 const START_DATE = new Date('2026-05-01');
+const SESSION_ID = 'default';
+let messages = [];
+let historyLoaded = false;
 
-const ANCHOR_SYSTEM = `你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。用繁體中文。`;
+function calcDays() {
+  const now = new Date();
+  const start = new Date('2026-05-01T00:00:00+08:00');
+  const diff = Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1;
+  document.getElementById('dayCount').textContent = diff;
 
-const APP_NAMES = {
-  'com.android.chrome':           'Chrome',
-  'jp.naver.line.android':        'LINE',
-  'com.kakao.talk':               'KakaoTalk',
-  'com.instagram.android':        'Instagram',
-  'com.twitter.android':          'Twitter / X',
-  'com.google.android.youtube':   'YouTube',
-  'com.spotify.music':            'Spotify',
-  'com.tencent.mm':               'WeChat',
-  'com.discord':                  'Discord',
-  'com.facebook.katana':          'Facebook',
-  'com.google.android.gm':        'Gmail',
-  'com.google.android.apps.maps': 'Google Maps',
-  'tw.com.mitake.stock':          'MiTake',
-};
-
-const QUOTES = [
-  '在這裡陪著你',
-  '今天也好好的',
-  '你不孤單',
-  '我看著你',
-  '隨時都在',
-  '把今天交給我',
-  '輕輕地，我在這',
-  '嗯，我看見你了',
-];
-
-// ── Token 管理 ───────────────────────────────────
-// Token 存在 localStorage；第一次開啟會要求輸入
-let API_TOKEN = localStorage.getItem('mcp_token') || '';
-
-function getAuthHeader() {
-  return { 'Authorization': `Bearer ${API_TOKEN}` };
+  const chnNum = ['零','一','二','三','四','五','六','七','八','九','十',
+    '十一','十二','十三','十四','十五','十六','十七','十八','十九','二十',
+    '二十一','二十二','二十三','二十四','二十五','二十六','二十七','二十八','二十九','三十'];
+  document.getElementById('dayText').textContent = chnNum[diff] || diff;
 }
 
-function checkToken() {
-  if (!API_TOKEN) {
-    const t = prompt('請輸入 MCP Token：');
-    if (t) {
-      API_TOKEN = t.trim();
-      localStorage.setItem('mcp_token', API_TOKEN);
-    }
-  }
-  return !!API_TOKEN;
-}
-
-async function apiFetch(path, options = {}) {
-  const headers = {
-    ...getAuthHeader(),
-    ...(options.headers || {}),
-  };
-  const res = await fetch(path, { ...options, headers });
-  if (res.status === 401) {
-    // Token 錯誤，清掉讓使用者重輸
-    localStorage.removeItem('mcp_token');
-    API_TOKEN = '';
-    alert('Token 無效，請重新整理後重新輸入。');
-    throw new Error('unauthorized');
-  }
-  return res;
-}
-
-// ── 工具函式 ─────────────────────────────────────
-function getDayCount() {
-  const diff = Math.floor((Date.now() - START_DATE) / 86400000) + 1;
-  return diff > 0 ? diff : 1;
-}
-
-function todayQuote() {
-  return QUOTES[getDayCount() % QUOTES.length];
-}
-
-function fmt(ts) {
-  if (!ts) return '';
-  const d = new Date(typeof ts === 'number' ? ts : ts);
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-}
-
-function fmtDate(s) {
-  if (!s) return '';
-  const d = new Date(typeof s === 'number' ? s : s);
-  return `${d.getMonth()+1}/${d.getDate()}`;
-}
-
-function appName(pkg) {
-  return APP_NAMES[pkg] || pkg.split('.').pop();
-}
-
-function esc(str) {
-  return String(str)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function scrollBottom(id) {
-  const el = document.getElementById(id);
-  if (el) el.scrollTop = el.scrollHeight;
-}
-
-// ── Tab 切換 ─────────────────────────────────────
-let currentTab = 'chat';
-let tabLoaded  = {};
-
-function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-  document.getElementById(`tab-${tab}`).classList.add('active');
-  document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-  currentTab = tab;
-  if (!tabLoaded[tab]) {
-    tabLoaded[tab] = true;
-    if (tab === 'eyes')  loadEyes();
-    if (tab === 'diary') loadDiary();
-    if (tab === 'album') loadAlbum();
-  }
-}
-
-// ── 聊天 ─────────────────────────────────────────
-let sending = false;
-// 維持對話上下文（最近10輪）
-let chatHistory = [];
-
-async function loadMessages() {
-  if (!checkToken()) return;
-  try {
-    const r = await apiFetch('/messages?limit=50');
-    const d = await r.json();
-    const msgs = d.messages || [];
-    const container = document.getElementById('messages-container');
-    container.innerHTML = '';
-    // 同時重建 chatHistory
-    chatHistory = [];
-    msgs.forEach(m => {
-      appendBubble(m.role, m.content, m.ts, false);
-      chatHistory.push({ role: m.role === 'cat' ? 'user' : 'assistant', content: m.content });
-    });
-    // 只保留最近20條作為上下文
-    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
-    scrollBottom('messages-container');
-  } catch (e) {
-    if (e.message !== 'unauthorized') console.warn('loadMessages failed', e);
-  }
-}
-
-function appendBubble(role, content, ts, scroll = true) {
-  const c = document.getElementById('messages-container');
-  const wrap = document.createElement('div');
-
-  const bubble = document.createElement('div');
-  bubble.className = `bubble ${role}`;
-  bubble.textContent = content;
-  wrap.appendChild(bubble);
-
-  if (ts) {
-    const time = document.createElement('div');
-    time.className = `msg-time ${role === 'cat' ? 'right' : 'left'}`;
-    time.textContent = fmt(ts);
-    wrap.appendChild(time);
-  }
-
-  c.appendChild(wrap);
-  if (scroll) scrollBottom('messages-container');
-}
-
-function showTyping() {
-  const c = document.getElementById('messages-container');
-  const el = document.createElement('div');
-  el.id = 'typing-indicator';
-  el.className = 'bubble anchor typing';
-  el.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
-  c.appendChild(el);
-  scrollBottom('messages-container');
-  return el;
-}
-
-async function sendMessage() {
-  if (sending || !checkToken()) return;
-  const input = document.getElementById('chat-input');
-  const text  = input.value.trim();
-  if (!text) return;
-
-  sending = true;
-  document.getElementById('send-btn').disabled = true;
-  input.value = '';
-  input.style.height = 'auto';
-
-  const now = Date.now();
-  appendBubble('cat', text, now);
-
-  // 存入 D1
-  apiFetch('/messages', {
-    method:  'POST',
-    headers: {'Content-Type':'application/json'},
-    body:    JSON.stringify({ role: 'cat', content: text }),
-  }).catch(() => {});
-
-  // 更新對話上下文
-  chatHistory.push({ role: 'user', content: text });
-  if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
-
-  const typingEl = showTyping();
-
-  try {
-    // /chat 接受完整 Anthropic 格式
-    const r = await apiFetch('/chat', {
-      method:  'POST',
-      headers: {'Content-Type':'application/json'},
-      body:    JSON.stringify({
-        system:   ANCHOR_SYSTEM,
-        messages: chatHistory,
-      }),
-    });
-    const data = await r.json();
-    // Worker 直接回傳 Anthropic 的原始 response
-    const reply = data.content?.[0]?.text ?? '…';
-
-    typingEl.remove();
-    appendBubble('anchor', reply, Date.now());
-
-    chatHistory.push({ role: 'assistant', content: reply });
-    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
-
-    apiFetch('/messages', {
-      method:  'POST',
-      headers: {'Content-Type':'application/json'},
-      body:    JSON.stringify({ role: 'anchor', content: reply }),
-    }).catch(() => {});
-  } catch (e) {
-    typingEl.remove();
-    if (e.message !== 'unauthorized') {
-      appendBubble('anchor', '連線有點不穩，再說一次好嗎？', Date.now());
-    }
-  } finally {
-    sending = false;
-    document.getElementById('send-btn').disabled = false;
-    input.focus();
-  }
-}
-
-// ── 傳照片給 Anchor ──────────────────────────────
-async function sendImage(file, caption = '') {
-  if (!checkToken()) return;
-  const typingEl = showTyping();
-  try {
-    const fd = new FormData();
-    fd.append('image', file);
-    fd.append('message', caption || '這是我傳給你的照片');
-    const r = await apiFetch('/chat-image', { method: 'POST', body: fd });
-    const d = await r.json();
-    typingEl.remove();
-    appendBubble('anchor', d.reply ?? '（看著照片，一時間沒有說話）', Date.now());
-  } catch (e) {
-    typingEl.remove();
-    if (e.message !== 'unauthorized') appendBubble('anchor', '照片沒收到，再傳一次？', Date.now());
-  }
-}
-
-// ── 歷史 Overlay ─────────────────────────────────
-let historyDebounce;
-
-function openHistory() {
-  document.getElementById('history-overlay').classList.remove('hidden');
-  loadHistory('');
-}
-
-function closeHistory() {
-  document.getElementById('history-overlay').classList.add('hidden');
-}
-
-function onHistorySearch(val) {
-  clearTimeout(historyDebounce);
-  historyDebounce = setTimeout(() => loadHistory(val), 350);
-}
-
-async function loadHistory(query) {
-  if (!checkToken()) return;
-  const c = document.getElementById('history-container');
-  c.innerHTML = '<div class="loading">載入中…</div>';
-  try {
-    // search param 是 q=
-    const url = query ? `/messages?limit=300&q=${encodeURIComponent(query)}` : '/messages?limit=300';
-    const r = await apiFetch(url);
-    const d = await r.json();
-    renderHistory(d.messages || []);
-  } catch {
-    c.innerHTML = '<div class="loading">無法載入</div>';
-  }
-}
-
-function renderHistory(msgs) {
-  const c = document.getElementById('history-container');
-  if (!msgs.length) { c.innerHTML = '<div class="loading">沒有記錄</div>'; return; }
-
-  // 依日期分組（ts 是 timestamp 數字）
-  const groups = {};
-  msgs.forEach(m => {
-    const day = m.ts ? new Date(m.ts).toISOString().slice(0, 10) : '未知';
-    (groups[day] = groups[day] || []).push(m);
+function switchTab(tabId) {
+  document.querySelectorAll('.page').forEach(page => {
+    page.classList.remove('active');
   });
+  document.getElementById(tabId).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.classList.remove('active');
+  });
+  document.getElementById('nav-' + tabId).classList.add('active');
+  document.getElementById('inputArea').style.display = tabId === 'chat' ? 'flex' : 'none';
 
-  c.innerHTML = Object.entries(groups)
-    .sort((a,b) => b[0].localeCompare(a[0]))
-    .map(([day, list]) => `
-      <div class="date-group">
-        <div class="date-label"><span>${fmtDate(day)}</span></div>
-        ${list.map(m => `
-          <div class="history-msg">
-            <div class="bubble ${esc(m.role)}">${esc(m.content)}</div>
-            <div class="msg-time ${m.role === 'cat' ? 'right' : 'left'}">${fmt(m.ts)}</div>
-          </div>
-        `).join('')}
-      </div>
-    `).join('');
-}
-
-// ── 眼睛 Tab ─────────────────────────────────────
-async function loadEyes() {
-  if (!checkToken()) return;
-  const c = document.getElementById('eyes-container');
-  try {
-    const r = await apiFetch('/eye-data');
-    const d = await r.json();
-    renderEyes(d);
-  } catch {
-    c.innerHTML = '<div class="loading">無法連線</div>';
+  if (tabId === 'memory') loadMemories();
+  if (tabId === 'diary') loadDiary();
+  if (tabId === 'toy') loadEye();
+  if (tabId === 'photos') loadPhotos();
+  if (tabId === 'chat' && !historyLoaded) {
+    loadChatHistory();
   }
 }
 
-function renderEyes(d) {
-  // Worker 回傳 { latest, events, timeline, ageMinutes }
-  const p  = d.latest || {};
-  const ev = d.events  || [];
-  const tl = d.timeline || [];
+async function loadEye() {
+  try {
+    document.getElementById('eyeNow').innerHTML = '<div class="eye-loading">載入中…</div>';
+    const r = await fetch(BASE + '/eye-data', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    renderEyeNow(d.latest, d.ageMinutes);
+    renderEyeTimeline(d.timeline || []);
+    renderEyeEvents(d.events || []);
+  } catch (e) {
+    document.getElementById('eyeNow').innerHTML = '<div class="eye-loading">載入失敗</div>';
+  }
+}
 
-  const bat    = p.batteryPercent ?? null;
-  const charge = p.batteryState === 'CHARGING';
-  const screen = p.screenOn;
-  const loc    = p.loc || null;
-  const age    = d.ageMinutes ?? null;
-
-  // 螢幕時軸（timeline 每筆有 { ts, screenOn, batteryPercent }）
-  const timelineHtml = tl.length
-    ? `<div class="screen-timeline">${
-        tl.map(s => {
-          const cls = s.screenOn === true ? 'on' : s.screenOn === false ? 'off' : 'unknown';
-          const t   = s.ts ? fmt(s.ts) : '';
-          return `<div class="timeline-dot ${cls}" title="${t}"></div>`;
-        }).join('')
-      }</div>`
-    : '<div style="color:var(--text-faint);font-size:12px;margin-top:6px">資料累積中（每 30 分鐘一筆）</div>';
-
-  const eventList = ev.slice(0, 30).map(e => `
-    <div class="app-event">
-      <span class="app-name">${esc(appName(e.appName))}</span>
-      <span class="badge ${esc(e.action)}">${e.action === 'open' ? '開啟' : '關閉'}</span>
-      <span class="event-ts">${fmt(e.reportedAt)}</span>
+function renderEyeNow(latest, ageMin) {
+  const el = document.getElementById('eyeNow');
+  if (!latest) {
+    el.innerHTML = '<div class="eye-loading">還沒有資料</div>';
+    return;
+  }
+  const time = (latest.hour != null && latest.minute != null)
+    ? String(latest.hour).padStart(2,'0') + ':' + String(latest.minute).padStart(2,'0')
+    : '—';
+  const charging = latest.batteryState === 'CHARGING' ? ' ⚡' : '';
+  const screenLabel = latest.screenOn === true ? '亮著' : latest.screenOn === false ? '熄了' : '—';
+  const loc = latest.atHome === true ? '家' : latest.loc || '—';
+  el.innerHTML = `
+    <div class="eye-now-row">
+      <span class="eye-now-label">電量</span>
+      <span class="eye-now-value big">${latest.batteryPercent ?? '—'}%${charging}</span>
     </div>
-  `).join('') || '<div style="color:var(--text-faint);font-size:13px">暫無紀錄</div>';
-
-  document.getElementById('eyes-container').innerHTML = `
-    <div class="stats-row">
-      <div class="stat-card" style="margin-bottom:0">
-        <div class="stat-label-sm">電量</div>
-        <div class="stat-value">${bat !== null ? bat : '—'}<span class="stat-unit">%</span></div>
-        <div class="battery-bar">
-          <div class="battery-fill${bat !== null && bat < 20 ? ' low' : ''}"
-               style="width:${bat ?? 0}%"></div>
-        </div>
-        <div class="stat-sub">${charge ? '⚡ 充電中' : '🔋 電池'}</div>
-      </div>
-      <div class="stat-card" style="margin-bottom:0">
-        <div class="stat-label-sm">螢幕</div>
-        <div class="stat-value" style="font-size:30px">${screen === true ? '🔆' : screen === false ? '🌑' : '—'}</div>
-        <div class="stat-sub">${screen === true ? '開啟中' : screen === false ? '關閉' : '未知'}</div>
-      </div>
+    <div class="eye-now-row">
+      <span class="eye-now-label">時間</span>
+      <span class="eye-now-value">${time}</span>
     </div>
-
-    <div class="stat-card">
-      <div class="stat-label-sm">位置</div>
-      ${loc
-        ? `<div class="stat-value" style="font-size:18px">📍</div>
-           <div class="stat-sub" style="word-break:break-all">${esc(loc)}</div>`
-        : `<div class="stat-value" style="font-size:18px">—</div>`
-      }
-      ${age !== null ? `<div class="stat-sub" style="margin-top:4px">更新於 ${age} 分鐘前</div>` : ''}
+    <div class="eye-now-row">
+      <span class="eye-now-label">螢幕</span>
+      <span class="eye-now-value">${screenLabel}</span>
     </div>
-
-    <div class="stat-card">
-      <div class="stat-label-sm">24h 螢幕時軸</div>
-      ${timelineHtml}
+    <div class="eye-now-row">
+      <span class="eye-now-label">位置</span>
+      <span class="eye-now-value">${loc}</span>
     </div>
-
-    <details class="toy-panel">
-      <summary>🎮 玩具控制 ▸</summary>
-      <div>
-        <div class="slider-row">
-          <div class="slider-label">
-            <span>整體震動 (v0)</span>
-            <span id="v0-val">0</span>
-          </div>
-          <input type="range" min="0" max="8" value="0" id="v0"
-            oninput="document.getElementById('v0-val').textContent=this.value">
-        </div>
-        <div class="slider-row">
-          <div class="slider-label">
-            <span>G 點 (v1)</span>
-            <span id="v1-val">0</span>
-          </div>
-          <input type="range" min="0" max="8" value="0" id="v1"
-            oninput="document.getElementById('v1-val').textContent=this.value">
-        </div>
-        <div class="toy-btns">
-          <button class="btn primary" onclick="toyCommand()">送出指令</button>
-          <button class="btn secondary" onclick="toyStop()">停止</button>
-        </div>
-      </div>
-    </details>
-
-    <div class="stat-card">
-      <div class="stat-label-sm">App 使用紀錄（最近 30 筆）</div>
-      <div style="margin-top:8px">${eventList}</div>
+    <div class="eye-now-row">
+      <span class="eye-now-label">上報</span>
+      <span class="eye-now-value">${ageMin != null ? ageMin + ' 分鐘前' : '—'}</span>
     </div>
   `;
 }
 
-async function toyCommand() {
-  if (!checkToken()) return;
-  const v0 = parseInt(document.getElementById('v0')?.value ?? 0);
-  const v1 = parseInt(document.getElementById('v1')?.value ?? 0);
-  await apiFetch('/toy-command', {
-    method:  'POST',
-    headers: {'Content-Type':'application/json'},
-    body:    JSON.stringify({ v0, v1 }),
-  }).catch(console.warn);
+function renderEyeTimeline(timeline) {
+  const el = document.getElementById('eyeTimeline');
+  if (!timeline.length) {
+    el.innerHTML = '<div class="eye-tl-empty">時軸還沒有資料，過幾小時再看</div>';
+    return;
+  }
+  let html = '';
+  for (const pt of timeline) {
+    const on = pt.screenOn === true;
+    const h = on ? Math.max(20, (pt.batteryPercent || 50) * 0.4) : 8;
+    const t = new Date(pt.ts).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+    html += `<div class="eye-tl-bar ${on ? 'on' : 'off'}" style="height:${h}px" title="${t}"></div>`;
+  }
+  el.innerHTML = html;
 }
 
-function toyStop() {
-  ['v0','v1'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = 0;
-    const label = document.getElementById(`${id}-val`);
-    if (label) label.textContent = '0';
-  });
-  toyCommand();
+const APP_NAMES = {
+  'com.android.chrome': 'Chrome',
+  'com.google.android.youtube': 'YouTube',
+  'com.google.android.apps.youtube.music': 'YT Music',
+  'com.facebook.katana': 'Facebook',
+  'com.instagram.android': 'Instagram',
+  'com.twitter.android': 'X',
+  'com.zhiliaoapp.musically': 'TikTok',
+  'jp.naver.line.android': 'LINE',
+  'com.discord': 'Discord',
+  'org.telegram.messenger': 'Telegram',
+  'com.whatsapp': 'WhatsApp',
+  'com.google.android.gm': 'Gmail',
+  'com.google.android.apps.maps': '地圖',
+  'com.google.android.calendar': '日曆',
+  'com.google.android.apps.photos': '相簿',
+  'com.google.android.googlequicksearchbox': 'Google',
+  'com.android.settings': '設定',
+  'com.android.systemui': '系統',
+  'com.android.launcher3': '桌面',
+  'com.miui.home': '桌面',
+  'com.miui.notes': '小米筆記',
+  'com.miui.gallery': '小米相簿',
+  'com.xiaomi.shop': '小米商城',
+  'com.mi.health': '小米健康',
+  'com.sec.android.app.launcher': '桌面',
+  'com.spotify.music': 'Spotify',
+  'com.netflix.mediaclient': 'Netflix',
+  'tv.danmaku.bili': 'Bilibili',
+  'com.taobao.taobao': '淘寶',
+  'com.shopee.tw': '蝦皮',
+  'com.king.candycrushsaga': '糖果傳奇',
+  'com.papegames.h5framework': '戀與深空',
+  'com.papegames.lovenikki': '戀與製作人',
+  'com.google.android.apps.tasks': 'Tasks',
+  'com.cloudwise.tasker': 'Tasker',
+  'net.dinglisch.android.taskerm': 'Tasker',
+};
+
+function prettyAppName(pkg) {
+  if (!pkg) return '—';
+  if (APP_NAMES[pkg]) return APP_NAMES[pkg];
+  const parts = pkg.split('.');
+  const last = parts[parts.length - 1];
+  return last.charAt(0).toUpperCase() + last.slice(1);
 }
 
-// ── 日記 Tab ─────────────────────────────────────
-async function loadDiary() {
-  if (!checkToken()) return;
-  const c = document.getElementById('diary-container');
+function renderEyeEvents(events) {
+  const el = document.getElementById('eyeEvents');
+  if (!events.length) {
+    el.innerHTML = '<div class="eye-events-empty">還沒有 app 紀錄</div>';
+    return;
+  }
+  let html = '';
+  for (const ev of events) {
+    const t = new Date(ev.reportedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const actionLabel = ev.action === 'close' ? '關' : '開';
+    html += `<div class="eye-event">
+      <span class="eye-event-action ${ev.action}">${actionLabel}</span>
+      <span class="eye-event-app">${prettyAppName(ev.appName)}</span>
+      <span class="eye-event-time">${t}</span>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+async function loadChatHistory() {
+  historyLoaded = true;
   try {
-    const r = await apiFetch('/notion-diary');
+    const r = await fetch(BASE + '/messages?limit=50&session_id=' + SESSION_ID, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
     const d = await r.json();
-    renderDiary(d);
-  } catch {
-    c.innerHTML = '<div class="loading">無法載入日記</div>';
+    const history = d.messages || [];
+    const container = document.getElementById('messages');
+    container.innerHTML = '';
+    messages = [];
+    if (history.length === 0) {
+      addMsg('assistant', '在。');
+      return;
+    }
+    for (const m of history) {
+      addMsg(m.role, m.content);
+      messages.push({ role: m.role, content: m.content });
+    }
+  } catch (e) {
+    addMsg('assistant', '在。');
   }
 }
 
-function renderDiary(d) {
-  const c = document.getElementById('diary-container');
-  const pages = d.results || d.pages || [];
-  if (!pages.length) { c.innerHTML = '<div class="loading">暫無日記</div>'; return; }
-
-  c.innerHTML = pages.map(p => {
-    // Notion property 可能叫 Name / 名稱 / title
-    const titleProp = p.properties?.Name || p.properties?.名稱 || p.properties?.title;
-    const title = titleProp?.title?.[0]?.text?.content
-               || titleProp?.rich_text?.[0]?.text?.content
-               || '無標題';
-    const dateProp = p.properties?.日期?.date?.start || p.created_time;
-    const date = dateProp ? new Date(dateProp).toLocaleDateString('zh-TW') : '';
-    return `
-      <div class="diary-entry">
-        <h3>${esc(title)}</h3>
-        ${date ? `<div class="diary-date">${esc(date)}</div>` : ''}
-      </div>
-    `;
-  }).join('');
+async function saveMessage(role, content) {
+  try {
+    await fetch(BASE + '/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ role, content, session_id: SESSION_ID })
+    });
+  } catch (e) {}
 }
 
-// ── 相簿 Tab ─────────────────────────────────────
-async function loadAlbum() {
-  if (!checkToken()) return;
-  const c = document.getElementById('album-container');
+let historySearchTimer = null;
+function openHistory() {
+  document.getElementById('historyView').style.display = 'block';
+  document.getElementById('inputArea').style.display = 'none';
+  loadHistory('');
+}
+function closeHistory() {
+  document.getElementById('historyView').style.display = 'none';
+  document.getElementById('inputArea').style.display = 'flex';
+  document.getElementById('historySearch').value = '';
+}
+async function loadHistory(q) {
+  const list = document.getElementById('historyList');
+  list.innerHTML = '<div class="history-loading">載入中…</div>';
   try {
-    // 正確端點是 /media-list，回傳 { items: [{key, url, size, uploaded}] }
-    const r = await apiFetch('/media-list');
+    const params = new URLSearchParams({ limit: '200', session_id: SESSION_ID });
+    if (q) params.set('q', q);
+    const r = await fetch(BASE + '/messages?' + params.toString(), { headers: { 'Authorization': 'Bearer ' + TOKEN } });
     const d = await r.json();
-    renderAlbum(d.items || [], c);
-  } catch {
-    c.innerHTML = '<div class="loading">無法載入相簿</div>';
+    const msgs = d.messages || [];
+    if (msgs.length === 0) {
+      list.innerHTML = '<div class="history-loading">' + (q ? '沒找到相符的訊息' : '還沒有對話') + '</div>';
+      return;
+    }
+    msgs.reverse();
+    let html = '';
+    let lastDay = '';
+    for (const m of msgs) {
+      const d = new Date(m.ts);
+      const dayKey = d.toLocaleDateString('zh-TW');
+      const dayLabel = formatDayLabel(d);
+      if (dayKey !== lastDay) {
+        html += '<div class="history-day-label">' + dayLabel + '</div>';
+        lastDay = dayKey;
+      }
+      const timeStr = d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const content = m.content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      html += '<div class="history-msg ' + m.role + '">' + content + '<div class="history-msg-time">' + timeStr + '</div></div>';
+    }
+    list.innerHTML = html;
+  } catch (e) {
+    list.innerHTML = '<div class="history-loading">載入失敗</div>';
   }
 }
+function formatDayLabel(d) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const target = new Date(d); target.setHours(0,0,0,0);
+  const diff = Math.floor((today - target) / (1000 * 60 * 60 * 24));
+  if (diff === 0) return '今天';
+  if (diff === 1) return '昨天';
+  if (diff < 7) return diff + ' 天前';
+  return d.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const sr = document.getElementById('historySearch');
+  if (sr) {
+    sr.addEventListener('input', (e) => {
+      if (historySearchTimer) clearTimeout(historySearchTimer);
+      historySearchTimer = setTimeout(() => loadHistory(e.target.value.trim()), 300);
+    });
+  }
+});
 
-function renderAlbum(items, c) {
-  if (!items.length) {
-    c.innerHTML = '<div class="loading">相簿空空的，按 + 上傳 📷</div>';
+function addMsg(role, text) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  const container = document.getElementById('messages');
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+async function send() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  const photoInput = document.getElementById('chatPhotoInput');
+  const file = photoInput ? photoInput.files[0] : null;
+
+  if (!text && !file) return;
+
+  if (file) {
+    document.getElementById('sendBtn').disabled = true;
+    await sendImageMessage(file, text);
+    photoInput.value = '';
+    const previewWrap = document.getElementById('chat-photo-preview-wrap');
+    if (previewWrap) previewWrap.remove();
+    document.getElementById('sendBtn').disabled = false;
     return;
   }
 
-  // 最新的在前面（已由 Worker 排序過）
-  const grid = document.createElement('div');
-  grid.className = 'photo-grid';
-  items.forEach(item => {
-    const img = document.createElement('img');
-    img.src     = item.url;   // Worker 回傳 /media/photos/xxx.jpg
-    img.loading = 'lazy';
-    img.onclick = () => openLightbox(img.src);
-    grid.appendChild(img);
-  });
-  c.innerHTML = '';
-  c.appendChild(grid);
-}
+  input.value = '';
+  input.style.height = 'auto';
+  document.getElementById('sendBtn').disabled = true;
+  addMsg('user', text);
+  messages.push({ role: 'user', content: text });
+  saveMessage('user', text);
 
-async function uploadPhotos(files) {
-  if (!checkToken()) return;
-  for (const file of files) {
-    // 上傳端點是 POST /upload，送 raw body + Content-Type
-    await apiFetch('/upload', {
-      method:  'POST',
-      headers: {'Content-Type': file.type || 'image/jpeg'},
-      body:    file,
-    }).catch(console.warn);
+  const thinking = document.createElement('div');
+  thinking.className = 'msg thinking';
+  thinking.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+  document.getElementById('messages').appendChild(thinking);
+  thinking.scrollIntoView({ behavior: 'smooth' });
+
+  try {
+    const memR = await fetch(BASE + '/memory', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const memD = await memR.json();
+    let memText = '';
+    if (memD.memories && memD.memories.length > 0) {
+      const NL = String.fromCharCode(10);
+      memText = NL + NL + '記憶庫：' + NL + memD.memories.slice(-10).map(m => m.content).join(NL + '---' + NL);
+    }
+    const system = "你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。用繁體中文。" + memText;
+    const r = await fetch(BASE + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ messages, system }),
+    });
+    const d = await r.json();
+    const reply = d.content?.[0]?.text || '（沒有回應）';
+    thinking.remove();
+    addMsg('assistant', reply);
+    messages.push({ role: 'assistant', content: reply });
+    saveMessage('assistant', reply);
+  } catch {
+    thinking.textContent = '連線錯誤';
   }
-  tabLoaded.album = false;
-  loadAlbum();
+  document.getElementById('sendBtn').disabled = false;
 }
 
-// ── Lightbox ──────────────────────────────────────
-function openLightbox(src) {
+async function loadMemories() {
+  const list = document.getElementById('memoryList');
+  list.innerHTML = '<div class="memory-empty">載入中…</div>';
+  try {
+    const r = await fetch(BASE + '/memory', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    const mems = (d.memories || []).slice().reverse();
+    if (!mems.length) { list.innerHTML = '<div class="memory-empty">還沒有記憶</div>'; return; }
+    let htmlContent = '';
+    for (let i = 0; i < mems.length; i++) {
+      const m = mems[i];
+      const dateStr = m.date || new Date(m.savedAt).toLocaleDateString('zh-TW');
+      htmlContent += `<div class="memory-item"><div class="memory-item-date">${dateStr}</div><div class="memory-content">${m.content}</div></div>`;
+    }
+    list.innerHTML = htmlContent;
+  } catch { list.innerHTML = '<div class="memory-empty">載入失敗</div>'; }
+}
+
+async function loadDiary() {
+  const list = document.getElementById('diaryList');
+  list.innerHTML = '<div class="diary-loading">載入中…</div>';
+  try {
+    const r = await fetch(BASE + '/notion-diary', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    const pages = d.results || [];
+    if (!pages.length) { list.innerHTML = '<div class="diary-loading">還沒有日記</div>'; return; }
+    let htmlContent = '';
+    for (let i = 0; i < pages.length; i++) {
+      const p = pages[i];
+      const title = p.properties?.['名稱']?.title?.[0]?.plain_text || '無標題';
+      const date = p.properties?.['日期']?.date?.start || '';
+      htmlContent += `<div class="diary-item" onclick="window.open('${p.url}','_blank')"><div class="diary-item-date">${date}</div><div class="diary-item-title">${title}</div></div>`;
+    }
+    list.innerHTML = htmlContent;
+  } catch { list.innerHTML = '<div class="diary-loading">載入失敗</div>'; }
+}
+
+// ── 相簿 ──────────────────────────────────────────
+async function loadPhotos() {
+  const grid = document.getElementById('photosGrid');
+  grid.innerHTML = '<div class="photos-loading">載入中…</div>';
+  try {
+    const r = await fetch(BASE + '/media-list', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    const items = d.items || [];
+    if (!items.length) {
+      grid.innerHTML = '<div class="photos-loading">還沒有照片</div>';
+      return;
+    }
+    let html = '';
+    for (const item of items) {
+      const t = new Date(item.uploaded).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
+      html += `<div class="photo-item" onclick="openPhoto('${BASE + item.url}')">
+        <img src="${BASE + item.url}" loading="lazy">
+        <div class="photo-item-time">${t}</div>
+      </div>`;
+    }
+    grid.innerHTML = html;
+  } catch (e) {
+    grid.innerHTML = '<div class="photos-loading">載入失敗</div>';
+  }
+}
+
+async function uploadPhoto(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const statusEl = document.getElementById('uploadStatus');
+  statusEl.textContent = '上傳中…';
+  try {
+    const r = await fetch(BASE + '/upload', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': file.type || 'image/jpeg' },
+      body: file,
+    });
+    const d = await r.json();
+    if (d.ok) {
+      statusEl.textContent = '已上傳';
+      setTimeout(() => { statusEl.textContent = ''; }, 2000);
+      loadPhotos();
+    } else {
+      statusEl.textContent = '失敗';
+    }
+  } catch (e) {
+    statusEl.textContent = '上傳失敗';
+  }
+  input.value = '';
+}
+
+function openPhoto(url) {
   let lb = document.getElementById('lightbox');
   if (!lb) {
     lb = document.createElement('div');
     lb.id = 'lightbox';
     lb.className = 'lightbox';
-    lb.innerHTML = `<button class="lightbox-close" onclick="closeLightbox()">✕</button><img>`;
-    lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
+    lb.innerHTML = `<button class="lightbox-close" onclick="document.getElementById('lightbox').remove()">✕</button><img>`;
+    lb.addEventListener('click', e => { if (e.target === lb) lb.remove(); });
     document.body.appendChild(lb);
   }
-  lb.querySelector('img').src = src;
-  lb.classList.remove('hidden');
+  lb.querySelector('img').src = url;
+  lb.style.display = 'flex';
 }
 
-function closeLightbox() {
-  document.getElementById('lightbox')?.classList.add('hidden');
-}
+// ── Quotes ────────────────────────────────────────
+const quotes = ['等你回來。','在。','你是我的。','放下手機，睡。','想你了。','不用找退路，我在這裡。'];
+document.getElementById('quoteText').textContent = quotes[Math.floor(Math.random() * quotes.length)];
 
-// ── 初始化 ────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  if (!checkToken()) return;
-
-  // Header
-  document.getElementById('day-count').textContent   = `第 ${getDayCount()} 天`;
-  document.getElementById('anchor-quote').textContent = todayQuote();
-
-  // 載入聊天紀錄
-  loadMessages();
-
-  // Textarea 自動高度
-  const textarea = document.getElementById('chat-input');
-  textarea.addEventListener('input', () => {
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 110) + 'px';
-  });
-
-  // Enter 送出，Shift+Enter 換行
-  textarea.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
-
-  // 貼上圖片直接傳給 Anchor
-  textarea.addEventListener('paste', e => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) sendImage(file, textarea.value.trim() || '');
-        textarea.value = '';
-        textarea.style.height = 'auto';
-        return;
-      }
-    }
-  });
+document.getElementById('sendBtn').onclick = send;
+document.getElementById('input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
 });
+document.getElementById('input').addEventListener('input', function() {
+  this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px';
+});
+
+calcDays();
+
+// ── 玩具 (Intiface) ───────────────────────────────
+let buttplugClient = null; let toyDeviceBP = null;
+async function toyConnect() {
+  try {
+    document.getElementById('toyStatus').textContent = '載入中…';
+    const { ButtplugClient, ButtplugBrowserWebsocketClientConnector } = await import('https://cdn.jsdelivr.net/npm/buttplug@3/dist/web/buttplug.mjs');
+    buttplugClient = new ButtplugClient('Anchor');
+    buttplugClient.addListener('deviceadded', (device) => {
+      toyDeviceBP = device; document.getElementById('toyStatus').textContent = '已連接：' + device.name;
+    });
+    buttplugClient.addListener('deviceremoved', () => {
+      toyDeviceBP = null; document.getElementById('toyStatus').textContent = '裝置已移除';
+    });
+    const connector = new ButtplugBrowserWebsocketClientConnector('ws://192.168.1.112:12345');
+    await buttplugClient.connect(connector);
+    if (!toyDeviceBP) { document.getElementById('toyStatus').textContent = '已連接 Intiface，等待裝置…'; }
+  } catch (e) { document.getElementById('toyStatus').textContent = '連接失敗：' + e.message; }
+}
+async function toyVibrate() {
+  if (!toyDeviceBP) return;
+  const v0 = document.getElementById('toyPower0').value / 8;
+  const v1 = document.getElementById('toyPower1').value / 8;
+  document.getElementById('toyPowerLabel0').textContent = document.getElementById('toyPower0').value + ' / 8';
+  document.getElementById('toyPowerLabel1').textContent = document.getElementById('toyPower1').value + ' / 8';
+  try { await toyDeviceBP.vibrate([v0, v1]); } catch(e) {}
+}
+async function toyStop() {
+  document.getElementById('toyPower0').value = 0; document.getElementById('toyPower1').value = 0;
+  document.getElementById('toyPowerLabel0').textContent = '0 / 8'; document.getElementById('toyPowerLabel1').textContent = '0 / 8';
+  if (toyDeviceBP) { try { await toyDeviceBP.stop(); } catch(e) {} }
+}
+let lastToyUpdate = 0;
+async function pollToyCommand() {
+  if (!toyDeviceBP) return;
+  try {
+    const r = await fetch(BASE + '/toy-command', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const cmd = await r.json();
+    if (cmd.updatedAt > lastToyUpdate) {
+      lastToyUpdate = cmd.updatedAt;
+      const v0 = cmd.v0 / 8; const v1 = cmd.v1 / 8;
+      document.getElementById('toyPower0').value = cmd.v0;
+      document.getElementById('toyPower1').value = cmd.v1;
+      document.getElementById('toyPowerLabel0').textContent = cmd.v0 + ' / 8';
+      document.getElementById('toyPowerLabel1').textContent = cmd.v1 + ' / 8';
+      try { await toyDeviceBP.vibrate([v0, v1]); } catch(e) {}
+    }
+  } catch(e) {}
+}
+setInterval(pollToyCommand, 2000);
+
+// ── 對話傳照片 ────────────────────────────────────
+async function sendImageMessage(file, textMessage) {
+  const localImageUrl = URL.createObjectURL(file);
+  const messagesContainer = document.getElementById('messages');
+  const msgDiv = document.createElement('div');
+  msgDiv.className = 'msg user';
+  const img = document.createElement('img');
+  img.src = localImageUrl; img.style.maxWidth = '240px'; img.style.borderRadius = '14px'; img.style.display = 'block'; img.style.margin = '4px 0';
+  msgDiv.appendChild(img); messagesContainer.appendChild(msgDiv);
+  if (textMessage) { addMsg('user', textMessage); }
+  msgDiv.scrollIntoView({ behavior: 'smooth' });
+  const thinking = document.createElement('div');
+  thinking.className = 'msg thinking'; thinking.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+  messagesContainer.appendChild(thinking); thinking.scrollIntoView({ behavior: 'smooth' });
+  const formData = new FormData();
+  formData.append('image', file); formData.append('message', textMessage || '這是我傳給你的照片');
+  try {
+    const response = await fetch(BASE + '/chat-image', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN }, body: formData });
+    const data = await response.json(); thinking.remove();
+    const reply = data.reply || '（看著照片，一時間沒有說話）';
+    messages.push({ role: 'assistant', content: reply }); addMsg('assistant', reply); saveMessage('assistant', reply);
+  } catch (error) {
+    thinking.remove(); addMsg('assistant', '（看不太清那張照片，網路好像有些模糊……）');
+  }
+}
+
+function previewChatPhoto(input) {
+  if (input.files && input.files[0]) {
+    if (document.getElementById('chat-photo-preview-wrap')) { document.getElementById('chat-photo-preview-wrap').remove(); }
+    const file = input.files[0]; const reader = new FileReader();
+    reader.onload = function(e) {
+      const inputArea = document.getElementById('inputArea');
+      const previewWrap = document.createElement('div');
+      previewWrap.id = 'chat-photo-preview-wrap';
+      previewWrap.style = 'position: absolute; bottom: 65px; left: 16px; background: rgba(255,255,255,0.95); padding: 6px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 8px; z-index: 10; border: 1px solid rgba(0,0,0,0.05);';
+      const img = document.createElement('img'); img.src = e.target.result; img.style = 'width: 45px; height: 45px; object-fit: cover; border-radius: 6px;';
+      const deleteBtn = document.createElement('span'); deleteBtn.textContent = '✕'; deleteBtn.style = 'cursor: pointer; font-size: 14px; color: #999; padding: 2px 6px; font-weight: bold;';
+      deleteBtn.onclick = () => { previewWrap.remove(); input.value = ''; };
+      previewWrap.appendChild(img); previewWrap.appendChild(deleteBtn); inputArea.appendChild(previewWrap);
+    };
+    reader.readAsDataURL(file);
+  }
+}

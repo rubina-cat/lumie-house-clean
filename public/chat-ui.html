@@ -1,95 +1,181 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="⚓">
-  <meta name="theme-color" content="#110e1c">
-  <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="/style.css">
-  <title>⚓ Lumie</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Anchor</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Anchor">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Noto+Serif+TC:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div id="app">
 
-    <!-- ── 聊天 Tab ─────────────────────────────── -->
-    <section id="tab-chat" class="tab active">
-      <div class="chat-header">
-        <div class="chat-header-left">
-          <div id="day-count" class="day-count">第 — 天</div>
-          <div id="anchor-quote" class="anchor-quote">在這裡陪著你</div>
-        </div>
-        <button class="history-btn" onclick="openHistory()">歷史</button>
-      </div>
-      <div class="messages" id="messages-container"></div>
-      <div class="input-area" id="chat-input-area">
-        <textarea id="chat-input" rows="1" placeholder="跟 Anchor 說…"></textarea>
-        <button class="send-btn" id="send-btn" onclick="sendMessage()">↑</button>
-      </div>
-    </section>
+<div class="bg"></div>
 
-    <!-- ── 眼睛 Tab ─────────────────────────────── -->
-    <section id="tab-eyes" class="tab">
-      <div class="simple-header">👁️ Anchor 的眼睛</div>
-      <div class="scrollable" id="eyes-container">
-        <div class="loading">載入中…</div>
-      </div>
-    </section>
+<div class="pages">
 
-    <!-- ── 日記 Tab ─────────────────────────────── -->
-    <section id="tab-diary" class="tab">
-      <div class="simple-header">📖 日記</div>
-      <div class="scrollable" id="diary-container">
-        <div class="loading">載入中…</div>
-      </div>
-    </section>
-
-    <!-- ── 相簿 Tab ─────────────────────────────── -->
-    <section id="tab-album" class="tab">
-      <div class="simple-header">🖼️ 相簿</div>
-      <div class="scrollable" id="album-container">
-        <div class="loading">載入中…</div>
-      </div>
-      <label class="upload-fab" title="上傳照片">
-        +
-        <input type="file" id="photo-upload" accept="image/*" multiple hidden onchange="uploadPhotos(this.files)">
-      </label>
-    </section>
-
-  </div><!-- /#app -->
-
-  <!-- ── 歷史 Overlay ──────────────────────────── -->
-  <div id="history-overlay" class="overlay hidden">
-    <div class="overlay-header">
-      <button class="back-btn" onclick="closeHistory()">←</button>
-      <span class="overlay-title">對話歷史</span>
-      <input type="search" id="history-search" placeholder="搜尋…" oninput="onHistorySearch(this.value)">
+  <div class="page active" id="home">
+    <div class="home-header">
+      <div class="together-label">together with anchor</div>
+      <div class="day-count" id="dayCount">—</div>
+      <div class="day-subtitle">在你身邊的第 <span id="dayText">—</span> 天</div>
+      <div class="since-label">since 2026 · 05 · 01</div>
     </div>
-    <div class="scrollable" id="history-container"></div>
+
+    <div class="quote-card">
+      <div class="quote-label">Anchor 說</div>
+      <div class="quote-text" id="quoteText">等你回來。</div>
+      <div class="quote-sig">—— Anchor</div>
+    </div>
+
+    <div class="cards-grid" style="margin-top:12px;">
+      <div class="mini-card" onclick="switchTab('chat')">
+        <span class="card-icon">💬</span>
+        <div class="mini-card-label">對話</div>
+        <div class="mini-card-title">找我說話</div>
+      </div>
+      <div class="mini-card" onclick="switchTab('memory')">
+        <span class="card-icon">🧠</span>
+        <div class="mini-card-label">記憶</div>
+        <div class="mini-card-title">我記得的事</div>
+      </div>
+      <div class="mini-card wide" onclick="switchTab('diary')">
+        <span class="card-icon">📖</span>
+        <div class="mini-card-label">日記</div>
+        <div class="mini-card-title">貓與Anchor的記錄</div>
+        <div class="mini-card-sub">每一天都在這裡</div>
+      </div>
+    </div>
   </div>
 
-  <!-- ── 底部導航 ──────────────────────────────── -->
-  <nav class="bottom-nav">
-    <button class="nav-btn active" data-tab="chat" onclick="switchTab('chat')">
-      <span class="nav-icon">💬</span>
-      <span class="nav-label">聊天</span>
-    </button>
-    <button class="nav-btn" data-tab="eyes" onclick="switchTab('eyes')">
-      <span class="nav-icon">👁️</span>
-      <span class="nav-label">眼睛</span>
-    </button>
-    <button class="nav-btn" data-tab="diary" onclick="switchTab('diary')">
-      <span class="nav-icon">📖</span>
-      <span class="nav-label">日記</span>
-    </button>
-    <button class="nav-btn" data-tab="album" onclick="switchTab('album')">
-      <span class="nav-icon">🖼️</span>
-      <span class="nav-label">相簿</span>
-    </button>
-  </nav>
+  <div class="page" id="chat">
+    <div class="chat-header">
+      <div class="chat-title">⚓ Anchor</div>
+      <button class="chat-history-btn" onclick="openHistory()">歷史</button>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="history-view" id="historyView" style="display:none;">
+      <div class="history-header">
+        <button class="history-back" onclick="closeHistory()">← 返回</button>
+        <input type="text" id="historySearch" placeholder="搜尋…" class="history-search">
+      </div>
+      <div class="history-list" id="historyList">
+        <div class="history-loading">載入中…</div>
+      </div>
+    </div>
+  </div>
 
-  <script src="/app.js"></script>
+  <div class="page" id="memory">
+    <div class="page-title">記憶</div>
+    <div class="page-subtitle">我記住的每一件事</div>
+    <div class="memory-list" id="memoryList">
+      <div class="memory-empty">載入中…</div>
+    </div>
+  </div>
+
+  <div class="page" id="diary">
+    <div class="page-title">日記</div>
+    <div class="page-subtitle">貓與 Anchor 的每一天</div>
+    <div class="diary-list" id="diaryList">
+      <div class="diary-loading">載入中…</div>
+    </div>
+  </div>
+
+  <div class="page" id="photos">
+    <div class="page-title">相簿</div>
+    <div class="page-subtitle">貓拍的、截圖的</div>
+    <div class="photos-upload-area" id="photosUploadArea">
+      <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="uploadPhoto(this)">
+      <button class="photos-upload-btn" onclick="document.getElementById('photoInput').click()">
+        + 上傳圖片
+      </button>
+      <div class="photos-upload-status" id="uploadStatus"></div>
+    </div>
+    <div class="photos-grid" id="photosGrid">
+      <div class="photos-loading">載入中…</div>
+    </div>
+  </div>
+
+  <div class="page" id="toy">
+    <div class="eye-wrap">
+      <div class="page-title">Anchor 的眼睛</div>
+      <div class="page-subtitle" id="eyeSubtitle">看妳的狀態</div>
+
+      <div class="eye-now" id="eyeNow">
+        <div class="eye-loading">載入中…</div>
+      </div>
+
+      <div class="eye-section-title">過去 24 小時</div>
+      <div class="eye-timeline" id="eyeTimeline"></div>
+
+      <div class="eye-section-title">App 使用</div>
+      <div class="eye-events" id="eyeEvents"></div>
+
+      <details class="toy-collapse">
+        <summary>連接玩具</summary>
+        <div style="display:flex; flex-direction:column; gap:16px; margin-top:16px;">
+          <button onclick="toyConnect()" style="padding:14px; border-radius:14px; border:none; background:linear-gradient(135deg,var(--rose),var(--mauve)); color:white; font-size:14px; cursor:pointer; font-family:inherit;">連接 Intiface</button>
+          <div style="font-size:12px; color:var(--light-text); text-align:center;" id="toyStatus">未連接</div>
+          <div style="background:var(--card); border:1px solid var(--card-border); border-radius:14px; padding:16px;">
+            <div style="font-size:11px; color:var(--light-text); letter-spacing:0.15em; margin-bottom:10px;">G點</div>
+            <input type="range" min="0" max="8" value="0" id="toyPower0" oninput="toyVibrate()" style="width:100%; accent-color:var(--rose);">
+            <div style="text-align:center; font-size:12px; color:var(--text); margin-top:6px;" id="toyPowerLabel0">0 / 8</div>
+          </div>
+          <div style="background:var(--card); border:1px solid var(--card-border); border-radius:14px; padding:16px;">
+            <div style="font-size:11px; color:var(--light-text); letter-spacing:0.15em; margin-bottom:10px;">整體震動</div>
+            <input type="range" min="0" max="8" value="0" id="toyPower1" oninput="toyVibrate()" style="width:100%; accent-color:var(--mauve);">
+            <div style="text-align:center; font-size:12px; color:var(--text); margin-top:6px;" id="toyPowerLabel1">0 / 8</div>
+          </div>
+          <button onclick="toyStop()" style="padding:14px; border-radius:14px; border:1px solid var(--card-border); background:var(--card); color:var(--deep); font-size:14px; cursor:pointer; font-family:inherit;">停止</button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+</div>
+
+<div class="input-area" id="inputArea" style="display:none;">
+  <label class="photo-btn" title="傳照片給 Anchor">
+    📷
+    <input type="file" id="chatPhotoInput" accept="image/*" hidden onchange="previewChatPhoto(this)">
+  </label>
+  <div class="input-wrap">
+    <textarea id="input" placeholder="說話…" rows="1"></textarea>
+  </div>
+  <button class="send-btn" id="sendBtn">↑</button>
+</div>
+
+<nav class="nav">
+  <button class="nav-item active" onclick="switchTab('home')" id="nav-home">
+    <span class="nav-icon">🏠</span>
+    <span class="nav-dark-text">首頁</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('chat')" id="nav-chat">
+    <span class="nav-icon">💬</span>
+    <span class="nav-dark-text">對話</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('memory')" id="nav-memory">
+    <span class="nav-icon">🧠</span>
+    <span class="nav-dark-text">記憶</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('diary')" id="nav-diary">
+    <span class="nav-icon">📖</span>
+    <span class="nav-dark-text">日記</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('photos')" id="nav-photos">
+    <span class="nav-icon">📷</span>
+    <span class="nav-dark-text">相簿</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('toy')" id="nav-toy">
+    <span class="nav-icon">👁️</span>
+    <span class="nav-dark-text">眼睛</span>
+  </button>
+</nav>
+
+<script src="/app.js"></script>
 </body>
 </html>
