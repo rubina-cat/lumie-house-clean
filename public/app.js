@@ -536,7 +536,28 @@ async function pollToyCommand() {
 setInterval(pollToyCommand, 2000);
 
 // ── 對話傳照片 ────────────────────────────────────
+async function compressImage(file) {
+  return new Promise(resolve => {
+    const canvas = document.createElement('canvas');
+    const img = new Image();
+    img.onload = () => {
+      const max = 1280;
+      let w = img.width, h = img.height;
+      if (w > max || h > max) {
+        if (w > h) { h = Math.round(h * max / w); w = max; }
+        else { w = Math.round(w * max / h); h = max; }
+      }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => resolve(file);
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 async function sendImageMessage(file, textMessage) {
+  file = await compressImage(file);
   const localImageUrl = URL.createObjectURL(file);
   const messagesContainer = document.getElementById('messages');
   const msgDiv = document.createElement('div');
