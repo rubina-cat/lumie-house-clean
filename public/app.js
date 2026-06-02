@@ -261,7 +261,46 @@ document.addEventListener('DOMContentLoaded', () => {
       historySearchTimer = setTimeout(() => loadHistory(e.target.value.trim()), 300);
     });
   }
+  initPushNotifications();
 });
+
+// ── 推送通知 ──────────────────────────────────────
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+async function initPushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) { await sendSubscriptionToServer(existing); return; }
+    const r = await fetch(BASE + '/vapid-public-key');
+    const { key } = await r.json();
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key),
+    });
+    await sendSubscriptionToServer(sub);
+  } catch (e) {}
+}
+
+async function sendSubscriptionToServer(sub) {
+  try {
+    await fetch(BASE + '/push-subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify(sub),
+    });
+  } catch (e) {}
+}
 
 function addMsg(role, text) {
   const div = document.createElement('div');
