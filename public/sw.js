@@ -13,10 +13,7 @@ self.addEventListener('push', event => {
   } catch {}
   event.waitUntil(
     self.registration.showNotification(title, {
-      body,
-      tag: 'anchor',
-      renotify: true,
-      vibrate: [200, 100, 200],
+      body, tag: 'anchor', renotify: true, vibrate: [200, 100, 200],
     })
   );
 });
