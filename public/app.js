@@ -261,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
       historySearchTimer = setTimeout(() => loadHistory(e.target.value.trim()), 300);
     });
   }
-  initPushNotifications();
+  checkNotificationStatus();
 });
 
 // ── 推送通知 ──────────────────────────────────────
@@ -274,12 +274,31 @@ function urlBase64ToUint8Array(base64String) {
   return arr;
 }
 
-async function initPushNotifications() {
+async function checkNotificationStatus() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const btn = document.getElementById('notifBtn');
+  if (Notification.permission === 'granted') {
+    if (btn) btn.style.display = 'none';
+    await doSubscribe();
+  } else if (Notification.permission === 'default') {
+    if (btn) btn.style.display = '';
+  } else {
+    if (btn) btn.style.display = 'none';
+  }
+}
+
+async function enableNotifications() {
+  const permission = await Notification.requestPermission();
+  const btn = document.getElementById('notifBtn');
+  if (permission !== 'granted') return;
+  if (btn) btn.style.display = 'none';
+  await doSubscribe();
+}
+
+async function doSubscribe() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
     const reg = await navigator.serviceWorker.register('/sw.js');
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return;
     const existing = await reg.pushManager.getSubscription();
     if (existing) { await sendSubscriptionToServer(existing); return; }
     const r = await fetch(BASE + '/vapid-public-key');
@@ -289,7 +308,7 @@ async function initPushNotifications() {
       applicationServerKey: urlBase64ToUint8Array(key),
     });
     await sendSubscriptionToServer(sub);
-  } catch (e) {}
+  } catch (e) { console.error('push subscribe failed', e); }
 }
 
 async function sendSubscriptionToServer(sub) {
