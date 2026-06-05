@@ -423,6 +423,79 @@ if (request.method === "POST" && url.pathname === "/tts") {
       });
     }
 
+    // OPTIONS /mcp/* — CORS preflight for claude.ai
+    if (request.method === "OPTIONS" && url.pathname.startsWith("/mcp/")) {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          "Access-Control-Max-Age": "86400",
+        }
+      });
+    }
+
+    // GET /mcp/sse — SSE transport for claude.ai integration
+    if (request.method === "GET" && url.pathname === "/mcp/sse") {
+      const token = url.searchParams.get("token")
+        ?? request.headers.get("Authorization")?.replace("Bearer ", "");
+      if (token !== env.MCP_TOKEN) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const sessionId = crypto.randomUUID();
+      const msgUrl = `${url.origin}/mcp/message/${sessionId}`;
+      const encoder = new TextEncoder();
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      ctx.waitUntil((async () => {
+        try {
+          await writer.write(encoder.encode(`event: endpoint\ndata: ${msgUrl}\n\n`));
+          const start = Date.now();
+          while (Date.now() - start < 25000) {
+            await new Promise(r => setTimeout(r, 200));
+            const raw = await env.PHONE_STATE.get(`sse_${sessionId}`);
+            if (raw) {
+              await env.PHONE_STATE.delete(`sse_${sessionId}`);
+              for (const m of JSON.parse(raw)) {
+                await writer.write(encoder.encode(`data: ${JSON.stringify(m)}\n\n`));
+              }
+            }
+          }
+        } catch {
+          // client disconnected
+        } finally {
+          try { await writer.close(); } catch {}
+        }
+      })());
+      return new Response(readable, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Access-Control-Allow-Origin": "*",
+        }
+      });
+    }
+
+    // POST /mcp/message/:sessionId — relay MCP messages to SSE stream
+    if (request.method === "POST" && url.pathname.startsWith("/mcp/message/")) {
+      const sessionId = url.pathname.replace("/mcp/message/", "");
+      const bodyText = await request.text();
+      const body = JSON.parse(bodyText) as any;
+      if (body.id === undefined) return new Response("", { status: 202 }); // notification, no response needed
+      const fakeReq = new Request(request.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: bodyText,
+      });
+      const mcpResp = await handleMcp(fakeReq, env);
+      const result = await mcpResp.json();
+      const existing = await env.PHONE_STATE.get(`sse_${sessionId}`);
+      const queue = existing ? JSON.parse(existing) : [];
+      queue.push(result);
+      await env.PHONE_STATE.put(`sse_${sessionId}`, JSON.stringify(queue), { expirationTtl: 60 });
+      return new Response("", { status: 202 });
+    }
+
     // POST /mcp/:token — Claude MCP支援
     if (request.method === "POST" && url.pathname.startsWith("/mcp/")) {
       const token = url.pathname.split("/mcp/")[1];
