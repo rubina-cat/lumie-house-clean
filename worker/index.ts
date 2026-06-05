@@ -1057,9 +1057,11 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
       // 存URL到KV，PWA去拉
       const audioCmd = { audioUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
-      return Response.json({ jsonrpc: "2.0", id, result: { content: [{
-        type: "text", text: JSON.stringify({ ok: true, text })
-      }]}});
+      // 回傳 HTML audio player 讓 Claude 渲染
+      const html = `<audio controls autoplay src="${audioUrl}" style="width:100%;border-radius:8px"></audio>`;
+      return Response.json({ jsonrpc: "2.0", id, result: { content: [
+        { type: "text", text: html }
+      ]}});
     }
 
     return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Tool not found" }});
