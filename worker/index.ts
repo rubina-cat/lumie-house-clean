@@ -784,6 +784,19 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return Response.json(data);
     }
 
+    // GET /speak-latest — 無需認證，僅回傳30秒內的語音（供SW使用）
+    if (request.method === "GET" && url.pathname === "/speak-latest") {
+      const raw = await env.PHONE_STATE.get("speak_command");
+      if (!raw) return Response.json({ audioUrl: null });
+      const cmd = JSON.parse(raw);
+      if (!cmd.updatedAt || Date.now() - cmd.updatedAt > 30000) {
+        return Response.json({ audioUrl: null });
+      }
+      return Response.json({ audioUrl: cmd.audioUrl }, {
+        headers: { "Access-Control-Allow-Origin": "*" }
+      });
+    }
+
     return Response.json({ error: "not found" }, { status: 404 });
   },
 
@@ -1054,9 +1067,10 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
           type: "text", text: JSON.stringify({ error: "tts failed", detail: ttsData })
         }]}});
       }
-      // 存URL到KV，PWA去拉
+      // 存URL到KV，PWA去拉；同時發 push 喚醒 SW
       const audioCmd = { audioUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
+      await sendWebPush(env).catch(() => {});
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
         { type: "text", text: `audioUrl=${audioUrl}` },
         { type: "resource", resource: { uri: audioUrl, mimeType: "audio/mpeg", text: text } }

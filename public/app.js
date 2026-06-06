@@ -572,6 +572,15 @@ async function speakLast() {
   } catch (e) { console.error('tts error', e); }
 }
 
+// ── SW push 觸發語音播放 ──────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data?.type === 'play-audio' && event.data.audioUrl) {
+      new Audio(event.data.audioUrl).play().catch(() => {});
+    }
+  });
+}
+
 // ── Anchor語音輪詢 ────────────────────────────────
 let lastSpeakUpdate = Date.now();
 async function pollSpeakCommand() {
