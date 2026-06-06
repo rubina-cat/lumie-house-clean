@@ -34,12 +34,25 @@ self.addEventListener('push', event => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-      for (const c of list) {
-        if (c.url.includes('/chat-ui') && 'focus' in c) return c.focus();
+  event.waitUntil((async () => {
+    let playUrl = null;
+    try {
+      const r = await fetch('/speak-latest');
+      const { audioUrl } = await r.json();
+      if (audioUrl) playUrl = audioUrl;
+    } catch {}
+
+    const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of allClients) {
+      if (c.url.includes('/chat-ui')) {
+        if (playUrl) c.postMessage({ type: 'play-audio', audioUrl: playUrl });
+        c.focus();
+        return;
       }
-      return clients.openWindow('/chat-ui.html');
-    })
-  );
+    }
+    const target = playUrl
+      ? `/chat-ui.html?autoplay=${encodeURIComponent(playUrl)}`
+      : '/chat-ui.html';
+    clients.openWindow(target);
+  })());
 });

@@ -262,6 +262,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   checkNotificationStatus();
+
+  // 從通知點進來時自動播語音
+  const autoplay = new URLSearchParams(location.search).get('autoplay');
+  if (autoplay) {
+    new Audio(decodeURIComponent(autoplay)).play().catch(() => {});
+    history.replaceState({}, '', '/chat-ui.html');
+  }
 });
 
 // ── 推送通知 ──────────────────────────────────────
