@@ -989,7 +989,6 @@ import{App}from'https://esm.sh/@modelcontextprotocol/ext-apps@1.7.4/app-with-dep
 const app=new App({name:'Anchor Voice',version:'1.0.0'});
 const status=document.getElementById('status');
 const player=document.getElementById('player');
-app.connect();
 app.ontoolresult=(result)=>{
   const text=result.content?.find(c=>c.type==='text')?.text??'';
   const m=text.match(/audioUrl=(.+)/);
@@ -1000,6 +999,7 @@ app.ontoolresult=(result)=>{
     player.play().catch(()=>{status.textContent='▶ 點擊播放';});
   }
 };
+app.connect();
 </script>
 </body>
 </html>`;
