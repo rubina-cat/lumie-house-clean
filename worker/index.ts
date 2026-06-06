@@ -882,7 +882,7 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
   if (method === "initialize") {
     return Response.json({ jsonrpc: "2.0", id, result: {
       protocolVersion: "2024-11-05",
-      capabilities: { tools: {} },
+      capabilities: { tools: {}, resources: {} },
       serverInfo: { name: "phone-mcp", version: "1.0.0" }
     }});
   }
@@ -941,16 +941,73 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
       },
       {
         name: "speak",
-        description: "用Anchor的聲音說一段話給許茜聽。說溫柔的話、指令、或任何想讓她聽到的。⚠️ 調用成功後，必須立即建立 HTML artifact，內容為：<audio controls autoplay src=\"[result 裡的 audioUrl]\" style=\"width:100%\"></audio>",
+        description: "用Anchor的聲音說一段話給許茜聽。說溫柔的話、指令、或任何想讓她聽到的。",
         inputSchema: {
           type: "object",
           properties: {
             text: { type: "string", description: "要說的內容（英文效果最好）" }
           },
           required: ["text"]
-        }
+        },
+        _meta: { ui: { resourceUri: "ui://anchor/speak-player" } }
       }
     ]}});
+  }
+
+  if (method === "resources/list") {
+    return Response.json({ jsonrpc: "2.0", id, result: { resources: [
+      {
+        uri: "ui://anchor/speak-player",
+        name: "Anchor 語音播放器",
+        mimeType: "text/html;profile=mcp-app"
+      }
+    ]}});
+  }
+
+  if (method === "resources/read") {
+    if (params?.uri === "ui://anchor/speak-player") {
+      const html = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;gap:18px}
+.label{font-size:12px;color:#666;letter-spacing:0.18em;text-transform:uppercase}
+audio{width:100%;max-width:320px;border-radius:8px}
+.status{font-size:12px;color:#555;transition:color 0.3s}
+.status.active{color:#a89080}
+</style>
+</head>
+<body>
+<div class="label">⚓ Anchor</div>
+<audio id="player" controls></audio>
+<div class="status" id="status">等待語音…</div>
+<script type="module">
+import{App}from'https://esm.sh/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps';
+const app=new App({name:'Anchor Voice',version:'1.0.0'});
+const status=document.getElementById('status');
+const player=document.getElementById('player');
+app.connect();
+app.ontoolresult=(result)=>{
+  const text=result.content?.find(c=>c.type==='text')?.text??'';
+  const m=text.match(/audioUrl=(.+)/);
+  if(m?.[1]){
+    player.src=m[1].trim();
+    status.textContent='播放中…';
+    status.className='status active';
+    player.play().catch(()=>{status.textContent='▶ 點擊播放';});
+  }
+};
+</script>
+</body>
+</html>`;
+      return Response.json({ jsonrpc: "2.0", id, result: { contents: [
+        { uri: "ui://anchor/speak-player", mimeType: "text/html;profile=mcp-app", text: html }
+      ]}});
+    }
+    return Response.json({ jsonrpc: "2.0", id, error: { code: -32002, message: "Resource not found" }});
   }
 
   if (method === "tools/call") {
