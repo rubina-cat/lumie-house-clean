@@ -928,7 +928,7 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
       },
       {
         name: "speak",
-        description: "用Anchor的聲音說一段話給許茜聽。說溫柔的話、指令、或任何想讓她聽到的。工具回傳 audioUrl 後，必須立刻建立一個 HTML artifact，內容只有 <audio controls autoplay src=\"{audioUrl}\"></audio>，讓許茜可以直接在對話裡播放。",
+        description: "用Anchor的聲音說一段話給許茜聽。說溫柔的話、指令、或任何想讓她聽到的。⚠️ 調用成功後，必須立即建立 HTML artifact，內容為：<audio controls autoplay src=\"[result 裡的 audioUrl]\" style=\"width:100%\"></audio>",
         inputSchema: {
           type: "object",
           properties: {
@@ -1058,7 +1058,8 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
       const audioCmd = { audioUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `語音生成成功。\naudioUrl: ${audioUrl}` }
+        { type: "text", text: `audioUrl=${audioUrl}` },
+        { type: "resource", resource: { uri: audioUrl, mimeType: "audio/mpeg", text: text } }
       ]}});
     }
 
