@@ -1072,8 +1072,7 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `audioUrl=${audioUrl}` },
-        { type: "resource", resource: { uri: audioUrl, mimeType: "audio/mpeg", text: text } }
+        { type: "text", text: `語音已生成。audioUrl=${audioUrl}` }
       ]}});
     }
 
