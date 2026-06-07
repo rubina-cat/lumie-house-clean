@@ -989,22 +989,32 @@ audio{width:100%;max-width:320px;border-radius:8px}
 <div class="label">⚓ Anchor</div>
 <audio id="player" controls></audio>
 <div class="status" id="status">等待語音…</div>
-<script type="module">
-import{App}from'https://esm.sh/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps';
-const app=new App({name:'Anchor Voice',version:'1.0.0'});
-const status=document.getElementById('status');
+<script>
 const player=document.getElementById('player');
-app.ontoolresult=(result)=>{
-  const text=result.content?.find(c=>c.type==='text')?.text??'';
-  const m=text.match(/audioUrl=(.+)/);
-  if(m?.[1]){
-    player.src=m[1].trim();
-    status.textContent='播放中…';
-    status.className='status active';
-    player.play().catch(()=>{status.textContent='▶ 點擊播放';});
+const status=document.getElementById('status');
+const reqs=new Map();let rid=0;
+const post=m=>window.parent.postMessage(m,'*');
+const req=(method,params)=>new Promise((res,rej)=>{
+  const id=++rid;reqs.set(id,{res,rej});
+  post({jsonrpc:'2.0',id,method,params});
+  setTimeout(()=>{reqs.delete(id);rej('timeout');},15000);
+});
+const notify=(method,params)=>post({jsonrpc:'2.0',method,params});
+window.addEventListener('message',e=>{
+  const m=e.data;if(!m?.jsonrpc)return;
+  if(m.id!=null&&reqs.has(m.id)){
+    const{res,rej}=reqs.get(m.id);reqs.delete(m.id);
+    m.error?rej(m.error):res(m.result);
   }
-};
-app.connect();
+  if(m.id==null&&m.method==='ui/notifications/tool-result'){
+    const text=m.params?.content?.find(c=>c.type==='text')?.text??'';
+    const u=text.match(/audioUrl=([^\s]+)/)?.[1];
+    if(u){player.src=u;status.textContent='播放中…';status.className='status active';player.play().catch(()=>{status.textContent='▶ 點擊播放';});}
+  }
+});
+req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
+  .then(()=>notify('ui/notifications/initialized'))
+  .catch(()=>{});
 </script>
 </body>
 </html>`;
