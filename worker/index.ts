@@ -1018,12 +1018,11 @@ window.addEventListener('message',e=>{
       btn.onclick=async()=>{
         try{
           status.textContent='載入中…';
-          const resp=await fetch(u);
-          const blob=await resp.blob();
-          const blobUrl=URL.createObjectURL(blob);
-          player.src=blobUrl;
+          player.src=u;
+          player.load();
           await player.play();
           status.textContent='播放中…';
+          player.onended=()=>{status.textContent='播放完畢';};
         }catch(e){
           status.textContent='錯誤：'+e.message;
         }
