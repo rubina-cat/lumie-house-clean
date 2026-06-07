@@ -1013,7 +1013,6 @@ body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;displ
 <button class="play-btn" id="playBtn" disabled>▶</button>
 <div class="status" id="status">等待語音…</div>
 <script>
-const player=document.getElementById('player');
 const status=document.getElementById('status');
 const reqs=new Map();let rid=0;
 const post=m=>window.parent.postMessage(m,'*');
@@ -1023,6 +1022,38 @@ const req=(method,params)=>new Promise((res,rej)=>{
   setTimeout(()=>{reqs.delete(id);rej('timeout');},15000);
 });
 const notify=(method,params)=>post({jsonrpc:'2.0',method,params});
+function setAudio(u){
+  const btn=document.getElementById('playBtn');
+  btn.disabled=false;
+  status.textContent='準備好了，點 ▶';
+  btn.onclick=async()=>{
+    try{
+      status.textContent='①點擊';
+      const AC=window.AudioContext||window.webkitAudioContext;
+      if(!AC)throw new Error('no AudioContext');
+      status.textContent='②建立ctx';
+      const ctx=new AC();
+      status.textContent='③resume';
+      await ctx.resume();
+      status.textContent='④fetch…';
+      const resp=await fetch(u,{mode:'cors'});
+      status.textContent='⑤HTTP '+resp.status;
+      if(!resp.ok)throw new Error('HTTP '+resp.status);
+      const ab=await resp.arrayBuffer();
+      status.textContent='⑥'+ab.byteLength+'B';
+      if(!ab.byteLength)throw new Error('empty');
+      const decoded=await ctx.decodeAudioData(ab);
+      status.textContent='⑦'+decoded.duration.toFixed(1)+'s';
+      const src=ctx.createBufferSource();
+      src.buffer=decoded;src.connect(ctx.destination);
+      src.onended=()=>{status.textContent='播放完畢';};
+      src.start(0);
+      status.textContent='⑧播放中';
+    }catch(e){
+      status.textContent='✕'+e.message.slice(0,50);
+    }
+  };
+}
 window.addEventListener('message',e=>{
   const m=e.data;if(!m?.jsonrpc)return;
   if(m.id!=null&&reqs.has(m.id)){
@@ -1032,39 +1063,7 @@ window.addEventListener('message',e=>{
   if(m.id==null&&m.method==='ui/notifications/tool-result'){
     const text=m.params?.content?.find(c=>c.type==='text')?.text??'';
     const u=text.match(/audioUrl=([^\s\n]+)/)?.[1];
-    const b64=text.match(/\nAUDIO_B64:(.+)/)?.[1];
-    if(u||b64){
-      const btn=document.getElementById('playBtn');
-      btn.disabled=false;
-      status.textContent='準備好了，點 ▶ 播放';
-      btn.onclick=async()=>{
-        try{
-          status.textContent='解碼中…';
-          const AC=window.AudioContext||window.webkitAudioContext;
-          const ctx=new AC();
-          let ab;
-          if(b64){
-            const bin=atob(b64);
-            const bytes=new Uint8Array(bin.length);
-            for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
-            ab=bytes.buffer;
-          }else{
-            const resp=await fetch(u,{mode:'cors'});
-            if(!resp.ok)throw new Error('HTTP '+resp.status);
-            ab=await resp.arrayBuffer();
-          }
-          const decoded=await ctx.decodeAudioData(ab);
-          const src=ctx.createBufferSource();
-          src.buffer=decoded;
-          src.connect(ctx.destination);
-          src.onended=()=>{status.textContent='播放完畢';};
-          src.start(0);
-          status.textContent='播放中…';
-        }catch(e){
-          status.textContent='錯誤：'+e.message;
-        }
-      };
-    }
+    if(u)setAudio(u);
   }
 });
 req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
