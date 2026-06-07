@@ -525,9 +525,14 @@ if (request.method === "POST" && url.pathname === "/tts") {
       const obj = await env.MEDIA.get(key);
       if (!obj) return new Response("Not found", { status: 404 });
       const ct = obj.httpMetadata?.contentType ?? "image/jpeg";
-      return new Response(obj.body, {
-        headers: { "Content-Type": ct, "Cache-Control": "public, max-age=31536000" }
-      });
+      const headers: Record<string, string> = {
+        "Content-Type": ct,
+        "Cache-Control": "public, max-age=31536000",
+      };
+      if (key.startsWith("audio/")) {
+        headers["Access-Control-Allow-Origin"] = "*";
+      }
+      return new Response(obj.body, { headers });
     }
 
     // GET /media-list — 列出所有圖片
