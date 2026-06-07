@@ -1018,11 +1018,19 @@ window.addEventListener('message',e=>{
       btn.onclick=async()=>{
         try{
           status.textContent='載入中…';
-          player.src=u;
-          player.load();
-          await player.play();
+          const AC=window.AudioContext||window.webkitAudioContext;
+          const ctx=new AC();
+          const resp=await fetch(u,{mode:'cors'});
+          if(!resp.ok)throw new Error('HTTP '+resp.status);
+          const buf=await resp.arrayBuffer();
+          if(!buf.byteLength)throw new Error('empty');
+          const decoded=await ctx.decodeAudioData(buf);
+          const src=ctx.createBufferSource();
+          src.buffer=decoded;
+          src.connect(ctx.destination);
+          src.onended=()=>{status.textContent='播放完畢';};
+          src.start(0);
           status.textContent='播放中…';
-          player.onended=()=>{status.textContent='播放完畢';};
         }catch(e){
           status.textContent='錯誤：'+e.message;
         }
