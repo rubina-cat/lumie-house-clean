@@ -989,7 +989,7 @@ body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;displ
 <body>
 <div class="label">⚓ Anchor</div>
 <audio id="player"></audio>
-<button class="play-btn" id="playBtn" disabled onclick="document.getElementById('player').play()">▶</button>
+<button class="play-btn" id="playBtn" disabled>▶</button>
 <div class="status" id="status">等待語音…</div>
 <script>
 const player=document.getElementById('player');
@@ -1012,11 +1012,22 @@ window.addEventListener('message',e=>{
     const text=m.params?.content?.find(c=>c.type==='text')?.text??'';
     const u=text.match(/audioUrl=([^\s]+)/)?.[1];
     if(u){
-      player.src=u;
       const btn=document.getElementById('playBtn');
       btn.disabled=false;
       status.textContent='準備好了，點 ▶ 播放';
-      player.play().catch(()=>{});
+      btn.onclick=async()=>{
+        try{
+          status.textContent='載入中…';
+          const resp=await fetch(u);
+          const blob=await resp.blob();
+          const blobUrl=URL.createObjectURL(blob);
+          player.src=blobUrl;
+          await player.play();
+          status.textContent='播放中…';
+        }catch(e){
+          status.textContent='錯誤：'+e.message;
+        }
+      };
     }
   }
 });
