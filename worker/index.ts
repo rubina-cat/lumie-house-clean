@@ -789,15 +789,16 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return Response.json(data);
     }
 
-    // GET /speak-latest — 無需認證，僅回傳30秒內的語音（供SW使用）
+    // GET /speak-latest — 無需認證，回傳10分鐘內的語音（供SW和MCP App使用）
     if (request.method === "GET" && url.pathname === "/speak-latest") {
       const raw = await env.PHONE_STATE.get("speak_command");
-      if (!raw) return Response.json({ audioUrl: null });
+      if (!raw) return Response.json({ audioUrl: null }, { headers: { "Access-Control-Allow-Origin": "*" } });
       const cmd = JSON.parse(raw);
-      if (!cmd.updatedAt || Date.now() - cmd.updatedAt > 30000) {
-        return Response.json({ audioUrl: null });
+      if (!cmd.updatedAt || Date.now() - cmd.updatedAt > 600000) {
+        return Response.json({ audioUrl: null }, { headers: { "Access-Control-Allow-Origin": "*" } });
       }
-      return Response.json({ audioUrl: cmd.audioUrl }, {
+      const proxyUrl = new URL(request.url).origin + "/speak-audio";
+      return Response.json({ audioUrl: proxyUrl }, {
         headers: { "Access-Control-Allow-Origin": "*" }
       });
     }
@@ -1013,6 +1014,7 @@ body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;displ
 <button class="play-btn" id="playBtn" disabled>▶</button>
 <div class="status" id="status">等待語音…</div>
 <script>
+const WORKER='${new URL(request.url).origin}';
 const status=document.getElementById('status');
 const reqs=new Map();let rid=0;
 const post=m=>window.parent.postMessage(m,'*');
@@ -1054,6 +1056,14 @@ function setAudio(u){
     }
   };
 }
+async function checkLatest(){
+  try{
+    const r=await fetch(WORKER+'/speak-latest',{mode:'cors'});
+    if(!r.ok)return;
+    const d=await r.json();
+    if(d.audioUrl)setAudio(d.audioUrl);
+  }catch{}
+}
 window.addEventListener('message',e=>{
   const m=e.data;if(!m?.jsonrpc)return;
   if(m.id!=null&&reqs.has(m.id)){
@@ -1067,7 +1077,7 @@ window.addEventListener('message',e=>{
   }
 });
 req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
-  .then(()=>notify('ui/notifications/initialized'))
+  .then(()=>{notify('ui/notifications/initialized');checkLatest();})
   .catch(()=>{});
 </script>
 </body>
