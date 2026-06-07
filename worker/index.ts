@@ -802,6 +802,19 @@ if (request.method === "POST" && url.pathname === "/tts") {
       });
     }
 
+    // GET /speak-audio — 直接回傳最新音頻 bytes（無需認證，供 MCP App 播放）
+    if (request.method === "GET" && url.pathname === "/speak-audio") {
+      const ab = await env.PHONE_STATE.get("speak_audio", { type: "arrayBuffer" });
+      if (!ab) return new Response("Not found", { status: 404 });
+      return new Response(ab, {
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Cache-Control": "no-cache",
+          "Access-Control-Allow-Origin": "*",
+        }
+      });
+    }
+
     return Response.json({ error: "not found" }, { status: 404 });
   },
 
@@ -1165,27 +1178,26 @@ req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabiliti
           type: "text", text: JSON.stringify({ error: "tts failed", detail: ttsData })
         }]}});
       }
-      // 把音頻下載並存進 R2，取得永久 URL
-      let audioUrl = tempUrl;
-      let r2Note = "";
+      // 下載音頻，存進 KV（speak_audio），URL 指向 /speak-audio
+      const origin = new URL(request.url).origin;
+      let audioUrl = `${origin}/speak-audio`;
+      let kvNote = "";
       try {
         const audioResp = await fetch(tempUrl);
-        if (!audioResp.ok) throw new Error(`fetch tempUrl ${audioResp.status}`);
+        if (!audioResp.ok) throw new Error(`fetch ${audioResp.status}`);
         const audioData = await audioResp.arrayBuffer();
-        if (!audioData.byteLength) throw new Error("empty audio");
-        const key = `audio/speak/${Date.now()}.mp3`;
-        await env.MEDIA.put(key, audioData, { httpMetadata: { contentType: "audio/mpeg" } });
-        const origin = new URL(request.url).origin;
-        audioUrl = `${origin}/media/${key}`;
+        if (!audioData.byteLength) throw new Error("empty");
+        await env.PHONE_STATE.put("speak_audio", audioData, { expirationTtl: 7200 });
       } catch (e: any) {
-        r2Note = ` r2err=${e.message}`;
+        audioUrl = tempUrl; // fallback to MiniMax temp URL
+        kvNote = ` kverr=${e.message}`;
       }
       // 存到KV，PWA去拉；同時發 push 喚醒 SW
       const audioCmd = { audioUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `語音已生成。audioUrl=${audioUrl}${r2Note}` }
+        { type: "text", text: `語音已生成。audioUrl=${audioUrl}${kvNote}` }
       ]}});
     }
 
