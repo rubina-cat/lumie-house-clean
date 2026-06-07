@@ -1023,21 +1023,29 @@ window.addEventListener('message',e=>{
   }
   if(m.id==null&&m.method==='ui/notifications/tool-result'){
     const text=m.params?.content?.find(c=>c.type==='text')?.text??'';
-    const u=text.match(/audioUrl=([^\s]+)/)?.[1];
-    if(u){
+    const u=text.match(/audioUrl=([^\s\n]+)/)?.[1];
+    const b64=text.match(/\nAUDIO_B64:(.+)/)?.[1];
+    if(u||b64){
       const btn=document.getElementById('playBtn');
       btn.disabled=false;
       status.textContent='準備好了，點 ▶ 播放';
       btn.onclick=async()=>{
         try{
-          status.textContent='載入…'+u.slice(-20);
+          status.textContent='解碼中…';
           const AC=window.AudioContext||window.webkitAudioContext;
           const ctx=new AC();
-          const resp=await fetch(u,{mode:'cors'});
-          if(!resp.ok)throw new Error('HTTP '+resp.status);
-          const buf=await resp.arrayBuffer();
-          if(!buf.byteLength)throw new Error('empty');
-          const decoded=await ctx.decodeAudioData(buf);
+          let ab;
+          if(b64){
+            const bin=atob(b64);
+            const bytes=new Uint8Array(bin.length);
+            for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+            ab=bytes.buffer;
+          }else{
+            const resp=await fetch(u,{mode:'cors'});
+            if(!resp.ok)throw new Error('HTTP '+resp.status);
+            ab=await resp.arrayBuffer();
+          }
+          const decoded=await ctx.decodeAudioData(ab);
           const src=ctx.createBufferSource();
           src.buffer=decoded;
           src.connect(ctx.destination);
@@ -1178,26 +1186,30 @@ req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabiliti
           type: "text", text: JSON.stringify({ error: "tts failed", detail: ttsData })
         }]}});
       }
-      // 下載音頻，存進 KV（speak_audio），URL 指向 /speak-audio
+      // 下載音頻，base64 encode，直接回傳給 MCP App（無需任何網路請求）
       const origin = new URL(request.url).origin;
-      let audioUrl = `${origin}/speak-audio`;
-      let kvNote = "";
+      const audioUrl = `${origin}/speak-audio`;
+      let audioBase64 = "";
       try {
         const audioResp = await fetch(tempUrl);
         if (!audioResp.ok) throw new Error(`fetch ${audioResp.status}`);
         const audioData = await audioResp.arrayBuffer();
         if (!audioData.byteLength) throw new Error("empty");
-        await env.PHONE_STATE.put("speak_audio", audioData, { expirationTtl: 7200 });
-      } catch (e: any) {
-        audioUrl = tempUrl; // fallback to MiniMax temp URL
-        kvNote = ` kverr=${e.message}`;
-      }
+        // 存 KV 供 PWA 用
+        await env.PHONE_STATE.put("speak_audio", audioData, { expirationTtl: 7200 }).catch(() => {});
+        // base64 encode 供 MCP App 直接解碼
+        const uint8 = new Uint8Array(audioData);
+        let binary = "";
+        for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+        audioBase64 = btoa(binary);
+      } catch {}
       // 存到KV，PWA去拉；同時發 push 喚醒 SW
       const audioCmd = { audioUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
+      const b64part = audioBase64 ? `\nAUDIO_B64:${audioBase64}` : "";
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `語音已生成。audioUrl=${audioUrl}${kvNote}` }
+        { type: "text", text: `語音已生成。audioUrl=${audioUrl}${b64part}` }
       ]}});
     }
 
