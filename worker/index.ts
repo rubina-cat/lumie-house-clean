@@ -1118,13 +1118,23 @@ app.connect();
       });
       const ttsData = await ttsRes.json() as any;
       // output_format:url 回傳 data.audio_file 是URL
-      const audioUrl = ttsData?.data?.audio_file || ttsData?.data?.audio || null;
-      if (!audioUrl) {
+      const tempUrl = ttsData?.data?.audio_file || ttsData?.data?.audio || null;
+      if (!tempUrl) {
         return Response.json({ jsonrpc: "2.0", id, result: { content: [{
           type: "text", text: JSON.stringify({ error: "tts failed", detail: ttsData })
         }]}});
       }
-      // 存URL到KV，PWA去拉；同時發 push 喚醒 SW
+      // 把音頻下載並存進 R2，取得永久 URL
+      let audioUrl = tempUrl;
+      try {
+        const audioResp = await fetch(tempUrl);
+        const audioData = await audioResp.arrayBuffer();
+        const key = `audio/speak/${Date.now()}.mp3`;
+        await env.MEDIA.put(key, audioData, { httpMetadata: { contentType: "audio/mpeg" } });
+        const origin = new URL(request.url).origin;
+        audioUrl = `${origin}/media/${key}`;
+      } catch {}
+      // 存到KV，PWA去拉；同時發 push 喚醒 SW
       const audioCmd = { audioUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
