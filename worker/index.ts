@@ -802,17 +802,25 @@ if (request.method === "POST" && url.pathname === "/tts") {
       });
     }
 
-    // GET /speak-audio — 直接回傳最新音頻 bytes（無需認證，供 MCP App 播放）
+    // GET /speak-audio — 代理最新語音（無需認證，供 MCP App 播放）
     if (request.method === "GET" && url.pathname === "/speak-audio") {
-      const ab = await env.PHONE_STATE.get("speak_audio", { type: "arrayBuffer" });
-      if (!ab) return new Response("Not found", { status: 404 });
-      return new Response(ab, {
-        headers: {
-          "Content-Type": "audio/mpeg",
-          "Cache-Control": "no-cache",
-          "Access-Control-Allow-Origin": "*",
-        }
-      });
+      const raw = await env.PHONE_STATE.get("speak_command");
+      if (!raw) return new Response("No audio", { status: 404 });
+      const cmd = JSON.parse(raw);
+      if (!cmd.audioUrl) return new Response("No URL", { status: 404 });
+      try {
+        const r = await fetch(cmd.audioUrl);
+        if (!r.ok) return new Response(`Upstream ${r.status}`, { status: 502 });
+        return new Response(r.body, {
+          headers: {
+            "Content-Type": "audio/mpeg",
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+          }
+        });
+      } catch (e: any) {
+        return new Response("Proxy error: " + e.message, { status: 502 });
+      }
     }
 
     return Response.json({ error: "not found" }, { status: 404 });
@@ -1186,30 +1194,13 @@ req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabiliti
           type: "text", text: JSON.stringify({ error: "tts failed", detail: ttsData })
         }]}});
       }
-      // 下載音頻，base64 encode，直接回傳給 MCP App（無需任何網路請求）
+      // 把 MiniMax tempUrl 存進 speak_command，/speak-audio 代理回傳
       const origin = new URL(request.url).origin;
-      const audioUrl = `${origin}/speak-audio`;
-      let audioBase64 = "";
-      try {
-        const audioResp = await fetch(tempUrl);
-        if (!audioResp.ok) throw new Error(`fetch ${audioResp.status}`);
-        const audioData = await audioResp.arrayBuffer();
-        if (!audioData.byteLength) throw new Error("empty");
-        // 存 KV 供 PWA 用
-        await env.PHONE_STATE.put("speak_audio", audioData, { expirationTtl: 7200 }).catch(() => {});
-        // base64 encode 供 MCP App 直接解碼
-        const uint8 = new Uint8Array(audioData);
-        let binary = "";
-        for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
-        audioBase64 = btoa(binary);
-      } catch {}
-      // 存到KV，PWA去拉；同時發 push 喚醒 SW
-      const audioCmd = { audioUrl, text, updatedAt: Date.now() };
+      const audioCmd = { audioUrl: tempUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
-      const b64part = audioBase64 ? `\nAUDIO_B64:${audioBase64}` : "";
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `語音已生成。audioUrl=${audioUrl}${b64part}` }
+        { type: "text", text: `語音已生成。audioUrl=${origin}/speak-audio` }
       ]}});
     }
 
