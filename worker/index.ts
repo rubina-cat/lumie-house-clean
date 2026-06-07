@@ -980,14 +980,16 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;gap:18px}
 .label{font-size:12px;color:#666;letter-spacing:0.18em;text-transform:uppercase}
-audio{width:100%;max-width:320px;border-radius:8px}
-.status{font-size:12px;color:#555;transition:color 0.3s}
-.status.active{color:#a89080}
+.play-btn{width:72px;height:72px;border-radius:50%;border:2px solid #a89080;background:transparent;color:#a89080;font-size:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
+.play-btn:active{background:#a89080;color:#0d0d0d}
+.play-btn:disabled{opacity:0.3;cursor:default}
+.status{font-size:12px;color:#555}
 </style>
 </head>
 <body>
 <div class="label">⚓ Anchor</div>
-<audio id="player" controls></audio>
+<audio id="player"></audio>
+<button class="play-btn" id="playBtn" disabled onclick="document.getElementById('player').play()">▶</button>
 <div class="status" id="status">等待語音…</div>
 <script>
 const player=document.getElementById('player');
@@ -1009,7 +1011,13 @@ window.addEventListener('message',e=>{
   if(m.id==null&&m.method==='ui/notifications/tool-result'){
     const text=m.params?.content?.find(c=>c.type==='text')?.text??'';
     const u=text.match(/audioUrl=([^\s]+)/)?.[1];
-    if(u){player.src=u;status.textContent='播放中…';status.className='status active';player.play().catch(()=>{status.textContent='▶ 點擊播放';});}
+    if(u){
+      player.src=u;
+      const btn=document.getElementById('playBtn');
+      btn.disabled=false;
+      status.textContent='準備好了，點 ▶ 播放';
+      player.play().catch(()=>{});
+    }
   }
 });
 req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
