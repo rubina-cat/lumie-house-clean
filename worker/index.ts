@@ -1059,10 +1059,18 @@ function setAudio(u){
 async function checkLatest(){
   try{
     const r=await fetch(WORKER+'/speak-latest',{mode:'cors'});
-    if(!r.ok)return;
+    if(!r.ok)return false;
     const d=await r.json();
-    if(d.audioUrl)setAudio(d.audioUrl);
+    if(d.audioUrl){setAudio(d.audioUrl);return true;}
   }catch{}
+  return false;
+}
+let _polls=0;
+async function pollLatest(){
+  if(_polls++>20)return;
+  const found=await checkLatest();
+  if(!found&&document.getElementById('playBtn').disabled)
+    setTimeout(pollLatest,3000);
 }
 window.addEventListener('message',e=>{
   const m=e.data;if(!m?.jsonrpc)return;
@@ -1077,8 +1085,9 @@ window.addEventListener('message',e=>{
   }
 });
 req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
-  .then(()=>{notify('ui/notifications/initialized');checkLatest();})
+  .then(()=>notify('ui/notifications/initialized'))
   .catch(()=>{});
+pollLatest();
 </script>
 </body>
 </html>`;
