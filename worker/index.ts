@@ -1000,17 +1000,6 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
     if (params?.uri === "ui://anchor/speak-player") {
       const origin = new URL(request.url).origin;
       const audioUrl = `${origin}/speak-audio`;
-      // Fetch QR code SVG server-side so the sandboxed iframe needs no external requests
-      let qrInner = `<div style="font-size:12px;color:#c8a898;word-break:break-all;padding:12px">${audioUrl}</div>`;
-      try {
-        const qrResp = await fetch(
-          `https://api.qrserver.com/v1/create-qr-code/?size=200x200&format=svg&data=${encodeURIComponent(audioUrl)}`
-        );
-        if (qrResp.ok) {
-          const svg = await qrResp.text();
-          qrInner = `<div style="background:#fff;border-radius:10px;padding:10px;display:inline-block">${svg}</div>`;
-        }
-      } catch (_) {}
       const html = `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1018,15 +1007,16 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:28px;gap:16px;text-align:center}
+body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:28px;gap:18px;text-align:center}
 .label{font-size:11px;color:#555;letter-spacing:0.18em;text-transform:uppercase}
+.url-box{font-size:13px;color:#c8a898;word-break:break-all;-webkit-user-select:text;user-select:text;line-height:1.8;padding:14px 18px;border:1px solid #2c2c2c;border-radius:10px;background:#111;max-width:320px}
 .hint{font-size:11px;color:#444;line-height:1.7}
 </style>
 </head>
 <body>
 <div class="label">⚓ Anchor 語音</div>
-${qrInner}
-<div class="hint">用相機掃 QR code 即可播放</div>
+<div class="url-box">${audioUrl}</div>
+<div class="hint">長按網址 → 複製 → 貼入瀏覽器播放</div>
 </body>
 </html>`;
       return Response.json({ jsonrpc: "2.0", id, result: { contents: [
