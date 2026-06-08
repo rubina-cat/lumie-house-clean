@@ -1059,15 +1059,19 @@ function setAudio(u){
 async function checkLatest(){
   try{
     const r=await fetch(WORKER+'/speak-latest',{mode:'cors'});
-    if(!r.ok)return false;
+    if(!r.ok){status.textContent='latest:'+r.status;return false;}
     const d=await r.json();
     if(d.audioUrl){setAudio(d.audioUrl);return true;}
-  }catch{}
+    status.textContent='等待語音…';
+  }catch(e){
+    status.textContent='✗fetch:'+e.message.slice(0,30);
+    return false;
+  }
   return false;
 }
 let _polls=0;
 async function pollLatest(){
-  if(_polls++>20)return;
+  if(_polls++>20){status.textContent='逾時';return;}
   const found=await checkLatest();
   if(!found&&document.getElementById('playBtn').disabled)
     setTimeout(pollLatest,3000);
