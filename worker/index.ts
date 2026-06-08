@@ -1017,10 +1017,10 @@ body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;displ
 <div class="label">⚓ Anchor</div>
 <audio id="player"></audio>
 <button class="play-btn" id="playBtn" disabled>▶</button>
-<div class="status" id="status">初始化…</div>
+<div class="status" id="status">JS未啟動</div>
 <script>
 const WORKER='${new URL(request.url).origin}';
-document.getElementById('status').textContent='W:'+WORKER.slice(-20);
+document.getElementById('status').textContent='JS✓';
 const status=document.getElementById('status');
 const reqs=new Map();let rid=0;
 const post=m=>window.parent.postMessage(m,'*');
