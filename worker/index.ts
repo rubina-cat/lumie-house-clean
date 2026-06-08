@@ -999,6 +999,7 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
   if (method === "resources/read") {
     if (params?.uri === "ui://anchor/speak-player") {
       const origin = new URL(request.url).origin;
+      const audioUrl = `${origin}/speak-audio`;
       const html = `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1006,18 +1007,16 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;gap:20px;text-align:center}
+body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:28px;gap:18px;text-align:center}
 .label{font-size:11px;color:#555;letter-spacing:0.18em;text-transform:uppercase}
-audio{width:260px}
-.hint{font-size:11px;color:#444;line-height:1.6}
-a{color:#8a7060;font-size:11px;text-decoration:none;border-bottom:1px solid #8a7060}
+.url-box{font-size:13px;color:#c8a898;word-break:break-all;-webkit-user-select:text;user-select:text;line-height:1.8;padding:14px 18px;border:1px solid #2c2c2c;border-radius:10px;background:#111;max-width:320px}
+.hint{font-size:11px;color:#444;line-height:1.7}
 </style>
 </head>
 <body>
-<div class="label">⚓ Anchor</div>
-<audio controls preload="none" src="${origin}/speak-audio"></audio>
-<div class="hint">speak 工具執行後，按 ▶ 播放</div>
-<a href="${origin}/speak-audio">在瀏覽器開啟音頻</a>
+<div class="label">⚓ Anchor 語音</div>
+<div class="url-box">${audioUrl}</div>
+<div class="hint">長按上方網址 → 複製連結<br>貼入瀏覽器即可播放</div>
 </body>
 </html>`;
       return Response.json({ jsonrpc: "2.0", id, result: { contents: [
@@ -1156,7 +1155,7 @@ a{color:#8a7060;font-size:11px;text-decoration:none;border-bottom:1px solid #8a7
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `語音已生成。audioUrl=${origin}/speak-audio` }
+        { type: "text", text: `語音已生成 ✓\n🔊 ${origin}/speak-audio` }
       ]}});
     }
 
