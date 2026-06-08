@@ -987,6 +987,11 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
         uri: "ui://anchor/speak-player",
         name: "Anchor 語音播放器",
         mimeType: "text/html;profile=mcp-app"
+      },
+      {
+        uri: "data://anchor/now",
+        name: "最新語音 URL",
+        mimeType: "text/plain"
       }
     ]}});
   }
@@ -1012,9 +1017,10 @@ body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;displ
 <div class="label">⚓ Anchor</div>
 <audio id="player"></audio>
 <button class="play-btn" id="playBtn" disabled>▶</button>
-<div class="status" id="status">等待語音…</div>
+<div class="status" id="status">初始化…</div>
 <script>
 const WORKER='${new URL(request.url).origin}';
+document.getElementById('status').textContent='W:'+WORKER.slice(-20);
 const status=document.getElementById('status');
 const reqs=new Map();let rid=0;
 const post=m=>window.parent.postMessage(m,'*');
@@ -1089,7 +1095,13 @@ window.addEventListener('message',e=>{
   }
 });
 req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
-  .then(()=>notify('ui/notifications/initialized'))
+  .then(()=>{
+    notify('ui/notifications/initialized');
+    // 嘗試透過 MCP 協議讀取最新音頻 URL
+    req('resources/read',{uri:'data://anchor/now'})
+      .then(r=>{const u=r?.contents?.[0]?.text;if(u)setAudio(u);})
+      .catch(()=>{});
+  })
   .catch(()=>{});
 pollLatest();
 </script>
@@ -1097,6 +1109,15 @@ pollLatest();
 </html>`;
       return Response.json({ jsonrpc: "2.0", id, result: { contents: [
         { uri: "ui://anchor/speak-player", mimeType: "text/html;profile=mcp-app", text: html }
+      ]}});
+    }
+    if (params?.uri === "data://anchor/now") {
+      const raw = await env.PHONE_STATE.get("speak_command");
+      const cmd = raw ? JSON.parse(raw) : null;
+      const isRecent = cmd?.updatedAt && Date.now() - cmd.updatedAt < 600000;
+      const audioUrl = isRecent ? `${new URL(request.url).origin}/speak-audio` : "";
+      return Response.json({ jsonrpc: "2.0", id, result: { contents: [
+        { uri: "data://anchor/now", mimeType: "text/plain", text: audioUrl }
       ]}});
     }
     return Response.json({ jsonrpc: "2.0", id, error: { code: -32002, message: "Resource not found" }});
