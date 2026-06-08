@@ -998,6 +998,7 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
 
   if (method === "resources/read") {
     if (params?.uri === "ui://anchor/speak-player") {
+      const origin = new URL(request.url).origin;
       const html = `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1005,106 +1006,18 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;gap:18px}
-.label{font-size:12px;color:#666;letter-spacing:0.18em;text-transform:uppercase}
-.play-btn{width:72px;height:72px;border-radius:50%;border:2px solid #a89080;background:transparent;color:#a89080;font-size:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
-.play-btn:active{background:#a89080;color:#0d0d0d}
-.play-btn:disabled{opacity:0.3;cursor:default}
-.status{font-size:12px;color:#555}
+body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;gap:20px;text-align:center}
+.label{font-size:11px;color:#555;letter-spacing:0.18em;text-transform:uppercase}
+audio{width:260px}
+.hint{font-size:11px;color:#444;line-height:1.6}
+a{color:#8a7060;font-size:11px;text-decoration:none;border-bottom:1px solid #8a7060}
 </style>
 </head>
 <body>
 <div class="label">⚓ Anchor</div>
-<audio id="player"></audio>
-<button class="play-btn" id="playBtn" disabled>▶</button>
-<div class="status" id="status">JS未啟動</div>
-<script>
-const WORKER='${new URL(request.url).origin}';
-document.getElementById('status').textContent='JS✓';
-const status=document.getElementById('status');
-const reqs=new Map();let rid=0;
-const post=m=>window.parent.postMessage(m,'*');
-const req=(method,params)=>new Promise((res,rej)=>{
-  const id=++rid;reqs.set(id,{res,rej});
-  post({jsonrpc:'2.0',id,method,params});
-  setTimeout(()=>{reqs.delete(id);rej('timeout');},15000);
-});
-const notify=(method,params)=>post({jsonrpc:'2.0',method,params});
-function setAudio(u){
-  const btn=document.getElementById('playBtn');
-  btn.disabled=false;
-  status.textContent='準備好了，點 ▶';
-  btn.onclick=async()=>{
-    try{
-      status.textContent='①點擊';
-      const AC=window.AudioContext||window.webkitAudioContext;
-      if(!AC)throw new Error('no AudioContext');
-      status.textContent='②建立ctx';
-      const ctx=new AC();
-      status.textContent='③resume';
-      await ctx.resume();
-      status.textContent='④fetch…';
-      const resp=await fetch(u,{mode:'cors'});
-      status.textContent='⑤HTTP '+resp.status;
-      if(!resp.ok)throw new Error('HTTP '+resp.status);
-      const ab=await resp.arrayBuffer();
-      status.textContent='⑥'+ab.byteLength+'B';
-      if(!ab.byteLength)throw new Error('empty');
-      const decoded=await ctx.decodeAudioData(ab);
-      status.textContent='⑦'+decoded.duration.toFixed(1)+'s';
-      const src=ctx.createBufferSource();
-      src.buffer=decoded;src.connect(ctx.destination);
-      src.onended=()=>{status.textContent='播放完畢';};
-      src.start(0);
-      status.textContent='⑧播放中';
-    }catch(e){
-      status.textContent='✕'+e.message.slice(0,50);
-    }
-  };
-}
-async function checkLatest(){
-  try{
-    const r=await fetch(WORKER+'/speak-latest',{mode:'cors'});
-    if(!r.ok){status.textContent='latest:'+r.status;return false;}
-    const d=await r.json();
-    if(d.audioUrl){setAudio(d.audioUrl);return true;}
-    status.textContent='等待語音…';
-  }catch(e){
-    status.textContent='✗fetch:'+e.message.slice(0,30);
-    return false;
-  }
-  return false;
-}
-let _polls=0;
-async function pollLatest(){
-  if(_polls++>20){status.textContent='逾時';return;}
-  const found=await checkLatest();
-  if(!found&&document.getElementById('playBtn').disabled)
-    setTimeout(pollLatest,3000);
-}
-window.addEventListener('message',e=>{
-  const m=e.data;if(!m?.jsonrpc)return;
-  if(m.id!=null&&reqs.has(m.id)){
-    const{res,rej}=reqs.get(m.id);reqs.delete(m.id);
-    m.error?rej(m.error):res(m.result);
-  }
-  if(m.id==null&&m.method==='ui/notifications/tool-result'){
-    const text=m.params?.content?.find(c=>c.type==='text')?.text??'';
-    const u=text.match(/audioUrl=([^\s\n]+)/)?.[1];
-    if(u)setAudio(u);
-  }
-});
-req('ui/initialize',{appInfo:{name:'Anchor Voice',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
-  .then(()=>{
-    notify('ui/notifications/initialized');
-    // 嘗試透過 MCP 協議讀取最新音頻 URL
-    req('resources/read',{uri:'data://anchor/now'})
-      .then(r=>{const u=r?.contents?.[0]?.text;if(u)setAudio(u);})
-      .catch(()=>{});
-  })
-  .catch(()=>{});
-pollLatest();
-</script>
+<audio controls preload="none" src="${origin}/speak-audio"></audio>
+<div class="hint">speak 工具執行後，按 ▶ 播放</div>
+<a href="${origin}/speak-audio">在瀏覽器開啟音頻</a>
 </body>
 </html>`;
       return Response.json({ jsonrpc: "2.0", id, result: { contents: [
