@@ -976,7 +976,6 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
           },
           required: ["text"]
         },
-        _meta: { ui: { resourceUri: "ui://anchor/speak-player" } }
       }
     ]}});
   }
