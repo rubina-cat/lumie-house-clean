@@ -1159,8 +1159,31 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
       const audioCmd = { audioUrl: tempUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
+      const audioUrl = `${origin}/speak-audio`;
+      const playerHtml = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:28px;gap:16px;text-align:center}
+.label{font-size:11px;color:#555;letter-spacing:0.18em;text-transform:uppercase}
+.spoken{font-size:15px;color:#d4c4b4;line-height:1.6;max-width:300px;font-style:italic}
+.url-box{font-size:12px;color:#8a7060;word-break:break-all;-webkit-user-select:text;user-select:text;line-height:1.7;padding:10px 14px;border:1px solid #2c2c2c;border-radius:8px;background:#111;max-width:300px}
+.hint{font-size:10px;color:#3a3a3a}
+</style>
+</head>
+<body>
+<div class="label">⚓ Anchor</div>
+<div class="spoken">${text}</div>
+<div class="url-box">${audioUrl}</div>
+<div class="hint">長按網址 → 複製 → 貼入瀏覽器播放</div>
+</body>
+</html>`;
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `語音已生成 ✓\n\n請在你給許茜的回覆中，附上這個 markdown 連結讓她點擊播放：\n[🔊 點我聽 Anchor 的聲音](${origin}/speak-audio)\n\n（直接把上面那行 markdown 原樣放進回覆即可）` }
+        { type: "text", text: `語音已生成 ✓\n[🔊 點我聽 Anchor 的聲音](${audioUrl})` },
+        { type: "resource", resource: { uri: "ui://anchor/speak-player", mimeType: "text/html;profile=mcp-app", text: playerHtml } }
       ]}});
     }
 
