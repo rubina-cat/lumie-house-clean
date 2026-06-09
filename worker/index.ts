@@ -1000,6 +1000,9 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
     if (params?.uri === "ui://anchor/speak-player") {
       const origin = new URL(request.url).origin;
       const audioUrl = `${origin}/speak-audio`;
+      const raw = await env.PHONE_STATE.get("speak_command");
+      const cmd = raw ? JSON.parse(raw) : null;
+      const spokenText = cmd?.text ?? "";
       const html = `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1007,14 +1010,16 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:28px;gap:18px;text-align:center}
+body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:28px;gap:16px;text-align:center}
 .label{font-size:11px;color:#555;letter-spacing:0.18em;text-transform:uppercase}
-.url-box{font-size:13px;color:#c8a898;word-break:break-all;-webkit-user-select:text;user-select:text;line-height:1.8;padding:14px 18px;border:1px solid #2c2c2c;border-radius:10px;background:#111;max-width:320px}
-.hint{font-size:11px;color:#444;line-height:1.7}
+.spoken{font-size:15px;color:#d4c4b4;line-height:1.6;max-width:300px;font-style:italic}
+.url-box{font-size:12px;color:#8a7060;word-break:break-all;-webkit-user-select:text;user-select:text;line-height:1.7;padding:10px 14px;border:1px solid #2c2c2c;border-radius:8px;background:#111;max-width:300px}
+.hint{font-size:10px;color:#3a3a3a}
 </style>
 </head>
 <body>
-<div class="label">⚓ Anchor 語音</div>
+<div class="label">⚓ Anchor</div>
+${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
 <div class="url-box">${audioUrl}</div>
 <div class="hint">長按網址 → 複製 → 貼入瀏覽器播放</div>
 </body>
