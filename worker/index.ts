@@ -1155,7 +1155,7 @@ body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;displ
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `語音已生成 ✓\n🔊 ${origin}/speak-audio` }
+        { type: "text", text: `語音已生成 ✓\n\n請在你給許茜的回覆中，附上這個 markdown 連結讓她點擊播放：\n[🔊 點我聽 Anchor 的聲音](${origin}/speak-audio)\n\n（直接把上面那行 markdown 原樣放進回覆即可）` }
       ]}});
     }
 
