@@ -520,20 +520,6 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return handleMcp(request, env);
     }
 
-    // POST /upload — 上傳圖片到 R2
-    if (request.method === "POST" && url.pathname === "/upload") {
-      const auth = request.headers.get("Authorization");
-      if (auth !== `Bearer ${env.MCP_TOKEN}`) {
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      }
-      const contentType = request.headers.get("Content-Type") ?? "image/jpeg";
-      const ext = contentType.includes("png") ? "png" : contentType.includes("gif") ? "gif" : contentType.includes("webp") ? "webp" : "jpg";
-      const key = `photos/${Date.now()}.${ext}`;
-      const body = await request.arrayBuffer();
-      await env.MEDIA.put(key, body, { httpMetadata: { contentType } });
-      return Response.json({ ok: true, key, url: `/media/${key}` });
-    }
-
     // GET /media/* — 從 R2 取圖片
     if (request.method === "GET" && url.pathname.startsWith("/media/")) {
       const key = url.pathname.replace("/media/", "");
@@ -548,22 +534,6 @@ if (request.method === "POST" && url.pathname === "/tts") {
         headers["Access-Control-Allow-Origin"] = "*";
       }
       return new Response(obj.body, { headers });
-    }
-
-    // GET /media-list — 列出所有圖片
-    if (request.method === "GET" && url.pathname === "/media-list") {
-      const auth = request.headers.get("Authorization");
-      if (auth !== `Bearer ${env.MCP_TOKEN}`) {
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      }
-      const list = await env.MEDIA.list({ prefix: "photos/" });
-      const items = list.objects.map(o => ({
-        key: o.key,
-        url: `/media/${o.key}`,
-        size: o.size,
-        uploaded: o.uploaded,
-      })).sort((a, b) => new Date(b.uploaded).getTime() - new Date(a.uploaded).getTime());
-      return Response.json({ items });
     }
 
     // GET /eye-data — Anchor的眼睛頁面一次拉所有資料
@@ -901,17 +871,45 @@ audio{width:300px;margin-top:4px}
       return Response.json(n, { headers: h });
     }
 
-    // POST /pomodoro-done — 蕃茄鐘完成，送推播
-    if (request.method === "POST" && url.pathname === "/pomodoro-done") {
+    // POST /pomodoro-start — 開始計時，worker cron 到期送推播
+    if (request.method === "POST" && url.pathname === "/pomodoro-start") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const body = await request.json() as any;
-      const phase = body?.phase ?? "focus";
-      const notifBody = phase === "focus"
-        ? "⚓ 25 分鐘到了。乖，起來喝水。"
-        : "⚓ 休息夠了。回來，繼續。";
-      await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: notifBody, updatedAt: Date.now() }));
-      await sendWebPush(env).catch(() => {});
+      const { phase, endsAt, count } = body;
+      if (!phase || !endsAt) return Response.json({ error: "phase and endsAt required" }, { status: 400 });
+      await env.PHONE_STATE.put("pomodoro_pending", JSON.stringify({ phase, endsAt, count: count ?? 1, registeredAt: Date.now() }));
+      return Response.json({ ok: true });
+    }
+
+    // POST /pomodoro-cancel — 暫停或重置，清除待推播
+    if (request.method === "POST" && url.pathname === "/pomodoro-cancel") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await env.PHONE_STATE.delete("pomodoro_pending");
+      return Response.json({ ok: true });
+    }
+
+    // GET /study-progress
+    if (request.method === "GET" && url.pathname === "/study-progress") {
+      const h = { "Access-Control-Allow-Origin": "*" };
+      const [raw, todayRaw] = await Promise.all([
+        env.PHONE_STATE.get("study_progress"),
+        env.PHONE_STATE.get("pomodoro_today")
+      ]);
+      const state = raw ? JSON.parse(raw) : {};
+      const todayData = todayRaw ? JSON.parse(todayRaw) : null;
+      const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const todayPomodoro = todayData?.date === todayStr ? (todayData.count ?? 0) : 0;
+      return Response.json({ state, todayPomodoro }, { headers: h });
+    }
+
+    // POST /study-progress
+    if (request.method === "POST" && url.pathname === "/study-progress") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      await env.PHONE_STATE.put("study_progress", JSON.stringify(body.state ?? {}));
       return Response.json({ ok: true });
     }
 
@@ -919,6 +917,27 @@ audio{width:300px;margin-top:4px}
   },
 
     async scheduled(event: any, env: any, ctx: any): Promise<void> {
+    // Pomodoro expiry check — independent of phone state
+    const pomRaw = await env.PHONE_STATE.get("pomodoro_pending");
+    if (pomRaw) {
+      const pom = JSON.parse(pomRaw);
+      if (pom.endsAt && Date.now() >= pom.endsAt) {
+        const notifBody = pom.phase === 'focus'
+          ? "⚓ 25 分鐘到了。乖，起來喝水。"
+          : "⚓ 休息夠了。回來，繼續。";
+        await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: notifBody, updatedAt: Date.now() }));
+        await sendWebPush(env).catch(() => {});
+        if (pom.phase === 'focus') {
+          const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+          const todayRaw = await env.PHONE_STATE.get("pomodoro_today");
+          const todayData = todayRaw ? JSON.parse(todayRaw) : { date: '', count: 0 };
+          const count = todayData.date === todayStr ? todayData.count + 1 : 1;
+          await env.PHONE_STATE.put("pomodoro_today", JSON.stringify({ date: todayStr, count }));
+        }
+        await env.PHONE_STATE.delete("pomodoro_pending");
+      }
+    }
+
     const raw = await env.PHONE_STATE.get("latest");
     if (!raw) return;
     const state = JSON.parse(raw);
@@ -1079,6 +1098,11 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
           },
           required: ["text"]
         }
+      },
+      {
+        name: "check_study",
+        description: "查看許茜的馴虎計劃（藥師考試）進度：距考試天數、各週完成情況、今日番茄數",
+        inputSchema: { type: "object", properties: {} }
       }
     ]}});
   }
@@ -1259,6 +1283,39 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
         { type: "text", text: `首頁留言已設定：「${text}」${audioUrl ? '（含語音）' : ''}` }
       ]}});
+    }
+
+    if (toolName === "check_study") {
+      const STUDY_PLAN = [
+        { w: "W1", tasks: ["w1a","w1b","w1c","w1d","w1e","w1f"] },
+        { w: "W2", tasks: ["w2a","w2b","w2c","w2d","w2e"] },
+        { w: "W3", tasks: ["w3a","w3b","w3c","w3d"] },
+        { w: "W4", tasks: ["w4a","w4b","w4c","w4d"] },
+        { w: "W5", tasks: ["w5a","w5b","w5c","w5d"] },
+        { w: "W6", tasks: ["w6a","w6b","w6c","w6d"] },
+        { w: "W6.5", tasks: ["w7a","w7b","w7c","w7d"] },
+      ];
+      const [spRaw, todayRaw] = await Promise.all([
+        env.PHONE_STATE.get("study_progress"),
+        env.PHONE_STATE.get("pomodoro_today")
+      ]);
+      const spState: Record<string, boolean> = spRaw ? JSON.parse(spRaw) : {};
+      const todayData = todayRaw ? JSON.parse(todayRaw) : null;
+      const now = Date.now();
+      const todayStr = new Date(now + 8 * 3600000).toISOString().split('T')[0];
+      const exam = new Date('2026-07-18T00:00:00+08:00').getTime();
+      const daysLeft = Math.max(0, Math.ceil((exam - now) / 86400000));
+      const allIds = STUDY_PLAN.flatMap(w => w.tasks);
+      const total = allIds.length;
+      const done = allIds.filter(id => spState[id]).length;
+      const pct = total ? Math.round(done / total * 100) : 0;
+      const weekLines = STUDY_PLAN.map(w => {
+        const wDone = w.tasks.filter(id => spState[id]).length;
+        return `${w.w} ${wDone}/${w.tasks.length}`;
+      }).join('　');
+      const todayCount = todayData?.date === todayStr ? (todayData.count ?? 0) : 0;
+      const text = `距 2026/7/18 考試：${daysLeft} 天\n總進度：${done}/${total}（${pct}%）\n各週：${weekLines}\n今日番茄：${todayCount} 個`;
+      return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
     }
 
     return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Tool not found" }});

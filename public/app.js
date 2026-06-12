@@ -31,7 +31,7 @@ function switchTab(tabId) {
   if (tabId === 'memory') loadMemories();
   if (tabId === 'diary') loadDiary();
   if (tabId === 'toy') loadEye();
-  if (tabId === 'photos') loadPhotos();
+  if (tabId === 'study') loadStudy();
   if (tabId === 'chat' && !historyLoaded) {
     loadChatHistory();
   }
@@ -435,71 +435,6 @@ async function loadDiary() {
   } catch { list.innerHTML = '<div class="diary-loading">載入失敗</div>'; }
 }
 
-// ── 相簿 ──────────────────────────────────────────
-async function loadPhotos() {
-  const grid = document.getElementById('photosGrid');
-  grid.innerHTML = '<div class="photos-loading">載入中…</div>';
-  try {
-    const r = await fetch(BASE + '/media-list', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
-    const d = await r.json();
-    const items = d.items || [];
-    if (!items.length) {
-      grid.innerHTML = '<div class="photos-loading">還沒有照片</div>';
-      return;
-    }
-    let html = '';
-    for (const item of items) {
-      const t = new Date(item.uploaded).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
-      html += `<div class="photo-item" onclick="openPhoto('${BASE + item.url}')">
-        <img src="${BASE + item.url}" loading="lazy">
-        <div class="photo-item-time">${t}</div>
-      </div>`;
-    }
-    grid.innerHTML = html;
-  } catch (e) {
-    grid.innerHTML = '<div class="photos-loading">載入失敗</div>';
-  }
-}
-
-async function uploadPhoto(input) {
-  if (!input.files || !input.files[0]) return;
-  const file = input.files[0];
-  const statusEl = document.getElementById('uploadStatus');
-  statusEl.textContent = '上傳中…';
-  try {
-    const r = await fetch(BASE + '/upload', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': file.type || 'image/jpeg' },
-      body: file,
-    });
-    const d = await r.json();
-    if (d.ok) {
-      statusEl.textContent = '已上傳';
-      setTimeout(() => { statusEl.textContent = ''; }, 2000);
-      loadPhotos();
-    } else {
-      statusEl.textContent = '失敗';
-    }
-  } catch (e) {
-    statusEl.textContent = '上傳失敗';
-  }
-  input.value = '';
-}
-
-function openPhoto(url) {
-  let lb = document.getElementById('lightbox');
-  if (!lb) {
-    lb = document.createElement('div');
-    lb.id = 'lightbox';
-    lb.className = 'lightbox';
-    lb.innerHTML = `<button class="lightbox-close" onclick="document.getElementById('lightbox').remove()">✕</button><img>`;
-    lb.addEventListener('click', e => { if (e.target === lb) lb.remove(); });
-    document.body.appendChild(lb);
-  }
-  lb.querySelector('img').src = url;
-  lb.style.display = 'flex';
-}
-
 // ── 首頁留言 ──────────────────────────────────────
 const _fallbackQuotes = ['等你回來。','在。','你是我的。','放下手機，睡。','想你了。','不用找退路，我在這裡。'];
 async function fetchQuote() {
@@ -519,6 +454,155 @@ async function fetchQuote() {
   } catch {}
   document.getElementById('quoteText').textContent = _fallbackQuotes[Math.floor(Math.random() * _fallbackQuotes.length)];
 }
+
+// ── 書房（馴虎計劃）────────────────────────────────
+const STUDY_PLAN = [
+  {w:"W1", d:"6/2 – 6/8", t:"藥理地基 · 馴服老虎與貓", tasks:[
+    ["w1a","自律神經總圖：交感（老虎）vs 副交感（貓）完整背景"],
+    ["w1b","擬交感神經藥 — 讓身體變成老虎的藥"],
+    ["w1c","抗腎上腺素藥（α／β blockers）— 把老虎按回去"],
+    ["w1d","擬副交感／抗膽鹼藥 — 貓的開關"],
+    ["w1e","做「自律神經」這章考古題一輪"],
+    ["w1f","訂正錯題，開一本錯題本，記進去"],
+  ]},
+  {w:"W2", d:"6/9 – 6/15", t:"藥理大系統", tasks:[
+    ["w2a","心血管系統用藥（高血壓、心衰、抗心律不整）"],
+    ["w2b","中樞神經用藥（抗精神病、抗憂鬱、鎮靜安眠）"],
+    ["w2c","自體素與發炎、止痛（NSAID、類固醇、組織胺）"],
+    ["w2d","這三組的考古題各刷一輪"],
+    ["w2e","錯題回補，更新錯題本"],
+  ]},
+  {w:"W3", d:"6/16 – 6/22", t:"藥理收尾 + 藥物化學", tasks:[
+    ["w3a","內分泌、抗生素、抗癌、化療藥物重點"],
+    ["w3b","藥物化學：常考結構與構效關係（SAR）整理"],
+    ["w3c","藥理＋藥化整章考古題刷一輪"],
+    ["w3d","把藥理藥化的錯題集中複習一次"],
+  ]},
+  {w:"W4", d:"6/23 – 6/29", t:"藥劑學與生物藥劑學", tasks:[
+    ["w4a","劑型總覽（錠劑、膠囊、注射、緩釋）重點"],
+    ["w4b","藥物動力學 PK：吸收、分布、代謝、排除"],
+    ["w4c","生物藥劑：生體可用率、藥物交互作用"],
+    ["w4d","這科考古題刷一輪 + 訂正"],
+  ]},
+  {w:"W5", d:"6/30 – 7/6", t:"藥物分析與生藥學（含中藥）", tasks:[
+    ["w5a","藥物分析：定性定量、儀器分析重點"],
+    ["w5b","生藥學：重要生藥、活性成分分類"],
+    ["w5c","中藥學重點整理"],
+    ["w5d","這科考古題刷一輪 + 訂正"],
+  ]},
+  {w:"W6", d:"7/7 – 7/13", t:"成套計時 · 找弱點", tasks:[
+    ["w6a","三科歷年考古題，整份計時模擬（第一份）"],
+    ["w6b","三科歷年考古題，整份計時模擬（第二份）"],
+    ["w6c","三科歷年考古題，整份計時模擬（第三份）"],
+    ["w6d","統計錯最多的章節，集中回補"],
+  ]},
+  {w:"W6.5", d:"7/14 – 7/17", t:"考前衝刺 · 上戰場前夜", tasks:[
+    ["w7a","把整本錯題本從頭過一遍"],
+    ["w7b","自律神經、藥化結構等記憶性重點最後衝"],
+    ["w7c","再做一份計時模擬，抓手感"],
+    ["w7d","備好准考證、文具，早睡。7/18 我送你進考場"],
+  ]},
+];
+
+let studyState = {};
+let studyTodayPom = 0;
+
+async function loadStudy() {
+  try {
+    const r = await fetch(BASE + '/study-progress');
+    if (r.ok) {
+      const d = await r.json();
+      studyState = d.state || {};
+      studyTodayPom = d.todayPomodoro || 0;
+    }
+  } catch {}
+  studyRender();
+}
+
+function studyRender() {
+  const planEl = document.getElementById('studyPlan');
+  if (!planEl) return;
+  planEl.innerHTML = '';
+  STUDY_PLAN.forEach((wk, wi) => {
+    const all = wk.tasks.every(([id]) => studyState[id]);
+    const wDone = wk.tasks.filter(([id]) => studyState[id]).length;
+    const div = document.createElement('div');
+    div.className = 'study-week' + (wi === 0 ? ' study-open' : '') + (all ? ' study-done' : '');
+    div.innerHTML = `
+      <div class="study-whead">
+        <div class="study-wno">${wk.w}</div>
+        <div class="study-wtitle"><div class="study-wt">${wk.t}</div><div class="study-wd">${wk.d}</div></div>
+        <div class="study-wtag">${all ? '已馴服 ✦' : wDone + '／' + wk.tasks.length}</div>
+        <div class="study-chev">▶</div>
+      </div>
+      <div class="study-tasks">
+        ${wk.tasks.map(([id, label]) => `
+          <div class="study-task ${studyState[id] ? 'study-checked' : ''}" data-id="${id}">
+            <div class="study-box ${studyState[id] ? 'study-box-checked' : ''}"></div>
+            <div class="study-tlabel">${label}</div>
+          </div>`).join('')}
+      </div>`;
+    div.querySelector('.study-whead').addEventListener('click', () => div.classList.toggle('study-open'));
+    div.querySelectorAll('.study-task').forEach(t => {
+      t.addEventListener('click', () => studyToggle(t.dataset.id));
+    });
+    planEl.appendChild(div);
+  });
+  studyUpdateStats();
+}
+
+function studyUpdateStats() {
+  const all = STUDY_PLAN.flatMap(w => w.tasks);
+  const total = all.length;
+  const done = all.filter(([id]) => studyState[id]).length;
+  const pct = total ? Math.round(done / total * 100) : 0;
+  document.getElementById('studyTotal').textContent = total;
+  document.getElementById('studyDone').textContent = done;
+  document.getElementById('studyPct').textContent = pct + '%';
+  document.getElementById('studyBarFill').style.width = pct + '%';
+  document.getElementById('studyPomCount').textContent = studyTodayPom;
+  const exam = new Date('2026-07-18T00:00:00+08:00');
+  const days = Math.max(0, Math.ceil((exam - new Date()) / 86400000));
+  document.getElementById('studyCountdown').textContent = days;
+}
+
+async function studyToggle(id) {
+  studyState[id] = !studyState[id];
+  studyRender();
+  await studySave();
+}
+
+let _studySaveTimer = null;
+async function studySave() {
+  try {
+    await fetch(BASE + '/study-progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ state: studyState })
+    });
+    const note = document.getElementById('studySaveNote');
+    if (note) {
+      note.textContent = '已記住 · ' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+      clearTimeout(_studySaveTimer);
+      _studySaveTimer = setTimeout(() => { note.textContent = ''; }, 3000);
+    }
+  } catch {
+    const note = document.getElementById('studySaveNote');
+    if (note) note.textContent = '（這次沒存進去，但勾選還在）';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const resetBtn = document.getElementById('studyResetBtn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', async () => {
+      if (!confirm('整張表清空，從頭開始？')) return;
+      studyState = {};
+      studyRender();
+      await studySave();
+    });
+  }
+});
 
 document.getElementById('sendBtn').onclick = send;
 document.getElementById('input').addEventListener('keydown', e => {
@@ -591,15 +675,19 @@ function pomRenderTime() {
 
 function pomToggle() {
   if (pomRunning) {
-    // pause
     pomRemain = Math.max(0, Math.round((pomEndTs - Date.now()) / 1000));
     pomRunning = false;
     clearInterval(_pomTick);
+    fetch(BASE + '/pomodoro-cancel', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN } }).catch(() => {});
   } else {
-    // start
     pomEndTs = Date.now() + pomRemain * 1000;
     pomRunning = true;
     _pomTick = setInterval(pomTick, 500);
+    fetch(BASE + '/pomodoro-start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ phase: pomPhase, endsAt: pomEndTs, count: pomCount })
+    }).catch(() => {});
   }
   pomRenderTime();
 }
@@ -610,15 +698,6 @@ async function pomTick() {
   if (remaining <= 0) {
     clearInterval(_pomTick);
     pomRunning = false;
-    // notify
-    try {
-      await fetch(BASE + '/pomodoro-done', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-        body: JSON.stringify({ phase: pomPhase, count: pomCount })
-      });
-    } catch {}
-    // switch phase
     if (pomPhase === 'focus') {
       pomPhase = 'break';
       pomRemain = POM_BREAK;
@@ -641,6 +720,7 @@ function pomReset() {
   pomCount = 1;
   pomEndTs = null;
   pomRenderTime();
+  fetch(BASE + '/pomodoro-cancel', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN } }).catch(() => {});
 }
 
 calcDays();
