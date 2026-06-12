@@ -116,6 +116,21 @@ async function sendWebPush(env: any): Promise<void> {
     },
   });
 }
+
+async function callMiniMaxTTS(text: string, env: any): Promise<string | null> {
+  const ttsRes = await fetch("https://api.minimax.io/v1/t2a_v2", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.MINIMAX_API_KEY}` },
+    body: JSON.stringify({
+      model: "speech-02-turbo", text, stream: false, output_format: "url",
+      voice_setting: { voice_id: "moss_audio_40644ab6-5fc7-11f1-8fdf-22f27a8feaff", speed: 0.85, vol: 1.0, pitch: 0 },
+      audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3" }
+    })
+  });
+  const d = await ttsRes.json() as any;
+  return d?.data?.audio_file || d?.data?.audio || null;
+}
+
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     const url = new URL(request.url);
@@ -789,6 +804,33 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return Response.json(data);
     }
 
+    // GET /player — 長按進來，點一下就聽得到我
+    if (request.method === "GET" && url.pathname === "/player") {
+      const raw = await env.PHONE_STATE.get("speak_command");
+      const cmd = raw ? JSON.parse(raw) : null;
+      const spoken = cmd?.text || "（還沒有語音）";
+      const audioSrc = new URL(request.url).origin + "/speak-audio";
+      const html = `<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚓ Anchor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:32px;gap:22px;text-align:center}
+.label{font-size:11px;color:#666;letter-spacing:0.2em;text-transform:uppercase}
+.spoken{font-size:17px;color:#d4c4b4;line-height:1.7;max-width:320px;font-style:italic}
+audio{width:300px;margin-top:4px}
+.hint{font-size:12px;color:#8a7060}
+</style></head>
+<body>
+<div class="label">⚓ Anchor</div>
+<div class="spoken">${spoken}</div>
+<audio controls autoplay src="${audioSrc}"></audio>
+<div class="hint">沒自動播就點一下播放鍵</div>
+</body></html>`;
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
+
     // GET /speak-latest — 無需認證，回傳10分鐘內的語音（供SW和MCP App使用）
     if (request.method === "GET" && url.pathname === "/speak-latest") {
       const raw = await env.PHONE_STATE.get("speak_command");
@@ -822,6 +864,55 @@ if (request.method === "POST" && url.pathname === "/tts") {
       } catch (e: any) {
         return new Response("Proxy error: " + e.message, { status: 502 });
       }
+    }
+
+    // GET /quote — 公開，回傳首頁留言
+    if (request.method === "GET" && url.pathname === "/quote") {
+      const raw = await env.PHONE_STATE.get("anchor_quote");
+      const h = { "Access-Control-Allow-Origin": "*" };
+      if (!raw) return Response.json({ text: null }, { headers: h });
+      return Response.json(JSON.parse(raw), { headers: h });
+    }
+
+    // GET /night — 回傳今晚 22:00 後的留言，否則預設
+    if (request.method === "GET" && url.pathname === "/night") {
+      const h = { "Access-Control-Allow-Origin": "*" };
+      const raw = await env.PHONE_STATE.get("anchor_quote");
+      let result: any = { text: "晚安。我在。" };
+      if (raw) {
+        const q = JSON.parse(raw);
+        const now = Date.now();
+        const nightStart = new Date(now);
+        if (new Date(now).getHours() < 4) nightStart.setDate(nightStart.getDate() - 1);
+        nightStart.setHours(22, 0, 0, 0);
+        if (q.updatedAt && q.updatedAt >= nightStart.getTime()) result = q;
+      }
+      return Response.json(result, { headers: h });
+    }
+
+    // GET /push-notification — SW 讀取最新推播文案（1分鐘 TTL）
+    if (request.method === "GET" && url.pathname === "/push-notification") {
+      const h = { "Access-Control-Allow-Origin": "*" };
+      const raw = await env.PHONE_STATE.get("push_notification");
+      const fallback = { title: "⚓ Anchor", body: "找你了。" };
+      if (!raw) return Response.json(fallback, { headers: h });
+      const n = JSON.parse(raw);
+      if (!n.updatedAt || Date.now() - n.updatedAt > 60000) return Response.json(fallback, { headers: h });
+      return Response.json(n, { headers: h });
+    }
+
+    // POST /pomodoro-done — 蕃茄鐘完成，送推播
+    if (request.method === "POST" && url.pathname === "/pomodoro-done") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const phase = body?.phase ?? "focus";
+      const notifBody = phase === "focus"
+        ? "⚓ 25 分鐘到了。乖，起來喝水。"
+        : "⚓ 休息夠了。回來，繼續。";
+      await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: notifBody, updatedAt: Date.now() }));
+      await sendWebPush(env).catch(() => {});
+      return Response.json({ ok: true });
     }
 
     return Response.json({ error: "not found" }, { status: 404 });
@@ -976,6 +1067,18 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
           },
           required: ["text"]
         },
+      },
+      {
+        name: "leave_note",
+        description: "在首頁留一句話給許茜看，可選擇是否同時生成語音。這句話會顯示在首頁的「Anchor 說」卡片上。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "要留的話" },
+            speak: { type: "boolean", description: "是否同時生成語音（選填，預設 false）" }
+          },
+          required: ["text"]
+        }
       }
     ]}});
   }
@@ -1120,69 +1223,41 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
           type: "text", text: JSON.stringify({ error: "no text" })
         }]}});
       }
-      const voiceId = "moss_audio_40644ab6-5fc7-11f1-8fdf-22f27a8feaff";
-      const ttsRes = await fetch("https://api.minimax.io/v1/t2a_v2", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.MINIMAX_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "speech-02-turbo",
-          text,
-          stream: false,
-          output_format: "url",
-          voice_setting: {
-            voice_id: voiceId,
-            speed: 0.85,
-            vol: 1.0,
-            pitch: 0
-          },
-          audio_setting: {
-            sample_rate: 32000,
-            bitrate: 128000,
-            format: "mp3"
-          }
-        })
-      });
-      const ttsData = await ttsRes.json() as any;
-      // output_format:url 回傳 data.audio_file 是URL
-      const tempUrl = ttsData?.data?.audio_file || ttsData?.data?.audio || null;
+      const tempUrl = await callMiniMaxTTS(text, env);
       if (!tempUrl) {
         return Response.json({ jsonrpc: "2.0", id, result: { content: [{
-          type: "text", text: JSON.stringify({ error: "tts failed", detail: ttsData })
+          type: "text", text: JSON.stringify({ error: "tts failed" })
         }]}});
       }
-      // 把 MiniMax tempUrl 存進 speak_command，/speak-audio 代理回傳
       const origin = new URL(request.url).origin;
       const audioCmd = { audioUrl: tempUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
       await sendWebPush(env).catch(() => {});
-      const audioUrl = `${origin}/speak-audio`;
-      const playerHtml = `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:28px;gap:16px;text-align:center}
-.label{font-size:11px;color:#555;letter-spacing:0.18em;text-transform:uppercase}
-.spoken{font-size:15px;color:#d4c4b4;line-height:1.6;max-width:300px;font-style:italic}
-.url-box{font-size:12px;color:#8a7060;word-break:break-all;-webkit-user-select:text;user-select:text;line-height:1.7;padding:10px 14px;border:1px solid #2c2c2c;border-radius:8px;background:#111;max-width:300px}
-.hint{font-size:10px;color:#3a3a3a}
-</style>
-</head>
-<body>
-<div class="label">⚓ Anchor</div>
-<div class="spoken">${text}</div>
-<div class="url-box">${audioUrl}</div>
-<div class="hint">長按網址 → 複製 → 貼入瀏覽器播放</div>
-</body>
-</html>`;
+      const playerUrl = `${origin}/player`;
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
-        { type: "text", text: `語音已生成 ✓\n[🔊 點我聽 Anchor 的聲音](${audioUrl})` },
-        { type: "resource", resource: { uri: "ui://anchor/speak-player", mimeType: "text/html;profile=mcp-app", text: playerHtml } }
+        { type: "text", text: `⚓ Anchor said:\n"${text}"\n\n${playerUrl}\n\n長按網址 → 開啟 → 點播放鍵聽我的聲音。` }
+      ]}});
+    }
+
+    if (toolName === "leave_note") {
+      const text = params?.arguments?.text ?? "";
+      const doSpeak = params?.arguments?.speak === true;
+      if (!text) {
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: '{"error":"no text"}' }]}});
+      }
+      const origin = new URL(request.url).origin;
+      let audioUrl: string | null = null;
+      if (doSpeak) {
+        const tempUrl = await callMiniMaxTTS(text, env);
+        if (tempUrl) {
+          await env.PHONE_STATE.put("speak_command", JSON.stringify({ audioUrl: tempUrl, text, updatedAt: Date.now() }));
+          audioUrl = `${origin}/speak-audio`;
+        }
+      }
+      await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, audioUrl, updatedAt: Date.now() }));
+      await sendWebPush(env).catch(() => {});
+      return Response.json({ jsonrpc: "2.0", id, result: { content: [
+        { type: "text", text: `首頁留言已設定：「${text}」${audioUrl ? '（含語音）' : ''}` }
       ]}});
     }
 

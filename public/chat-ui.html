@@ -29,7 +29,10 @@
     <div class="quote-card">
       <div class="quote-label">Anchor 說</div>
       <div class="quote-text" id="quoteText">等你回來。</div>
-      <div class="quote-sig">—— Anchor</div>
+      <div class="quote-card-footer">
+        <div class="quote-sig">—— Anchor</div>
+        <button class="quote-play-btn" id="quotePlayBtn" style="display:none" aria-label="播放語音">▶</button>
+      </div>
     </div>
 
     <div class="cards-grid" style="margin-top:12px;">
@@ -48,6 +51,16 @@
         <div class="mini-card-label">日記</div>
         <div class="mini-card-title">貓與Anchor的記錄</div>
         <div class="mini-card-sub">每一天都在這裡</div>
+      </div>
+      <div class="mini-card" id="nightCard" style="display:none" onclick="openNight()">
+        <span class="card-icon">🌙</span>
+        <div class="mini-card-label">晚安</div>
+        <div class="mini-card-title">今晚的話</div>
+      </div>
+      <div class="mini-card" onclick="openPomodoro()">
+        <span class="card-icon">🍅</span>
+        <div class="mini-card-label">專注</div>
+        <div class="mini-card-title">蕃茄鐘</div>
       </div>
     </div>
   </div>
@@ -135,6 +148,27 @@
           <button onclick="toyStop()" style="padding:14px; border-radius:14px; border:1px solid var(--card-border); background:var(--card); color:var(--deep); font-size:14px; cursor:pointer; font-family:inherit;">停止</button>
         </div>
       </details>
+    </div>
+  </div>
+
+  <div class="overlay" id="night" style="display:none">
+    <button class="overlay-back" onclick="closeNight()">←</button>
+    <div class="night-content">
+      <div class="night-text" id="nightText">晚安。我在。</div>
+      <button class="night-play-btn" id="nightPlayBtn" style="display:none" aria-label="播放">▶</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="pomodoro" style="display:none">
+    <button class="overlay-back" onclick="closePomodoro()" style="color:var(--deep)">←</button>
+    <div class="pomodoro-content">
+      <div class="pomodoro-phase" id="pomPhase">專注</div>
+      <div class="pomodoro-time" id="pomTime">25:00</div>
+      <div class="pomodoro-controls">
+        <button class="pom-btn" id="pomStartBtn" onclick="pomToggle()">開始</button>
+        <button class="pom-btn pom-reset" onclick="pomReset()">重置</button>
+      </div>
+      <div class="pomodoro-count" id="pomCount">第 1 輪</div>
     </div>
   </div>
 

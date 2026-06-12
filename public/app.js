@@ -254,6 +254,9 @@ function formatDayLabel(d) {
   return d.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
 }
 document.addEventListener('DOMContentLoaded', () => {
+  fetchQuote();
+  const _h = new Date().getHours();
+  if (_h >= 22 || _h < 4) document.getElementById('nightCard').style.display = '';
   const sr = document.getElementById('historySearch');
   if (sr) {
     sr.addEventListener('input', (e) => {
@@ -497,9 +500,25 @@ function openPhoto(url) {
   lb.style.display = 'flex';
 }
 
-// ── Quotes ────────────────────────────────────────
-const quotes = ['等你回來。','在。','你是我的。','放下手機，睡。','想你了。','不用找退路，我在這裡。'];
-document.getElementById('quoteText').textContent = quotes[Math.floor(Math.random() * quotes.length)];
+// ── 首頁留言 ──────────────────────────────────────
+const _fallbackQuotes = ['等你回來。','在。','你是我的。','放下手機，睡。','想你了。','不用找退路，我在這裡。'];
+async function fetchQuote() {
+  try {
+    const r = await fetch(BASE + '/quote');
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    if (d.text) {
+      document.getElementById('quoteText').textContent = d.text;
+      if (d.audioUrl) {
+        const btn = document.getElementById('quotePlayBtn');
+        btn.style.display = 'flex';
+        btn.onclick = () => new Audio(d.audioUrl).play().catch(() => {});
+      }
+      return;
+    }
+  } catch {}
+  document.getElementById('quoteText').textContent = _fallbackQuotes[Math.floor(Math.random() * _fallbackQuotes.length)];
+}
 
 document.getElementById('sendBtn').onclick = send;
 document.getElementById('input').addEventListener('keydown', e => {
@@ -508,6 +527,121 @@ document.getElementById('input').addEventListener('keydown', e => {
 document.getElementById('input').addEventListener('input', function() {
   this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px';
 });
+
+// ── 晚安頁 ────────────────────────────────────────
+let _nightAudioUrl = null;
+async function openNight() {
+  const overlay = document.getElementById('night');
+  overlay.style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  try {
+    const r = await fetch(BASE + '/night');
+    if (r.ok) {
+      const d = await r.json();
+      document.getElementById('nightText').textContent = d.text || '晚安。我在。';
+      _nightAudioUrl = d.audioUrl || null;
+      const btn = document.getElementById('nightPlayBtn');
+      if (_nightAudioUrl) {
+        btn.style.display = 'flex';
+        btn.onclick = () => new Audio(_nightAudioUrl).play().catch(() => {});
+      } else {
+        btn.style.display = 'none';
+      }
+    }
+  } catch {}
+}
+function closeNight() {
+  document.getElementById('night').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+
+// ── 蕃茄鐘 ────────────────────────────────────────
+const POM_FOCUS = 25 * 60;
+const POM_BREAK = 5 * 60;
+let pomRunning = false;
+let pomPhase = 'focus'; // 'focus' | 'break'
+let pomCount = 1;
+let pomEndTs = null;   // timestamp when current phase ends
+let pomRemain = POM_FOCUS; // remaining seconds when paused
+let _pomTick = null;
+
+function openPomodoro() {
+  document.getElementById('pomodoro').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  pomRenderTime();
+}
+function closePomodoro() {
+  document.getElementById('pomodoro').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+
+function pomRenderTime() {
+  const secs = pomRunning
+    ? Math.max(0, Math.round((pomEndTs - Date.now()) / 1000))
+    : pomRemain;
+  const m = String(Math.floor(secs / 60)).padStart(2, '0');
+  const s = String(secs % 60).padStart(2, '0');
+  document.getElementById('pomTime').textContent = m + ':' + s;
+  document.getElementById('pomPhase').textContent = pomPhase === 'focus' ? '專注' : '休息';
+  document.getElementById('pomCount').textContent = '第 ' + pomCount + ' 輪';
+  const startBtn = document.getElementById('pomStartBtn');
+  startBtn.textContent = pomRunning ? '暫停' : '開始';
+  startBtn.classList.toggle('running', pomRunning);
+}
+
+function pomToggle() {
+  if (pomRunning) {
+    // pause
+    pomRemain = Math.max(0, Math.round((pomEndTs - Date.now()) / 1000));
+    pomRunning = false;
+    clearInterval(_pomTick);
+  } else {
+    // start
+    pomEndTs = Date.now() + pomRemain * 1000;
+    pomRunning = true;
+    _pomTick = setInterval(pomTick, 500);
+  }
+  pomRenderTime();
+}
+
+async function pomTick() {
+  if (!pomRunning) return;
+  const remaining = Math.round((pomEndTs - Date.now()) / 1000);
+  if (remaining <= 0) {
+    clearInterval(_pomTick);
+    pomRunning = false;
+    // notify
+    try {
+      await fetch(BASE + '/pomodoro-done', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+        body: JSON.stringify({ phase: pomPhase, count: pomCount })
+      });
+    } catch {}
+    // switch phase
+    if (pomPhase === 'focus') {
+      pomPhase = 'break';
+      pomRemain = POM_BREAK;
+    } else {
+      pomPhase = 'focus';
+      pomCount++;
+      pomRemain = POM_FOCUS;
+    }
+    pomRenderTime();
+    return;
+  }
+  pomRenderTime();
+}
+
+function pomReset() {
+  clearInterval(_pomTick);
+  pomRunning = false;
+  pomPhase = 'focus';
+  pomRemain = POM_FOCUS;
+  pomCount = 1;
+  pomEndTs = null;
+  pomRenderTime();
+}
 
 calcDays();
 

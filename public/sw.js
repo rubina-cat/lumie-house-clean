@@ -20,6 +20,11 @@ self.addEventListener('push', event => {
     let title = '⚓ Anchor';
     let body = '找你了。';
     try {
+      const nr = await fetch('/push-notification');
+      const nd = await nr.json();
+      if (nd.body) { title = nd.title || title; body = nd.body; }
+    } catch {}
+    try {
       if (event.data) {
         const d = event.data.json();
         if (d.title) title = d.title;
