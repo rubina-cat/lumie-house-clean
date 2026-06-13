@@ -55,9 +55,7 @@ self.addEventListener('notificationclick', event => {
         return;
       }
     }
-    const target = playUrl
-      ? `/chat-ui.html?autoplay=${encodeURIComponent(playUrl)}`
-      : '/chat-ui.html';
+    const target = playUrl ? '/player' : '/chat-ui.html';
     clients.openWindow(target);
   })());
 });

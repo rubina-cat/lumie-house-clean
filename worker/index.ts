@@ -1256,6 +1256,8 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
       const origin = new URL(request.url).origin;
       const audioCmd = { audioUrl: tempUrl, text, updatedAt: Date.now() };
       await env.PHONE_STATE.put("speak_command", JSON.stringify(audioCmd));
+      const preview = text.slice(0, 30) + (text.length > 30 ? '…' : '');
+      await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: preview, updatedAt: Date.now() }));
       await sendWebPush(env).catch(() => {});
       const playerUrl = `${origin}/player`;
       return Response.json({ jsonrpc: "2.0", id, result: { content: [
