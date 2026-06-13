@@ -3,7 +3,7 @@ self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
 self.addEventListener('push', event => {
   event.waitUntil((async () => {
-    // 先檢查是否有新的語音指令
+    // 有語音就送 postMessage 給開著的 PWA（播音訊），但不阻止彈通知
     try {
       const r = await fetch('/speak-latest');
       const { audioUrl } = await r.json();
@@ -12,11 +12,10 @@ self.addEventListener('push', event => {
         for (const c of allClients) {
           c.postMessage({ type: 'play-audio', audioUrl });
         }
-        if (allClients.length > 0) return; // PWA 開著，直接播，不彈通知
       }
     } catch {}
 
-    // 沒有語音或 PWA 未開 → 彈通知
+    // 永遠彈通知（這樣點通知就能進 /player）
     let title = '⚓ Anchor';
     let body = '找你了。';
     try {
