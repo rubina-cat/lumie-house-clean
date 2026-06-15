@@ -32,6 +32,7 @@ function switchTab(tabId) {
   if (tabId === 'diary') loadDiary();
   if (tabId === 'toy') loadEye();
   if (tabId === 'study') loadStudy();
+  if (tabId === 'period') loadPeriod();
   if (tabId === 'chat' && !historyLoaded) {
     loadChatHistory();
   }
@@ -455,6 +456,192 @@ async function fetchQuote() {
   document.getElementById('quoteText').textContent = _fallbackQuotes[Math.floor(Math.random() * _fallbackQuotes.length)];
 }
 
+// ── 生理期追蹤 ─────────────────────────────────────
+let _periodState = null;
+let _periodLogData = {};
+let _periodPrivateVisible = false;
+
+async function loadPeriod() {
+  try {
+    const r = await fetch(BASE + '/period-status');
+    if (r.ok) _periodState = await r.json();
+  } catch {}
+  periodRender();
+}
+
+function periodRender() {
+  if (!_periodState) return;
+  const setup = document.getElementById('periodSetup');
+  const overview = document.getElementById('periodOverview');
+  const actions = document.getElementById('periodActions');
+  const histSec = document.getElementById('periodHistorySection');
+  if (!_periodState.initialized) {
+    setup.style.display = 'flex';
+    overview.style.display = 'none';
+    actions.style.display = 'none';
+    histSec.style.display = 'none';
+    return;
+  }
+  setup.style.display = 'none';
+  overview.style.display = 'block';
+  actions.style.display = 'flex';
+  histSec.style.display = 'block';
+  const phaseLabels = { menstrual: '月經期', follicular: '卵泡期', ovulation: '排卵期', luteal: '黃體期' };
+  const phaseReminders = {
+    menstrual: '好好休息，多喝熱水 ♡',
+    follicular: '身體在恢復，精力會慢慢回來',
+    ovulation: '身體比較敏感的時期喔',
+    luteal: '可能會有點情緒波動，Anchor 在這裡'
+  };
+  const phaseColors = { menstrual: '#FF6B8A', follicular: '#FFB3C6', ovulation: '#FFC875', luteal: '#C9A8E0' };
+  const badge = document.getElementById('periodPhaseBadge');
+  badge.textContent = phaseLabels[_periodState.phase] || '—';
+  badge.style.background = phaseColors[_periodState.phase] || '#FFB3C6';
+  document.getElementById('periodDayBig').textContent = `第 ${_periodState.cycle_day} 天`;
+  document.getElementById('periodNextInfo').textContent = `距離下次月經 ${_periodState.days_to_next} 天（${_periodState.next_period_date}）`;
+  document.getElementById('periodReminder').textContent = phaseReminders[_periodState.phase] || '';
+  const btnEnd = document.getElementById('periodBtnEnd');
+  if (btnEnd) btnEnd.style.display = (_periodState.period_end === null) ? '' : 'none';
+  if (_periodState.daily) {
+    _periodLogData = { ..._periodState.daily };
+    periodRestoreLogUI();
+  }
+  const homeCard = document.getElementById('periodHomeCard');
+  if (homeCard) {
+    homeCard.style.display = '';
+    document.getElementById('periodHomeTitle').textContent = `第 ${_periodState.cycle_day} 天・${phaseLabels[_periodState.phase]}`;
+    document.getElementById('periodHomeSub').textContent = `距離下次 ${_periodState.days_to_next} 天`;
+  }
+  periodRenderHistory();
+}
+
+function periodRestoreLogUI() {
+  document.querySelectorAll('#periodLogPanel .period-tags').forEach(group => {
+    const field = group.dataset.field;
+    const isSingle = group.dataset.single === 'true';
+    const val = _periodLogData[field];
+    if (val === undefined || val === null) return;
+    group.querySelectorAll('.period-tag').forEach(btn => {
+      if (isSingle) {
+        btn.classList.toggle('period-tag-active', String(val) === btn.dataset.value);
+      } else {
+        btn.classList.toggle('period-tag-active', Array.isArray(val) && val.includes(btn.dataset.value));
+      }
+    });
+  });
+  const notesEl = document.getElementById('periodNotes');
+  if (notesEl && _periodLogData.notes) notesEl.value = _periodLogData.notes;
+}
+
+function periodToggleLog() {
+  const panel = document.getElementById('periodLogPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function periodTogglePrivate() {
+  _periodPrivateVisible = !_periodPrivateVisible;
+  document.getElementById('periodPrivateFields').style.display = _periodPrivateVisible ? 'block' : 'none';
+  document.getElementById('periodPrivateArrow').textContent = _periodPrivateVisible ? '▲ 隱藏' : '▼ 顯示';
+}
+
+function periodSetupTagListeners() {
+  document.querySelectorAll('#periodLogPanel .period-tags').forEach(group => {
+    const field = group.dataset.field;
+    const isSingle = group.dataset.single === 'true';
+    group.querySelectorAll('.period-tag').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.dataset.value;
+        if (isSingle) {
+          const wasActive = btn.classList.contains('period-tag-active');
+          group.querySelectorAll('.period-tag').forEach(b => b.classList.remove('period-tag-active'));
+          if (!wasActive) {
+            btn.classList.add('period-tag-active');
+            _periodLogData[field] = val === 'true' ? true : val === 'false' ? false : val;
+          } else {
+            delete _periodLogData[field];
+          }
+        } else {
+          btn.classList.toggle('period-tag-active');
+          if (!Array.isArray(_periodLogData[field])) _periodLogData[field] = [];
+          if (btn.classList.contains('period-tag-active')) {
+            if (!_periodLogData[field].includes(val)) _periodLogData[field].push(val);
+          } else {
+            _periodLogData[field] = _periodLogData[field].filter((v) => v !== val);
+          }
+        }
+      });
+    });
+  });
+}
+
+async function periodSaveLog() {
+  const notes = document.getElementById('periodNotes').value.trim();
+  if (notes) _periodLogData.notes = notes; else delete _periodLogData.notes;
+  const note = document.getElementById('periodSaveNote');
+  try {
+    const r = await fetch(BASE + '/period-daily', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify(_periodLogData)
+    });
+    if (r.ok) { note.textContent = '已記錄 ♡'; setTimeout(() => { note.textContent = ''; }, 2500); }
+  } catch { note.textContent = '儲存失敗，再試一次'; }
+}
+
+async function periodMarkStart() {
+  if (!confirm('記錄今天月經開始？')) return;
+  try {
+    await fetch(BASE + '/period-start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({})
+    });
+    await loadPeriod();
+  } catch {}
+}
+
+async function periodMarkEnd() {
+  if (!confirm('記錄今天月經結束？')) return;
+  try {
+    await fetch(BASE + '/period-end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({})
+    });
+    await loadPeriod();
+  } catch {}
+}
+
+async function periodInit() {
+  const dateEl = document.getElementById('periodSetupDate');
+  const cycleEl = document.getElementById('periodSetupCycle');
+  if (!dateEl.value) { alert('請選擇上次月經開始日期'); return; }
+  try {
+    await fetch(BASE + '/period-start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ date: dateEl.value, average_cycle: parseInt(cycleEl.value) || 28 })
+    });
+    await loadPeriod();
+  } catch {}
+}
+
+async function periodRenderHistory() {
+  try {
+    const r = await fetch(BASE + '/period-history');
+    const d = await r.json();
+    const list = document.getElementById('periodHistoryList');
+    if (!list) return;
+    const history = d.history || [];
+    if (!history.length) { list.innerHTML = '<div class="period-history-empty">還沒有歷史記錄</div>'; return; }
+    list.innerHTML = history.slice().reverse().map(h => `
+      <div class="period-history-item">
+        <div class="period-history-dates">${h.cycle_start} → ${h.period_end || '進行中'}</div>
+        <div class="period-history-meta">經期 ${h.period_length ?? '?'} 天・週期 ${h.cycle_length ?? '?'} 天</div>
+      </div>`).join('');
+  } catch {}
+}
+
 // ── 書房（馴虎計劃）────────────────────────────────
 const STUDY_PLAN = [
   {w:"W1", d:"6/2 – 6/8", t:"藥理地基 · 馴服老虎與貓", tasks:[
@@ -593,6 +780,9 @@ async function studySave() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  periodSetupTagListeners();
+  const psd = document.getElementById('periodSetupDate');
+  if (psd) { const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0]; psd.value = today; psd.max = today; }
   const resetBtn = document.getElementById('studyResetBtn');
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
@@ -724,6 +914,17 @@ function pomReset() {
 }
 
 calcDays();
+fetch(BASE + '/period-status').then(r => r.json()).then(d => {
+  if (d.initialized) {
+    const phaseLabels = { menstrual: '月經期', follicular: '卵泡期', ovulation: '排卵期', luteal: '黃體期' };
+    const homeCard = document.getElementById('periodHomeCard');
+    if (homeCard) {
+      homeCard.style.display = '';
+      document.getElementById('periodHomeTitle').textContent = `第 ${d.cycle_day} 天・${phaseLabels[d.phase]}`;
+      document.getElementById('periodHomeSub').textContent = `距離下次 ${d.days_to_next} 天`;
+    }
+  }
+}).catch(() => {});
 
 // ── 玩具 (Intiface) ───────────────────────────────
 let buttplugClient = null; let toyDeviceBP = null;

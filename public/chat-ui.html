@@ -183,6 +183,126 @@
     </div>
   </div>
 
+  <div class="page" id="period">
+    <div class="period-wrap">
+
+      <div class="period-setup" id="periodSetup" style="display:none">
+        <div class="period-setup-card">
+          <div class="period-setup-title">🌸 設定週期</div>
+          <div class="period-setup-sub">上次月經什麼時候開始的？</div>
+          <input type="date" id="periodSetupDate" class="period-date-input">
+          <div class="period-setup-sub" style="margin-top:16px">平均週期幾天？</div>
+          <input type="number" id="periodSetupCycle" value="28" min="20" max="45" class="period-num-input">
+          <button class="period-setup-btn" onclick="periodInit()">開始追蹤</button>
+        </div>
+      </div>
+
+      <div class="period-overview" id="periodOverview" style="display:none">
+        <div class="period-phase-badge" id="periodPhaseBadge">—</div>
+        <div class="period-day-big" id="periodDayBig">第 — 天</div>
+        <div class="period-next-info" id="periodNextInfo">距離下次 — 天</div>
+        <div class="period-reminder" id="periodReminder"></div>
+      </div>
+
+      <div class="period-actions" id="periodActions" style="display:none">
+        <button class="period-action-btn period-btn-start" onclick="periodMarkStart()">來了～</button>
+        <button class="period-action-btn period-btn-end" id="periodBtnEnd" onclick="periodMarkEnd()">結束了～</button>
+        <button class="period-action-btn period-btn-log" onclick="periodToggleLog()">記錄今日</button>
+      </div>
+
+      <div class="period-log-panel" id="periodLogPanel" style="display:none">
+        <div class="period-log-section">
+          <div class="period-log-label">🩸 經量</div>
+          <div class="period-tags" data-field="flow" data-single="true">
+            <button class="period-tag" data-value="light">少量</button>
+            <button class="period-tag" data-value="medium">中等</button>
+            <button class="period-tag" data-value="heavy">大量</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">🎨 顏色</div>
+          <div class="period-tags" data-field="color" data-single="true">
+            <button class="period-tag" data-value="bright_red">鮮紅</button>
+            <button class="period-tag" data-value="dark_red">暗紅</button>
+            <button class="period-tag" data-value="brown">褐色</button>
+            <button class="period-tag" data-value="pink">粉色</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">✦ 分泌物</div>
+          <div class="period-tags" data-field="discharge" data-single="true">
+            <button class="period-tag" data-value="none">無</button>
+            <button class="period-tag" data-value="clear">透明</button>
+            <button class="period-tag" data-value="white">白色</button>
+            <button class="period-tag" data-value="yellow">黃色</button>
+            <button class="period-tag" data-value="sticky">粘稠</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">🔥 性慾</div>
+          <div class="period-tags" data-field="libido" data-single="true">
+            <button class="period-tag" data-value="none">無感</button>
+            <button class="period-tag" data-value="low">有一點</button>
+            <button class="period-tag" data-value="medium">中等</button>
+            <button class="period-tag" data-value="high">很強</button>
+            <button class="period-tag" data-value="extreme">炸裂</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <button class="period-private-toggle" onclick="periodTogglePrivate()">💋 性活動 &amp; 高潮 <span id="periodPrivateArrow">▼ 顯示</span></button>
+        </div>
+        <div id="periodPrivateFields" style="display:none">
+          <div class="period-log-section">
+            <div class="period-log-label">💋 性活動</div>
+            <div class="period-tags" data-field="sexual_activity" data-single="true">
+              <button class="period-tag" data-value="none">無</button>
+              <button class="period-tag" data-value="solo">自慰</button>
+              <button class="period-tag" data-value="sex">做愛</button>
+            </div>
+          </div>
+          <div class="period-log-section">
+            <div class="period-log-label">✨ 高潮</div>
+            <div class="period-tags" data-field="orgasm" data-single="true">
+              <button class="period-tag" data-value="true">有</button>
+              <button class="period-tag" data-value="false">沒有</button>
+            </div>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">😣 症狀（可多選）</div>
+          <div class="period-tags" data-field="symptoms" data-single="false">
+            <button class="period-tag" data-value="cramps">經痛</button>
+            <button class="period-tag" data-value="headache">頭痛</button>
+            <button class="period-tag" data-value="backache">腰痠</button>
+            <button class="period-tag" data-value="bloating">脹氣</button>
+            <button class="period-tag" data-value="fatigue">疲憊</button>
+            <button class="period-tag" data-value="mood">情緒低落</button>
+            <button class="period-tag" data-value="breast">胸部脹痛</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">💊 有無吃藥</div>
+          <div class="period-tags" data-field="medication" data-single="true">
+            <button class="period-tag" data-value="true">有吃</button>
+            <button class="period-tag" data-value="false">沒有</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">📝 備註（選填）</div>
+          <textarea class="period-notes" id="periodNotes" placeholder="今天怎麼了…" rows="2"></textarea>
+        </div>
+        <button class="period-save-btn" onclick="periodSaveLog()">儲存今日記錄</button>
+        <div class="period-save-note" id="periodSaveNote"></div>
+      </div>
+
+      <div class="period-history-section" id="periodHistorySection" style="display:none">
+        <div class="period-section-title">過去記錄</div>
+        <div id="periodHistoryList"></div>
+      </div>
+
+    </div>
+  </div>
+
   <div class="overlay" id="night" style="display:none">
     <button class="overlay-back" onclick="closeNight()">←</button>
     <div class="night-content">
@@ -237,6 +357,10 @@
   <button class="nav-item" onclick="switchTab('study')" id="nav-study">
     <span class="nav-icon">📚</span>
     <span class="nav-dark-text">書房</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('period')" id="nav-period">
+    <span class="nav-icon">🌸</span>
+    <span class="nav-dark-text">生理期</span>
   </button>
   <button class="nav-item" onclick="switchTab('toy')" id="nav-toy">
     <span class="nav-icon">👁️</span>
