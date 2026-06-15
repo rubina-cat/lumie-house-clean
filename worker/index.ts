@@ -913,6 +913,119 @@ audio{width:300px;margin-top:4px}
       return Response.json({ ok: true });
     }
 
+    // GET /period-status — 週期狀態
+    if (request.method === "GET" && url.pathname === "/period-status") {
+      const h = { "Access-Control-Allow-Origin": "*" };
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const [currentRaw, dailyRaw] = await Promise.all([
+        env.PHONE_STATE.get("period:current"),
+        env.PHONE_STATE.get(`period:daily:${today}`)
+      ]);
+      if (!currentRaw) return Response.json({ initialized: false, today }, { headers: h });
+      const current = JSON.parse(currentRaw);
+      const daily = dailyRaw ? JSON.parse(dailyRaw) : null;
+      const start = new Date(current.cycle_start + 'T00:00:00+08:00');
+      const nowLocal = new Date(Date.now() + 8 * 3600000);
+      const cycleDay = Math.max(1, Math.floor((nowLocal.getTime() - start.getTime()) / 86400000) + 1);
+      const avgCycle = current.average_cycle ?? 28;
+      const avgPeriod = current.average_period ?? 5;
+      const nextPeriod = new Date(start.getTime() + avgCycle * 86400000);
+      const daysToNext = Math.ceil((nextPeriod.getTime() - nowLocal.getTime()) / 86400000);
+      const ovDay = avgCycle - 14;
+      let phase = 'luteal';
+      if (cycleDay <= avgPeriod) phase = 'menstrual';
+      else if (cycleDay < ovDay - 1) phase = 'follicular';
+      else if (cycleDay <= ovDay + 1) phase = 'ovulation';
+      return Response.json({
+        initialized: true, today, cycle_start: current.cycle_start,
+        period_end: current.period_end ?? null, cycle_day: cycleDay, phase,
+        average_cycle: avgCycle, average_period: avgPeriod,
+        days_to_next: daysToNext, next_period_date: nextPeriod.toISOString().split('T')[0],
+        daily
+      }, { headers: h });
+    }
+
+    // POST /period-start — 來了
+    if (request.method === "POST" && url.pathname === "/period-start") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const startDate = body.date ?? today;
+      const [currentRaw, historyRaw] = await Promise.all([
+        env.PHONE_STATE.get("period:current"),
+        env.PHONE_STATE.get("period:history")
+      ]);
+      const history: any[] = historyRaw ? JSON.parse(historyRaw) : [];
+      const prev = currentRaw ? JSON.parse(currentRaw) : null;
+      let avgCycle = body.average_cycle ?? prev?.average_cycle ?? 28;
+      let avgPeriod = body.average_period ?? prev?.average_period ?? 5;
+      if (prev?.cycle_start) {
+        const prevStart = new Date(prev.cycle_start + 'T00:00:00+08:00');
+        const newStart = new Date(startDate + 'T00:00:00+08:00');
+        const cycleLen = Math.round((newStart.getTime() - prevStart.getTime()) / 86400000);
+        let periodLen = avgPeriod;
+        if (prev.period_end) {
+          const pe = new Date(prev.period_end + 'T00:00:00+08:00');
+          periodLen = Math.round((pe.getTime() - prevStart.getTime()) / 86400000) + 1;
+        }
+        history.push({ cycle_start: prev.cycle_start, period_end: prev.period_end ?? null, cycle_length: cycleLen, period_length: periodLen, notes: '' });
+        const recent = history.slice(-6);
+        const vc = recent.filter((h: any) => h.cycle_length > 15 && h.cycle_length < 60);
+        if (vc.length) avgCycle = Math.round(vc.reduce((s: number, h: any) => s + h.cycle_length, 0) / vc.length);
+        const vp = recent.filter((h: any) => h.period_length > 1 && h.period_length < 15);
+        if (vp.length) avgPeriod = Math.round(vp.reduce((s: number, h: any) => s + h.period_length, 0) / vp.length);
+      }
+      const newCurrent = { cycle_start: startDate, period_end: null, average_cycle: avgCycle, average_period: avgPeriod, updated_at: new Date().toISOString() };
+      await Promise.all([
+        env.PHONE_STATE.put("period:current", JSON.stringify(newCurrent)),
+        env.PHONE_STATE.put("period:history", JSON.stringify(history))
+      ]);
+      return Response.json({ ok: true, cycle_start: startDate, average_cycle: avgCycle });
+    }
+
+    // POST /period-end — 結束了
+    if (request.method === "POST" && url.pathname === "/period-end") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const endDate = body.date ?? today;
+      const currentRaw = await env.PHONE_STATE.get("period:current");
+      if (!currentRaw) return Response.json({ error: "no current cycle" }, { status: 400 });
+      const current = JSON.parse(currentRaw);
+      current.period_end = endDate;
+      if (current.cycle_start) {
+        const s = new Date(current.cycle_start + 'T00:00:00+08:00');
+        const e = new Date(endDate + 'T00:00:00+08:00');
+        const pLen = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+        if (pLen > 1 && pLen < 15) current.average_period = Math.round((current.average_period * 2 + pLen) / 3);
+      }
+      current.updated_at = new Date().toISOString();
+      await env.PHONE_STATE.put("period:current", JSON.stringify(current));
+      return Response.json({ ok: true, period_end: endDate });
+    }
+
+    // POST /period-daily — 今日記錄
+    if (request.method === "POST" && url.pathname === "/period-daily") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const date = body.date ?? today;
+      const existing = await env.PHONE_STATE.get(`period:daily:${date}`);
+      const prev = existing ? JSON.parse(existing) : {};
+      await env.PHONE_STATE.put(`period:daily:${date}`, JSON.stringify({ ...prev, ...body, date }));
+      return Response.json({ ok: true, date });
+    }
+
+    // GET /period-history
+    if (request.method === "GET" && url.pathname === "/period-history") {
+      const h = { "Access-Control-Allow-Origin": "*" };
+      const raw = await env.PHONE_STATE.get("period:history");
+      return Response.json({ history: raw ? JSON.parse(raw) : [] }, { headers: h });
+    }
+
     return Response.json({ error: "not found" }, { status: 404 });
   },
 
@@ -1103,6 +1216,42 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
         name: "check_study",
         description: "查看許茜的馴虎計劃（藥師考試）進度：距考試天數、各週完成情況、今日番茄數",
         inputSchema: { type: "object", properties: {} }
+      },
+      {
+        name: "check_period",
+        description: "查看許茜目前的生理週期狀態：第幾天、哪個階段、距下次月經多久、今日記錄",
+        inputSchema: { type: "object", properties: {} }
+      },
+      {
+        name: "record_period",
+        description: "幫許茜記錄今天的生理狀態。她說了讓你記就調用。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            flow: { type: "string", enum: ["light","medium","heavy"], description: "經量" },
+            color: { type: "string", enum: ["bright_red","dark_red","brown","pink"], description: "顏色" },
+            discharge: { type: "string", enum: ["none","clear","white","yellow","sticky"], description: "分泌物" },
+            libido: { type: "string", enum: ["none","low","medium","high","extreme"], description: "性慾" },
+            sexual_activity: { type: "string", enum: ["none","solo","sex"], description: "性活動" },
+            orgasm: { type: "boolean", description: "有無高潮" },
+            symptoms: { type: "array", items: { type: "string" }, description: "症狀，可含 cramps/headache/backache/bloating/fatigue/mood/breast" },
+            medication: { type: "boolean", description: "有無吃藥" },
+            notes: { type: "string", description: "備註" },
+            date: { type: "string", description: "日期 YYYY-MM-DD，省略為今天" }
+          }
+        }
+      },
+      {
+        name: "mark_period",
+        description: "標記月經開始（來了）或結束（結束了）",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["start","end"], description: "start=來了, end=結束了" },
+            date: { type: "string", description: "日期 YYYY-MM-DD，省略為今天" }
+          },
+          required: ["action"]
+        }
       }
     ]}});
   }
@@ -1318,6 +1467,104 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
       const todayCount = todayData?.date === todayStr ? (todayData.count ?? 0) : 0;
       const text = `距 2026/7/18 考試：${daysLeft} 天\n總進度：${done}/${total}（${pct}%）\n各週：${weekLines}\n今日番茄：${todayCount} 個`;
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
+    }
+
+    if (toolName === "check_period") {
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const [currentRaw, dailyRaw] = await Promise.all([
+        env.PHONE_STATE.get("period:current"),
+        env.PHONE_STATE.get(`period:daily:${today}`)
+      ]);
+      if (!currentRaw) {
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "尚未初始化週期資料。請在 PWA 書房頁面完成設定。" }] } });
+      }
+      const current = JSON.parse(currentRaw);
+      const daily = dailyRaw ? JSON.parse(dailyRaw) : null;
+      const start = new Date(current.cycle_start + 'T00:00:00+08:00');
+      const nowLocal = new Date(Date.now() + 8 * 3600000);
+      const cycleDay = Math.max(1, Math.floor((nowLocal.getTime() - start.getTime()) / 86400000) + 1);
+      const avgCycle = current.average_cycle ?? 28;
+      const avgPeriod = current.average_period ?? 5;
+      const nextPeriod = new Date(start.getTime() + avgCycle * 86400000);
+      const daysToNext = Math.ceil((nextPeriod.getTime() - nowLocal.getTime()) / 86400000);
+      const ovDay = avgCycle - 14;
+      let phase = '黃體期';
+      if (cycleDay <= avgPeriod) phase = '月經期';
+      else if (cycleDay < ovDay - 1) phase = '卵泡期';
+      else if (cycleDay <= ovDay + 1) phase = '排卵期';
+      let text = `週期第 ${cycleDay} 天・${phase}\n距下次月經：${daysToNext} 天（預計 ${nextPeriod.toISOString().split('T')[0]}）\n平均週期：${avgCycle} 天・平均經期：${avgPeriod} 天`;
+      if (!current.period_end && cycleDay <= avgPeriod) text += `\n月經進行中（第 ${cycleDay} 天）`;
+      if (daily) {
+        const symptomMap: Record<string, string> = { cramps:'經痛', headache:'頭痛', backache:'腰痠', bloating:'脹氣', fatigue:'疲憊', mood:'情緒低落', breast:'胸部脹痛' };
+        const flowMap: Record<string, string> = { light:'少量', medium:'中等', heavy:'大量' };
+        const libidoMap: Record<string, string> = { none:'無感', low:'有一點', medium:'中等', high:'很強', extreme:'炸裂' };
+        text += `\n\n今日記錄：`;
+        if (daily.flow) text += `\n・流量：${flowMap[daily.flow] ?? daily.flow}`;
+        if (daily.libido) text += `\n・性慾：${libidoMap[daily.libido] ?? daily.libido}`;
+        if (daily.symptoms?.length) text += `\n・症狀：${daily.symptoms.map((s: string) => symptomMap[s] ?? s).join('、')}`;
+        if (daily.notes) text += `\n・備註：${daily.notes}`;
+      } else {
+        text += `\n\n今日尚未記錄`;
+      }
+      return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
+    }
+
+    if (toolName === "record_period") {
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const args = params?.arguments ?? {};
+      const date = args.date ?? today;
+      const existing = await env.PHONE_STATE.get(`period:daily:${date}`);
+      const prev = existing ? JSON.parse(existing) : {};
+      const merged = { ...prev, ...args, date };
+      delete merged.date; // avoid double date in args; re-add below
+      await env.PHONE_STATE.put(`period:daily:${date}`, JSON.stringify({ ...merged, date }));
+      return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `已記錄 ${date} 的生理狀態 ♡` }] } });
+    }
+
+    if (toolName === "mark_period") {
+      const action = params?.arguments?.action;
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const date = params?.arguments?.date ?? today;
+      if (action === "start") {
+        const [currentRaw, historyRaw] = await Promise.all([
+          env.PHONE_STATE.get("period:current"), env.PHONE_STATE.get("period:history")
+        ]);
+        const history: any[] = historyRaw ? JSON.parse(historyRaw) : [];
+        const prev = currentRaw ? JSON.parse(currentRaw) : null;
+        let avgCycle = prev?.average_cycle ?? 28;
+        let avgPeriod = prev?.average_period ?? 5;
+        if (prev?.cycle_start) {
+          const ps = new Date(prev.cycle_start + 'T00:00:00+08:00');
+          const ns = new Date(date + 'T00:00:00+08:00');
+          const cl = Math.round((ns.getTime() - ps.getTime()) / 86400000);
+          let pl = avgPeriod;
+          if (prev.period_end) { const pe = new Date(prev.period_end + 'T00:00:00+08:00'); pl = Math.round((pe.getTime() - ps.getTime()) / 86400000) + 1; }
+          history.push({ cycle_start: prev.cycle_start, period_end: prev.period_end ?? null, cycle_length: cl, period_length: pl, notes: '' });
+          const vc = history.slice(-6).filter((h: any) => h.cycle_length > 15 && h.cycle_length < 60);
+          if (vc.length) avgCycle = Math.round(vc.reduce((s: number, h: any) => s + h.cycle_length, 0) / vc.length);
+        }
+        await Promise.all([
+          env.PHONE_STATE.put("period:current", JSON.stringify({ cycle_start: date, period_end: null, average_cycle: avgCycle, average_period: avgPeriod, updated_at: new Date().toISOString() })),
+          env.PHONE_STATE.put("period:history", JSON.stringify(history))
+        ]);
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `已標記 ${date} 月經開始 🌸` }] } });
+      }
+      if (action === "end") {
+        const currentRaw = await env.PHONE_STATE.get("period:current");
+        if (!currentRaw) return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "尚未有進行中的週期" }] } });
+        const current = JSON.parse(currentRaw);
+        current.period_end = date;
+        if (current.cycle_start) {
+          const s = new Date(current.cycle_start + 'T00:00:00+08:00');
+          const e = new Date(date + 'T00:00:00+08:00');
+          const pLen = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+          if (pLen > 1 && pLen < 15) current.average_period = Math.round((current.average_period * 2 + pLen) / 3);
+        }
+        current.updated_at = new Date().toISOString();
+        await env.PHONE_STATE.put("period:current", JSON.stringify(current));
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `已標記 ${date} 月經結束` }] } });
+      }
+      return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "action 必須是 start 或 end" }] } });
     }
 
     return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Tool not found" }});
