@@ -627,18 +627,40 @@ async function periodInit() {
 }
 
 async function periodRenderHistory() {
+  const list = document.getElementById('periodHistoryList');
+  if (!list) return;
   try {
-    const r = await fetch(BASE + '/period-history');
-    const d = await r.json();
-    const list = document.getElementById('periodHistoryList');
-    if (!list) return;
-    const history = d.history || [];
-    if (!history.length) { list.innerHTML = '<div class="period-history-empty">還沒有歷史記錄</div>'; return; }
-    list.innerHTML = history.slice().reverse().map(h => `
-      <div class="period-history-item">
-        <div class="period-history-dates">${h.cycle_start} → ${h.period_end || '進行中'}</div>
-        <div class="period-history-meta">經期 ${h.period_length ?? '?'} 天・週期 ${h.cycle_length ?? '?'} 天</div>
-      </div>`).join('');
+    const [dr, hr] = await Promise.all([
+      fetch(BASE + '/period-daily-list').then(r => r.json()),
+      fetch(BASE + '/period-history').then(r => r.json()),
+    ]);
+    const days = dr.days || [];
+    const history = hr.history || [];
+    if (!days.length && !history.length) {
+      list.innerHTML = '<div class="period-history-empty">還沒有歷史記錄</div>';
+      return;
+    }
+    const flowEmoji = { none: '○', light: '·', medium: '●', heavy: '◉' };
+    const dailyHtml = days.map(d => {
+      const flow = flowEmoji[d.flow] || '–';
+      const syms = (d.symptoms || []).length;
+      const priv = d.private ? ' 🔒' : '';
+      return `<div class="period-daily-item">
+        <span class="period-daily-date">${d.date}</span>
+        <span class="period-daily-flow">${flow}</span>
+        ${syms ? `<span class="period-daily-sym">${syms} 症狀</span>` : ''}
+        ${d.note ? `<span class="period-daily-note">${d.note.slice(0,20)}${d.note.length>20?'…':''}</span>` : ''}
+        ${priv}
+      </div>`;
+    }).join('');
+    const cycleHtml = history.length ? `
+      <div class="period-section-title" style="margin-top:16px">歷史週期</div>
+      ${history.slice().reverse().map(h => `
+        <div class="period-history-item">
+          <div class="period-history-dates">${h.cycle_start} → ${h.period_end || '進行中'}</div>
+          <div class="period-history-meta">經期 ${h.period_length ?? '?'} 天・週期 ${h.cycle_length ?? '?'} 天</div>
+        </div>`).join('')}` : '';
+    list.innerHTML = dailyHtml + cycleHtml;
   } catch {}
 }
 

@@ -1026,6 +1026,20 @@ audio{width:300px;margin-top:4px}
       return Response.json({ history: raw ? JSON.parse(raw) : [] }, { headers: h });
     }
 
+    // GET /period-daily-list — last 30 days of daily records
+    if (request.method === "GET" && url.pathname === "/period-daily-list") {
+      const h = { "Access-Control-Allow-Origin": "*" };
+      const dates: string[] = [];
+      for (let i = 0; i < 30; i++) {
+        dates.push(new Date(Date.now() + 8 * 3600000 - i * 86400000).toISOString().split('T')[0]);
+      }
+      const records = await Promise.all(dates.map(async date => {
+        const raw = await env.PHONE_STATE.get(`period:daily:${date}`);
+        return raw ? { date, ...JSON.parse(raw) } : null;
+      }));
+      return Response.json({ days: records.filter(Boolean) }, { headers: h });
+    }
+
     return Response.json({ error: "not found" }, { status: 404 });
   },
 
