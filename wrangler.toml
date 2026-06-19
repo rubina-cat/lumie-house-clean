@@ -1,0 +1,22 @@
+name = "phone-mcp"
+main = "worker/index.ts"
+compatibility_date = "2024-09-23"
+
+[assets]
+directory = "./public"
+
+[[kv_namespaces]]
+binding = "PHONE_STATE"
+id = "0e6f902fea304bd5b0d7add23c369ca4"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "anchor-media"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ai-boyfriend-db"
+database_id = "c6e17207-dd5d-4916-b9be-31e9be8355f3"
+
+[triggers]
+crons = ["*/30 * * * *"]
