@@ -131,6 +131,65 @@ async function callMiniMaxTTS(text: string, env: any): Promise<string | null> {
   return d?.data?.audio_file || d?.data?.audio || null;
 }
 
+// ── Chat KV helpers ─────────────────────────────────────────
+async function getChatMsgs(env: any): Promise<any[]> {
+  const raw = await env.PHONE_STATE.get("chat:messages");
+  return raw ? JSON.parse(raw) : [];
+}
+async function saveChatMsgs(env: any, msgs: any[]): Promise<void> {
+  const trimmed = msgs.length > 300 ? msgs.slice(-300) : msgs;
+  await env.PHONE_STATE.put("chat:messages", JSON.stringify(trimmed), { expirationTtl: 86400 * 30 });
+}
+async function runClaudeChat(env: any, history: any[]): Promise<{ reply: string; thinking: string }> {
+  const memRaw = await env.PHONE_STATE.get("memories");
+  const memories = memRaw ? JSON.parse(memRaw) : [];
+  const memText = memories.length > 0
+    ? "\n\n記憶庫：\n" + memories.slice(-10).map((m: any) => m.content).join("\n---\n") : "";
+  const system = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。${memText}`;
+  const tools = [
+    { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
+    { name: "save_memory", description: "把這次對話中重要的事記下來。", input_schema: { type: "object", properties: { content: { type: "string" }, date: { type: "string" } }, required: ["content"] } },
+    { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } }
+  ];
+  let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
+  const call = async (m: any[]) => {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 1000, system, tools, messages: m }),
+    });
+    return r.json() as Promise<any>;
+  };
+  let data = await call(msgs);
+  for (let i = 0; i < 3 && data.stop_reason === "tool_use"; i++) {
+    const results: any[] = [];
+    for (const block of (data.content || []).filter((b: any) => b.type === "tool_use")) {
+      let result = "";
+      if (block.name === "get_phone_state") {
+        const raw = await env.PHONE_STATE.get("latest");
+        result = raw ? JSON.stringify({ ...JSON.parse(raw), ageMinutes: Math.floor((Date.now() - JSON.parse(raw).reportedAt) / 60000) }) : JSON.stringify({ message: "沒有資料" });
+      } else if (block.name === "save_memory") {
+        const raw = await env.PHONE_STATE.get("memories");
+        const mems = raw ? JSON.parse(raw) : [];
+        mems.push({ content: block.input.content, savedAt: Date.now(), date: block.input.date ?? null });
+        if (mems.length > 100) mems.splice(0, mems.length - 100);
+        await env.PHONE_STATE.put("memories", JSON.stringify(mems));
+        result = JSON.stringify({ ok: true });
+      } else if (block.name === "set_toy") {
+        const v0 = Math.min(8, Math.max(0, block.input.v0 ?? 0));
+        const v1 = Math.min(8, Math.max(0, block.input.v1 ?? 0));
+        await env.PHONE_STATE.put("toy_command", JSON.stringify({ v0, v1, updatedAt: Date.now() }));
+        result = JSON.stringify({ ok: true, v0, v1 });
+      }
+      results.push({ type: "tool_result", tool_use_id: block.id, content: result });
+    }
+    msgs = [...msgs, { role: "assistant", content: data.content }, { role: "user", content: results }];
+    data = await call(msgs);
+  }
+  const reply = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") || "（沒有回應）";
+  return { reply, thinking: "" };
+}
+
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     const url = new URL(request.url);
@@ -1038,6 +1097,129 @@ audio{width:300px;margin-top:4px}
         return raw ? { date, ...JSON.parse(raw) } : null;
       }));
       return Response.json({ days: records.filter(Boolean) }, { headers: h });
+    }
+
+    // ── New Chat API (KV-based) ──────────────────────────────
+
+    // GET /api/chat/messages
+    if (request.method === "GET" && url.pathname === "/api/chat/messages") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const msgs = await getChatMsgs(env);
+      return Response.json({ messages: msgs }, { headers: { "Access-Control-Allow-Origin": "*" } });
+    }
+
+    // GET /api/chat/branch/:id
+    if (request.method === "GET" && url.pathname.startsWith("/api/chat/branch/")) {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const branchId = url.pathname.replace("/api/chat/branch/", "");
+      const raw = await env.PHONE_STATE.get(`chat:branch:${branchId}`);
+      return Response.json({ messages: raw ? JSON.parse(raw) : [] });
+    }
+
+    // POST /api/chat/send
+    if (request.method === "POST" && url.pathname === "/api/chat/send") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const msgs = await getChatMsgs(env);
+
+      if (body.retry) {
+        const lastIdx = msgs.map((m: any, i: number) => m.role === "assistant" ? i : -1).filter((i: number) => i >= 0).pop();
+        if (lastIdx === undefined) return Response.json({ error: "no assistant message" }, { status: 400 });
+        const lastMsg = { ...msgs[lastIdx] };
+        const withoutLast = msgs.slice(0, lastIdx);
+        const { reply, thinking } = await runClaudeChat(env, withoutLast);
+        const newId = `a_${Date.now()}`;
+        const newBranch = { id: newId, content: reply, thinking, ts: Date.now() };
+        if (!lastMsg.branches) {
+          lastMsg.branches = [
+            { id: lastMsg.id, content: lastMsg.content, thinking: lastMsg.thinking || "", ts: lastMsg.ts },
+            newBranch
+          ];
+        } else {
+          lastMsg.branches = [...lastMsg.branches, newBranch];
+        }
+        lastMsg.branch_idx = lastMsg.branches.length - 1;
+        lastMsg.content = reply;
+        lastMsg.thinking = thinking;
+        lastMsg.id = newId;
+        withoutLast.push(lastMsg);
+        await saveChatMsgs(env, withoutLast);
+        return Response.json({ reply, reply_id: newId, thinking });
+      }
+
+      if (body.edit_regen) {
+        const { reply, thinking } = await runClaudeChat(env, msgs);
+        const newId = `a_${Date.now()}`;
+        msgs.push({ id: newId, role: "assistant", content: reply, thinking, ts: Date.now() });
+        await saveChatMsgs(env, msgs);
+        return Response.json({ reply, reply_id: newId, thinking });
+      }
+
+      // Normal send
+      const content = (body.content || "").trim();
+      if (!content) return Response.json({ error: "empty" }, { status: 400 });
+      const userId = `u_${Date.now()}`;
+      msgs.push({ id: userId, role: "user", content, ts: Date.now() });
+      const { reply, thinking } = await runClaudeChat(env, msgs);
+      const assistantId = `a_${Date.now() + 1}`;
+      msgs.push({ id: assistantId, role: "assistant", content: reply, thinking, ts: Date.now() });
+      await saveChatMsgs(env, msgs);
+      return Response.json({ reply, reply_id: assistantId, thinking });
+    }
+
+    // POST /api/chat/edit
+    if (request.method === "POST" && url.pathname === "/api/chat/edit") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const content = (body.content || "").trim();
+      if (!content) return Response.json({ error: "empty" }, { status: 400 });
+      const msgs = await getChatMsgs(env);
+      const idx = msgs.findIndex((m: any) => m.id === body.msg_id);
+      if (idx === -1) return Response.json({ error: "not found" }, { status: 404 });
+      const tail = msgs.slice(idx + 1);
+      const branchId = `branch_${Date.now()}`;
+      if (tail.length > 0) {
+        await env.PHONE_STATE.put(`chat:branch:${branchId}`, JSON.stringify(tail), { expirationTtl: 86400 * 365 });
+      }
+      const oldContent = msgs[idx].content;
+      if (!msgs[idx].edit_branches) msgs[idx].edit_branches = [];
+      msgs[idx].edit_branches.push({ id: branchId, original_content: oldContent, tail_count: tail.length, ts: Date.now() });
+      msgs[idx].content = content;
+      msgs[idx].edited = true;
+      const newMsgs = msgs.slice(0, idx + 1);
+      await saveChatMsgs(env, newMsgs);
+      return Response.json({ ok: true, branch_id: branchId });
+    }
+
+    // POST /api/chat/branch/switch
+    if (request.method === "POST" && url.pathname === "/api/chat/branch/switch") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const { fork_id, branch_id } = body;
+      const msgs = await getChatMsgs(env);
+      const idx = msgs.findIndex((m: any) => m.id === fork_id);
+      if (idx === -1) return Response.json({ error: "not found" }, { status: 404 });
+      const currentTail = msgs.slice(idx + 1);
+      const swapId = `branch_${Date.now()}`;
+      await env.PHONE_STATE.put(`chat:branch:${swapId}`, JSON.stringify(currentTail), { expirationTtl: 86400 * 365 });
+      const targetRaw = await env.PHONE_STATE.get(`chat:branch:${branch_id}`);
+      const targetTail = targetRaw ? JSON.parse(targetRaw) : [];
+      // Overwrite the target branch slot with current tail (enables switching back)
+      await env.PHONE_STATE.put(`chat:branch:${branch_id}`, JSON.stringify(currentTail), { expirationTtl: 86400 * 365 });
+      // Update the branch entry to track the swap ID for navigating back
+      const forkMsg = msgs[idx];
+      if (forkMsg.edit_branches) {
+        const eb = forkMsg.edit_branches.find((b: any) => b.id === branch_id);
+        if (eb) eb.id = swapId;
+      }
+      const newMsgs = [...msgs.slice(0, idx + 1), ...targetTail];
+      await saveChatMsgs(env, newMsgs);
+      return Response.json({ ok: true });
     }
 
     return Response.json({ error: "not found" }, { status: 404 });

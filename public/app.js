@@ -172,34 +172,14 @@ function renderEyeEvents(events) {
 async function loadChatHistory() {
   historyLoaded = true;
   try {
-    const r = await fetch(BASE + '/messages?limit=50&session_id=' + SESSION_ID, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
-    const d = await r.json();
-    const history = d.messages || [];
-    const container = document.getElementById('messages');
-    container.innerHTML = '';
-    messages = [];
-    if (history.length === 0) {
-      addMsg('assistant', '在。');
-      return;
-    }
-    for (const m of history) {
-      addMsg(m.role, m.content);
-      messages.push({ role: m.role, content: m.content });
-    }
+    chatMsgs = await _fetchChatMsgs();
+    renderAllMsgs();
   } catch (e) {
     addMsg('assistant', '在。');
   }
 }
 
-async function saveMessage(role, content) {
-  try {
-    await fetch(BASE + '/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-      body: JSON.stringify({ role, content, session_id: SESSION_ID })
-    });
-  } catch (e) {}
-}
+function saveMessage() {} // no-op: server now handles persistence
 
 let historySearchTimer = null;
 function openHistory() {
@@ -216,11 +196,8 @@ async function loadHistory(q) {
   const list = document.getElementById('historyList');
   list.innerHTML = '<div class="history-loading">載入中…</div>';
   try {
-    const params = new URLSearchParams({ limit: '200', session_id: SESSION_ID });
-    if (q) params.set('q', q);
-    const r = await fetch(BASE + '/messages?' + params.toString(), { headers: { 'Authorization': 'Bearer ' + TOKEN } });
-    const d = await r.json();
-    const msgs = d.messages || [];
+    const allMsgs = await _fetchChatMsgs();
+    const msgs = q ? allMsgs.filter(m => m.content && m.content.includes(q)) : allMsgs;
     if (msgs.length === 0) {
       list.innerHTML = '<div class="history-loading">' + (q ? '沒找到相符的訊息' : '還沒有對話') + '</div>';
       return;
@@ -332,6 +309,95 @@ async function sendSubscriptionToServer(sub) {
   } catch (e) {}
 }
 
+let chatMsgs = [];
+let chatSending = false;
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function buildMsgEl(msg, isLast) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-wrap';
+  wrap.dataset.id = msg.id;
+
+  const div = document.createElement('div');
+  div.className = 'msg ' + msg.role;
+
+  if (msg.role === 'assistant') {
+    if (msg.thinking) {
+      const details = document.createElement('details');
+      details.className = 'thinking-block';
+      details.innerHTML = `<summary>💭 思考過程</summary><div class="thinking-content">${escHtml(msg.thinking)}</div>`;
+      div.appendChild(details);
+    }
+    const ct = document.createElement('div');
+    ct.className = 'msg-content';
+    ct.textContent = msg.content;
+    div.appendChild(ct);
+
+    if (msg.branches && msg.branches.length > 1) {
+      const nav = document.createElement('div');
+      nav.className = 'branch-nav';
+      const idx = msg.branch_idx ?? (msg.branches.length - 1);
+      nav.innerHTML = `<button onclick="switchBranch('${msg.id}',-1)">‹</button><span>${idx+1}/${msg.branches.length}</span><button onclick="switchBranch('${msg.id}',1)">›</button>`;
+      div.appendChild(nav);
+    }
+    if (isLast) {
+      const btn = document.createElement('button');
+      btn.className = 'msg-regen-btn';
+      btn.textContent = '↻';
+      btn.title = '重新生成';
+      btn.onclick = () => regenerate();
+      div.appendChild(btn);
+    }
+  } else {
+    const ct = document.createElement('div');
+    ct.className = 'msg-content';
+    ct.textContent = msg.content;
+    div.appendChild(ct);
+    if (msg.edited) {
+      const tag = document.createElement('span');
+      tag.className = 'edited-tag';
+      tag.textContent = '已編輯';
+      div.appendChild(tag);
+    }
+    const editBtn = document.createElement('button');
+    editBtn.className = 'msg-edit-btn';
+    editBtn.textContent = '✎';
+    editBtn.title = '編輯';
+    editBtn.onclick = () => startEdit(msg.id, wrap);
+    div.appendChild(editBtn);
+
+    if (msg.edit_branches && msg.edit_branches.length > 0) {
+      const nav = document.createElement('div');
+      nav.className = 'branch-nav';
+      const eb = msg.edit_branches;
+      nav.innerHTML = `<button onclick="switchEditBranch('${msg.id}','${eb[eb.length-1].id}')">← 舊版</button>`;
+      div.appendChild(nav);
+    }
+  }
+
+  wrap.appendChild(div);
+  return wrap;
+}
+
+function renderAllMsgs() {
+  const container = document.getElementById('messages');
+  container.innerHTML = '';
+  if (!chatMsgs.length) {
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+    div.textContent = '在。';
+    container.appendChild(div);
+    return;
+  }
+  chatMsgs.forEach((msg, i) => {
+    container.appendChild(buildMsgEl(msg, i === chatMsgs.length - 1));
+  });
+  container.scrollTop = container.scrollHeight;
+}
+
 function addMsg(role, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
@@ -360,43 +426,158 @@ async function send() {
     return;
   }
 
+  if (chatSending) return;
+  chatSending = true;
   input.value = '';
   input.style.height = 'auto';
   document.getElementById('sendBtn').disabled = true;
-  addMsg('user', text);
-  messages.push({ role: 'user', content: text });
-  saveMessage('user', text);
 
-  const thinking = document.createElement('div');
-  thinking.className = 'msg thinking';
-  thinking.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
-  document.getElementById('messages').appendChild(thinking);
-  thinking.scrollIntoView({ behavior: 'smooth' });
-
+  const typingEl = _addTyping();
   try {
-    const memR = await fetch(BASE + '/memory', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
-    const memD = await memR.json();
-    let memText = '';
-    if (memD.memories && memD.memories.length > 0) {
-      const NL = String.fromCharCode(10);
-      memText = NL + NL + '記憶庫：' + NL + memD.memories.slice(-10).map(m => m.content).join(NL + '---' + NL);
-    }
-    const system = "你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。必須全程使用繁體中文，絕對不能出現任何簡體字。" + memText;
-    const r = await fetch(BASE + '/chat', {
+    const r = await fetch(BASE + '/api/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-      body: JSON.stringify({ messages, system }),
+      body: JSON.stringify({ content: text }),
     });
     const d = await r.json();
-    const reply = d.content?.[0]?.text || '（沒有回應）';
-    thinking.remove();
-    addMsg('assistant', reply);
-    messages.push({ role: 'assistant', content: reply });
-    saveMessage('assistant', reply);
+    typingEl.remove();
+    if (d.reply) {
+      const msgs = await _fetchChatMsgs();
+      chatMsgs = msgs;
+      renderAllMsgs();
+    }
   } catch {
-    thinking.textContent = '連線錯誤';
+    typingEl.textContent = '連線錯誤';
   }
   document.getElementById('sendBtn').disabled = false;
+  chatSending = false;
+}
+
+async function regenerate() {
+  if (chatSending) return;
+  chatSending = true;
+  const typingEl = _addTyping();
+  try {
+    const r = await fetch(BASE + '/api/chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ retry: true }),
+    });
+    const d = await r.json();
+    typingEl.remove();
+    if (d.reply) {
+      chatMsgs = await _fetchChatMsgs();
+      renderAllMsgs();
+    }
+  } catch {
+    typingEl.textContent = '重新生成失敗';
+  }
+  chatSending = false;
+}
+
+function startEdit(msgId, wrap) {
+  if (chatSending) return;
+  const msg = chatMsgs.find(m => m.id === msgId);
+  if (!msg) return;
+  const div = wrap.querySelector('.msg');
+  const ct = div.querySelector('.msg-content');
+  const original = msg.content;
+
+  const ta = document.createElement('textarea');
+  ta.className = 'edit-textarea';
+  ta.value = original;
+  ta.rows = 3;
+  ct.replaceWith(ta);
+  ta.focus();
+
+  const actions = document.createElement('div');
+  actions.className = 'edit-actions';
+  actions.innerHTML = `<button onclick="saveEdit('${msgId}', this)">保存</button><button onclick="cancelEdit('${msgId}')">取消</button>`;
+  div.appendChild(actions);
+
+  const editBtn = div.querySelector('.msg-edit-btn');
+  if (editBtn) editBtn.style.display = 'none';
+}
+
+async function saveEdit(msgId, btn) {
+  if (chatSending) return;
+  const wrap = document.querySelector(`.msg-wrap[data-id="${msgId}"]`);
+  if (!wrap) return;
+  const ta = wrap.querySelector('.edit-textarea');
+  const content = ta ? ta.value.trim() : '';
+  if (!content) return;
+
+  chatSending = true;
+  btn.disabled = true;
+  try {
+    await fetch(BASE + '/api/chat/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ msg_id: msgId, content }),
+    });
+    // Trigger regen after edit
+    const typingEl = _addTyping();
+    const r2 = await fetch(BASE + '/api/chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ edit_regen: true }),
+    });
+    await r2.json();
+    typingEl.remove();
+    chatMsgs = await _fetchChatMsgs();
+    renderAllMsgs();
+  } catch {}
+  chatSending = false;
+}
+
+function cancelEdit(msgId) {
+  chatMsgs = [...chatMsgs];
+  renderAllMsgs();
+}
+
+function switchBranch(msgId, dir) {
+  if (chatSending) return;
+  const msg = chatMsgs.find(m => m.id === msgId);
+  if (!msg || !msg.branches) return;
+  const newIdx = Math.max(0, Math.min(msg.branches.length - 1, (msg.branch_idx ?? msg.branches.length - 1) + dir));
+  if (newIdx === (msg.branch_idx ?? msg.branches.length - 1)) return;
+  const branch = msg.branches[newIdx];
+  msg.branch_idx = newIdx;
+  msg.content = branch.content;
+  msg.thinking = branch.thinking || '';
+  msg.id = branch.id;
+  renderAllMsgs();
+}
+
+async function switchEditBranch(forkId, branchId) {
+  if (chatSending) return;
+  chatSending = true;
+  try {
+    await fetch(BASE + '/api/chat/branch/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ fork_id: forkId, branch_id: branchId }),
+    });
+    chatMsgs = await _fetchChatMsgs();
+    renderAllMsgs();
+  } catch {}
+  chatSending = false;
+}
+
+async function _fetchChatMsgs() {
+  const r = await fetch(BASE + '/api/chat/messages', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  const d = await r.json();
+  return (d.messages || []).map(m => ({ ...m, thinking: m.thinking || '' }));
+}
+
+function _addTyping() {
+  const el = document.createElement('div');
+  el.className = 'msg thinking';
+  el.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+  const container = document.getElementById('messages');
+  container.appendChild(el);
+  el.scrollIntoView({ behavior: 'smooth' });
+  return el;
 }
 
 async function loadMemories() {

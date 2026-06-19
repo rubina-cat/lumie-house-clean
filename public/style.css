@@ -398,6 +398,8 @@ body {
   overflow-y: auto;
 }
 
+.msg-wrap { display: contents; }
+
 .msg {
   max-width: 82%;
   padding: 14px 18px;
@@ -407,7 +409,51 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   animation: fadeUp 0.3s ease;
+  position: relative;
 }
+
+/* thinking block */
+.thinking-block { margin-bottom: 6px; font-size: 13px; opacity: 0.75; }
+.thinking-block summary { cursor: pointer; opacity: 0.6; user-select: none; list-style: none; }
+.thinking-content { margin-top: 6px; padding: 8px 12px; border-left: 2px solid #ccc; background: rgba(0,0,0,0.03); white-space: pre-wrap; line-height: 1.6; border-radius: 0 6px 6px 0; }
+
+/* edit / regen buttons */
+.msg-edit-btn, .msg-regen-btn {
+  background: none; border: none; cursor: pointer; padding: 2px 5px;
+  font-size: 14px; opacity: 0; transition: opacity 0.2s;
+  position: absolute; bottom: 4px;
+}
+.msg-edit-btn { right: 6px; }
+.msg-regen-btn { right: 6px; }
+.msg:hover .msg-edit-btn, .msg:hover .msg-regen-btn { opacity: 0.5; }
+.msg-edit-btn:hover, .msg-regen-btn:hover { opacity: 1 !important; }
+
+/* branch navigation */
+.branch-nav {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-size: 12px; opacity: 0.55;
+}
+.branch-nav button {
+  background: none; border: 1px solid currentColor; border-radius: 4px;
+  padding: 1px 6px; cursor: pointer; font-size: 13px; color: inherit;
+}
+.branch-nav button:hover { opacity: 0.8; }
+
+/* edit mode */
+.edit-textarea {
+  width: 100%; min-height: 60px; padding: 6px 8px; border-radius: 10px;
+  border: 1px solid var(--card-border); background: var(--bg); color: var(--deep);
+  font-size: 15px; resize: vertical; font-family: inherit; line-height: 1.5;
+}
+.edit-actions { display: flex; gap: 8px; margin-top: 6px; }
+.edit-actions button {
+  padding: 4px 14px; border-radius: 10px; border: none; cursor: pointer; font-size: 13px;
+  background: var(--rose); color: #fff;
+}
+.edit-actions button:last-child { background: var(--card-border); color: var(--deep); }
+
+/* edited tag */
+.edited-tag { font-size: 10px; opacity: 0.5; margin-left: 6px; }
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }
