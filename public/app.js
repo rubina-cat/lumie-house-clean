@@ -45,7 +45,7 @@ async function loadEye() {
     const d = await r.json();
     renderEyeNow(d.latest, d.ageMinutes);
     renderEyeTimeline(d.timeline || []);
-    renderEyeEvents(d.events || []);
+    renderEyeEvents(d.latest?.usageStats || []);
   } catch (e) {
     document.getElementById('eyeNow').innerHTML = '<div class="eye-loading">載入失敗</div>';
   }
@@ -150,20 +150,22 @@ function prettyAppName(pkg) {
   return last.charAt(0).toUpperCase() + last.slice(1);
 }
 
-function renderEyeEvents(events) {
+function renderEyeEvents(usageStats) {
   const el = document.getElementById('eyeEvents');
-  if (!events.length) {
+  if (!usageStats.length) {
     el.innerHTML = '<div class="eye-events-empty">還沒有 app 紀錄</div>';
     return;
   }
   let html = '';
-  for (const ev of events) {
-    const t = new Date(ev.reportedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const actionLabel = ev.action === 'close' ? '關' : '開';
+  for (const item of usageStats) {
+    // format: "HH:MM appname"
+    const sp = item.indexOf(' ');
+    const time = sp > 0 ? item.slice(0, sp) : '';
+    const name = sp > 0 ? item.slice(sp + 1) : item;
     html += `<div class="eye-event">
-      <span class="eye-event-action ${ev.action}">${actionLabel}</span>
-      <span class="eye-event-app">${prettyAppName(ev.appName)}</span>
-      <span class="eye-event-time">${t}</span>
+      <span class="eye-event-action open">開</span>
+      <span class="eye-event-app">${escHtml(name)}</span>
+      <span class="eye-event-time">${time}</span>
     </div>`;
   }
   el.innerHTML = html;
