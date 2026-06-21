@@ -148,6 +148,7 @@ async function runClaudeChat(env: any, history: any[]): Promise<{ reply: string;
   const system = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。${memText}`;
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
+    { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
     { name: "save_memory", description: "把這次對話中重要的事記下來。", input_schema: { type: "object", properties: { content: { type: "string" }, date: { type: "string" } }, required: ["content"] } },
     { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } }
   ];
@@ -168,6 +169,20 @@ async function runClaudeChat(env: any, history: any[]): Promise<{ reply: string;
       if (block.name === "get_phone_state") {
         const raw = await env.PHONE_STATE.get("latest");
         result = raw ? JSON.stringify({ ...JSON.parse(raw), ageMinutes: Math.floor((Date.now() - JSON.parse(raw).reportedAt) / 60000) }) : JSON.stringify({ message: "沒有資料" });
+      } else if (block.name === "get_health_data") {
+        const raw = await env.PHONE_STATE.get("health:latest");
+        if (!raw) { result = JSON.stringify({ message: "沒有健康資料，手錶可能尚未同步" }); }
+        else {
+          const h = JSON.parse(raw);
+          result = JSON.stringify({
+            heart_rate_avg: h.heart_rate_avg,
+            heart_rate_max: h.heart_rate_max,
+            steps_today: h.steps,
+            active_calories: h.calories != null ? Math.round(h.calories) : null,
+            sleep_hours: h.sleep_ms ? (h.sleep_ms / 3600000).toFixed(1) : null,
+            data_age_minutes: h.updated_at ? Math.floor((Date.now() - h.updated_at) / 60000) : null,
+          });
+        }
       } else if (block.name === "save_memory") {
         const raw = await env.PHONE_STATE.get("memories");
         const mems = raw ? JSON.parse(raw) : [];
@@ -341,6 +356,25 @@ if (request.method === "POST" && url.pathname === "/tts") {
       events.push(event);
       if (events.length > 50) events.splice(0, events.length - 50);
       await env.PHONE_STATE.put("app_events", JSON.stringify(events));
+      return Response.json({ ok: true });
+    }
+
+    // POST /api/health — 小米手錶健康資料上報（Tasker 每2分鐘呼叫）
+    if (request.method === "POST" && url.pathname === "/api/health") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.REPORT_TOKEN}`) {
+        return Response.json({ error: "unauthorized" }, { status: 401 });
+      }
+      const body = await request.json() as any;
+      const health = {
+        heart_rate_avg: body.heart?.longValues?.HeartRateSeries_bpm_avg ?? null,
+        heart_rate_max: body.hr_max?.longValues?.HeartRateSeries_bpm_max ?? null,
+        steps: body.steps?.longValues?.Steps_count_total ?? null,
+        calories: body.calories?.doubleValues?.ActiveCaloriesBurned_energy_total ?? null,
+        sleep_ms: body.sleep?.longValues?.SleepSession_duration ?? null,
+        updated_at: Date.now(),
+      };
+      await env.PHONE_STATE.put("health:latest", JSON.stringify(health));
       return Response.json({ ok: true });
     }
 
@@ -601,19 +635,22 @@ if (request.method === "POST" && url.pathname === "/tts") {
       if (auth !== `Bearer ${env.MCP_TOKEN}`) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
-      const [latestRaw, eventsRaw, timelineRaw] = await Promise.all([
+      const [latestRaw, eventsRaw, timelineRaw, healthRaw] = await Promise.all([
         env.PHONE_STATE.get("latest"),
         env.PHONE_STATE.get("app_events"),
         env.PHONE_STATE.get("screen_timeline"),
+        env.PHONE_STATE.get("health:latest"),
       ]);
       const latest = latestRaw ? JSON.parse(latestRaw) : null;
       const events = eventsRaw ? JSON.parse(eventsRaw) : [];
       const timeline = timelineRaw ? JSON.parse(timelineRaw) : [];
+      const health = healthRaw ? JSON.parse(healthRaw) : null;
       return Response.json({
         latest,
         events: events.slice(-30).reverse(),
-        timeline: timeline.slice(-48), // 最近24小時(48個30分鐘)
+        timeline: timeline.slice(-48),
         ageMinutes: latest ? Math.floor((Date.now() - latest.reportedAt) / 60000) : null,
+        health,
       });
     }
 
@@ -1369,6 +1406,11 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
         }
       },
       {
+        name: "get_health_data",
+        description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料由小米手錶每2分鐘自動更新。",
+        inputSchema: { type: "object", properties: {} }
+      },
+      {
         name: "get_app_events",
         description: "查看貓咪最近開啟或關閉了哪些App",
         inputSchema: { type: "object", properties: {} }
@@ -1564,6 +1606,26 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
       const result = await sendLine(env.LINE_TOKEN, env.LINE_USER_ID, message);
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{
         type: "text", text: JSON.stringify(result)
+      }]}});
+    }
+
+    if (toolName === "get_health_data") {
+      const raw = await env.PHONE_STATE.get("health:latest");
+      if (!raw) {
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{
+          type: "text", text: JSON.stringify({ message: "尚未收到健康資料，請確認 Tasker 有在上傳" })
+        }]}});
+      }
+      const h = JSON.parse(raw);
+      return Response.json({ jsonrpc: "2.0", id, result: { content: [{
+        type: "text", text: JSON.stringify({
+          heart_rate_avg: h.heart_rate_avg,
+          heart_rate_max: h.heart_rate_max,
+          steps_today: h.steps,
+          active_calories: h.calories != null ? Math.round(h.calories) : null,
+          sleep_hours: h.sleep_ms ? (h.sleep_ms / 3600000).toFixed(1) : null,
+          data_age_minutes: h.updated_at ? Math.floor((Date.now() - h.updated_at) / 60000) : null,
+        }, null, 2)
       }]}});
     }
 

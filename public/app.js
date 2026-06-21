@@ -45,7 +45,7 @@ async function loadEye() {
     const d = await r.json();
     renderEyeNow(d.latest, d.ageMinutes);
     renderEyeTimeline(d.timeline || []);
-    renderEyeEvents(d.latest?.usageStats || []);
+    renderHealth(d.health || null);
   } catch (e) {
     document.getElementById('eyeNow').innerHTML = '<div class="eye-loading">載入失敗</div>';
   }
@@ -103,72 +103,23 @@ function renderEyeTimeline(timeline) {
   el.innerHTML = html;
 }
 
-const APP_NAMES = {
-  'com.android.chrome': 'Chrome',
-  'com.google.android.youtube': 'YouTube',
-  'com.google.android.apps.youtube.music': 'YT Music',
-  'com.facebook.katana': 'Facebook',
-  'com.instagram.android': 'Instagram',
-  'com.twitter.android': 'X',
-  'com.zhiliaoapp.musically': 'TikTok',
-  'jp.naver.line.android': 'LINE',
-  'com.discord': 'Discord',
-  'org.telegram.messenger': 'Telegram',
-  'com.whatsapp': 'WhatsApp',
-  'com.google.android.gm': 'Gmail',
-  'com.google.android.apps.maps': '地圖',
-  'com.google.android.calendar': '日曆',
-  'com.google.android.apps.photos': '相簿',
-  'com.google.android.googlequicksearchbox': 'Google',
-  'com.android.settings': '設定',
-  'com.android.systemui': '系統',
-  'com.android.launcher3': '桌面',
-  'com.miui.home': '桌面',
-  'com.miui.notes': '小米筆記',
-  'com.miui.gallery': '小米相簿',
-  'com.xiaomi.shop': '小米商城',
-  'com.mi.health': '小米健康',
-  'com.sec.android.app.launcher': '桌面',
-  'com.spotify.music': 'Spotify',
-  'com.netflix.mediaclient': 'Netflix',
-  'tv.danmaku.bili': 'Bilibili',
-  'com.taobao.taobao': '淘寶',
-  'com.shopee.tw': '蝦皮',
-  'com.king.candycrushsaga': '糖果傳奇',
-  'com.papegames.h5framework': '戀與深空',
-  'com.papegames.lovenikki': '戀與製作人',
-  'com.google.android.apps.tasks': 'Tasks',
-  'com.cloudwise.tasker': 'Tasker',
-  'net.dinglisch.android.taskerm': 'Tasker',
-};
-
-function prettyAppName(pkg) {
-  if (!pkg) return '—';
-  if (APP_NAMES[pkg]) return APP_NAMES[pkg];
-  const parts = pkg.split('.');
-  const last = parts[parts.length - 1];
-  return last.charAt(0).toUpperCase() + last.slice(1);
-}
-
-function renderEyeEvents(usageStats) {
+function renderHealth(health) {
   const el = document.getElementById('eyeEvents');
-  if (!usageStats.length) {
-    el.innerHTML = '<div class="eye-events-empty">還沒有 app 紀錄</div>';
+  if (!health) {
+    el.innerHTML = '<div class="eye-events-empty">還沒有健康資料<br><small>設定 Tasker 上傳後才會出現</small></div>';
     return;
   }
-  let html = '';
-  for (const item of usageStats) {
-    // format: "HH:MM appname"
-    const sp = item.indexOf(' ');
-    const time = sp > 0 ? item.slice(0, sp) : '';
-    const name = sp > 0 ? item.slice(sp + 1) : item;
-    html += `<div class="eye-event">
-      <span class="eye-event-action open">開</span>
-      <span class="eye-event-app">${escHtml(name)}</span>
-      <span class="eye-event-time">${time}</span>
-    </div>`;
-  }
-  el.innerHTML = html;
+  const ageMin = health.updated_at ? Math.floor((Date.now() - health.updated_at) / 60000) : null;
+  const sleepH = health.sleep_ms ? (health.sleep_ms / 3600000).toFixed(1) : '—';
+  const cal = health.calories != null ? Math.round(health.calories) : '—';
+  el.innerHTML = `
+    <div class="eye-now-row"><span class="eye-now-label">心率均值</span><span class="eye-now-value">${health.heart_rate_avg ?? '—'} bpm</span></div>
+    <div class="eye-now-row"><span class="eye-now-label">心率峰值</span><span class="eye-now-value">${health.heart_rate_max ?? '—'} bpm</span></div>
+    <div class="eye-now-row"><span class="eye-now-label">今日步數</span><span class="eye-now-value">${health.steps != null ? health.steps.toLocaleString() : '—'}</span></div>
+    <div class="eye-now-row"><span class="eye-now-label">活動卡路里</span><span class="eye-now-value">${cal} kcal</span></div>
+    <div class="eye-now-row"><span class="eye-now-label">睡眠時長</span><span class="eye-now-value">${sleepH} 小時</span></div>
+    ${ageMin != null ? `<div class="eye-now-row"><span class="eye-now-label">資料更新</span><span class="eye-now-value">${ageMin} 分鐘前</span></div>` : ''}
+  `;
 }
 
 async function loadChatHistory() {
