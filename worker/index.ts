@@ -362,7 +362,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
     // POST /api/health — 小米手錶健康資料上報（Tasker 每2分鐘呼叫）
     if (request.method === "POST" && url.pathname === "/api/health") {
       const auth = request.headers.get("Authorization");
-      if (auth !== `Bearer ${env.REPORT_TOKEN}`) {
+      if (auth !== `Bearer ${env.MCP_TOKEN}` && auth !== `Bearer ${env.REPORT_TOKEN}`) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
       const body = await request.json() as any;
