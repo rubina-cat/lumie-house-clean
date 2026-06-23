@@ -167,12 +167,17 @@ async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Prom
     { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } }
   ];
   let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
+  const isSonnet = modelKey === 'sonnet';
   const call = async (m: any[]) => {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: modelId, max_tokens: 1000, system, tools, messages: m }),
-    });
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-api-key": env.ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+    };
+    if (isSonnet) headers["anthropic-beta"] = "interleaved-thinking-2025-05-14";
+    const bodyObj: any = { model: modelId, max_tokens: isSonnet ? 16000 : 1000, system, tools, messages: m };
+    if (isSonnet) bodyObj.thinking = { type: "enabled", budget_tokens: 5000 };
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(bodyObj) });
     return r.json() as Promise<any>;
   };
   let data = await call(msgs);
@@ -216,7 +221,8 @@ async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Prom
     data = await call(msgs);
   }
   const reply = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") || "（沒有回應）";
-  return { reply, thinking: "" };
+  const thinking = isSonnet ? (data.content || []).filter((b: any) => b.type === "thinking").map((b: any) => b.thinking).join("\n") : "";
+  return { reply, thinking };
 }
 
 export default {
