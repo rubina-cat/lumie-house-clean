@@ -18,6 +18,15 @@
 
 <div class="pages">
 
+  <!-- Sidebar -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <button class="sidebar-new-btn" onclick="newSession()">＋ 新對話</button>
+    </div>
+    <div class="sidebar-sessions" id="sidebarSessions"></div>
+  </div>
+
   <div class="page active" id="home">
     <div class="home-header">
       <div class="together-label">together with anchor</div>
@@ -73,6 +82,7 @@
 
   <div class="page" id="chat">
     <div class="chat-header">
+      <button class="chat-history-btn" onclick="openSidebar()" title="對話列表">☰</button>
       <div class="chat-title">⚓ Anchor</div>
       <button class="chat-history-btn" id="notifBtn" onclick="enableNotifications()" title="開啟通知">🔔</button>
       <button class="chat-history-btn" onclick="speakLast()" title="播放語音">🔊</button>
@@ -335,6 +345,10 @@
     <textarea id="input" placeholder="說話…" rows="1"></textarea>
   </div>
   <button class="send-btn" id="sendBtn">↑</button>
+  <select class="model-select" id="modelSelect" onchange="changeModel(this.value)" title="選擇模型">
+    <option value="haiku">Haiku</option>
+    <option value="sonnet">Sonnet ✦</option>
+  </select>
 </div>
 
 <nav class="nav">

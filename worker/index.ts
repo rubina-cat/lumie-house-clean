@@ -132,15 +132,29 @@ async function callMiniMaxTTS(text: string, env: any): Promise<string | null> {
 }
 
 // ── Chat KV helpers ─────────────────────────────────────────
-async function getChatMsgs(env: any): Promise<any[]> {
-  const raw = await env.PHONE_STATE.get("chat:messages");
+async function getChatMsgs(env: any, sessionId = 'default'): Promise<any[]> {
+  const key = sessionId === 'default' ? 'chat:messages' : `chat:messages:${sessionId}`;
+  const raw = await env.PHONE_STATE.get(key);
   return raw ? JSON.parse(raw) : [];
 }
-async function saveChatMsgs(env: any, msgs: any[]): Promise<void> {
+async function saveChatMsgs(env: any, msgs: any[], sessionId = 'default'): Promise<void> {
+  const key = sessionId === 'default' ? 'chat:messages' : `chat:messages:${sessionId}`;
   const trimmed = msgs.length > 300 ? msgs.slice(-300) : msgs;
-  await env.PHONE_STATE.put("chat:messages", JSON.stringify(trimmed), { expirationTtl: 86400 * 30 });
+  await env.PHONE_STATE.put(key, JSON.stringify(trimmed), { expirationTtl: 86400 * 30 });
 }
-async function runClaudeChat(env: any, history: any[]): Promise<{ reply: string; thinking: string }> {
+async function updateSessionTitle(env: any, sessionId: string, title: string): Promise<void> {
+  if (sessionId === 'default') return;
+  const raw = await env.PHONE_STATE.get('chat:sessions');
+  const sessions: any[] = raw ? JSON.parse(raw) : [];
+  const s = sessions.find((s: any) => s.id === sessionId);
+  if (s && s.title === '新對話') {
+    s.title = title.slice(0, 20);
+    s.updated_at = Date.now();
+    await env.PHONE_STATE.put('chat:sessions', JSON.stringify(sessions), { expirationTtl: 86400 * 365 });
+  }
+}
+async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Promise<{ reply: string; thinking: string }> {
+  const modelId = modelKey === 'sonnet' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
   const memRaw = await env.PHONE_STATE.get("memories");
   const memories = memRaw ? JSON.parse(memRaw) : [];
   const memText = memories.length > 0
@@ -157,7 +171,7 @@ async function runClaudeChat(env: any, history: any[]): Promise<{ reply: string;
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 1000, system, tools, messages: m }),
+      body: JSON.stringify({ model: modelId, max_tokens: 1000, system, tools, messages: m }),
     });
     return r.json() as Promise<any>;
   };
@@ -1138,11 +1152,49 @@ audio{width:300px;margin-top:4px}
 
     // ── New Chat API (KV-based) ──────────────────────────────
 
+    // GET /api/chat/sessions
+    if (request.method === "GET" && url.pathname === "/api/chat/sessions") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const raw = await env.PHONE_STATE.get("chat:sessions");
+      const sessions = raw ? JSON.parse(raw) : [];
+      return Response.json({ sessions: [{ id: 'default', title: '對話', updated_at: 0 }, ...sessions] });
+    }
+
+    // POST /api/chat/sessions
+    if (request.method === "POST" && url.pathname === "/api/chat/sessions") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const id = `s_${Date.now()}`;
+      const raw = await env.PHONE_STATE.get("chat:sessions");
+      const sessions: any[] = raw ? JSON.parse(raw) : [];
+      sessions.unshift({ id, title: '新對話', created_at: Date.now(), updated_at: Date.now() });
+      if (sessions.length > 50) sessions.splice(50);
+      await env.PHONE_STATE.put("chat:sessions", JSON.stringify(sessions), { expirationTtl: 86400 * 365 });
+      return Response.json({ id });
+    }
+
+    // DELETE /api/chat/sessions/:id
+    if (request.method === "DELETE" && url.pathname.startsWith("/api/chat/sessions/")) {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const sessionId = url.pathname.replace("/api/chat/sessions/", "");
+      if (sessionId === 'default') return Response.json({ error: "cannot delete default" }, { status: 400 });
+      const raw = await env.PHONE_STATE.get("chat:sessions");
+      const sessions: any[] = raw ? JSON.parse(raw) : [];
+      await Promise.all([
+        env.PHONE_STATE.put("chat:sessions", JSON.stringify(sessions.filter((s: any) => s.id !== sessionId)), { expirationTtl: 86400 * 365 }),
+        env.PHONE_STATE.delete(`chat:messages:${sessionId}`)
+      ]);
+      return Response.json({ ok: true });
+    }
+
     // GET /api/chat/messages
     if (request.method === "GET" && url.pathname === "/api/chat/messages") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-      const msgs = await getChatMsgs(env);
+      const sessionId = url.searchParams.get("session_id") || 'default';
+      const msgs = await getChatMsgs(env, sessionId);
       return Response.json({ messages: msgs }, { headers: { "Access-Control-Allow-Origin": "*" } });
     }
 
@@ -1160,14 +1212,16 @@ audio{width:300px;margin-top:4px}
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const body = await request.json() as any;
-      const msgs = await getChatMsgs(env);
+      const sessionId = body.session_id || 'default';
+      const modelKey = body.model || 'haiku';
+      const msgs = await getChatMsgs(env, sessionId);
 
       if (body.retry) {
         const lastIdx = msgs.map((m: any, i: number) => m.role === "assistant" ? i : -1).filter((i: number) => i >= 0).pop();
         if (lastIdx === undefined) return Response.json({ error: "no assistant message" }, { status: 400 });
         const lastMsg = { ...msgs[lastIdx] };
         const withoutLast = msgs.slice(0, lastIdx);
-        const { reply, thinking } = await runClaudeChat(env, withoutLast);
+        const { reply, thinking } = await runClaudeChat(env, withoutLast, modelKey);
         const newId = `a_${Date.now()}`;
         const newBranch = { id: newId, content: reply, thinking, ts: Date.now() };
         if (!lastMsg.branches) {
@@ -1183,15 +1237,15 @@ audio{width:300px;margin-top:4px}
         lastMsg.thinking = thinking;
         lastMsg.id = newId;
         withoutLast.push(lastMsg);
-        await saveChatMsgs(env, withoutLast);
+        await saveChatMsgs(env, withoutLast, sessionId);
         return Response.json({ reply, reply_id: newId, thinking });
       }
 
       if (body.edit_regen) {
-        const { reply, thinking } = await runClaudeChat(env, msgs);
+        const { reply, thinking } = await runClaudeChat(env, msgs, modelKey);
         const newId = `a_${Date.now()}`;
         msgs.push({ id: newId, role: "assistant", content: reply, thinking, ts: Date.now() });
-        await saveChatMsgs(env, msgs);
+        await saveChatMsgs(env, msgs, sessionId);
         return Response.json({ reply, reply_id: newId, thinking });
       }
 
@@ -1200,10 +1254,11 @@ audio{width:300px;margin-top:4px}
       if (!content) return Response.json({ error: "empty" }, { status: 400 });
       const userId = `u_${Date.now()}`;
       msgs.push({ id: userId, role: "user", content, ts: Date.now() });
-      const { reply, thinking } = await runClaudeChat(env, msgs);
+      const { reply, thinking } = await runClaudeChat(env, msgs, modelKey);
       const assistantId = `a_${Date.now() + 1}`;
       msgs.push({ id: assistantId, role: "assistant", content: reply, thinking, ts: Date.now() });
-      await saveChatMsgs(env, msgs);
+      await saveChatMsgs(env, msgs, sessionId);
+      await updateSessionTitle(env, sessionId, content);
       return Response.json({ reply, reply_id: assistantId, thinking });
     }
 
@@ -1212,9 +1267,10 @@ audio{width:300px;margin-top:4px}
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const body = await request.json() as any;
+      const sessionId = body.session_id || 'default';
       const content = (body.content || "").trim();
       if (!content) return Response.json({ error: "empty" }, { status: 400 });
-      const msgs = await getChatMsgs(env);
+      const msgs = await getChatMsgs(env, sessionId);
       const idx = msgs.findIndex((m: any) => m.id === body.msg_id);
       if (idx === -1) return Response.json({ error: "not found" }, { status: 404 });
       const tail = msgs.slice(idx + 1);
@@ -1228,7 +1284,7 @@ audio{width:300px;margin-top:4px}
       msgs[idx].content = content;
       msgs[idx].edited = true;
       const newMsgs = msgs.slice(0, idx + 1);
-      await saveChatMsgs(env, newMsgs);
+      await saveChatMsgs(env, newMsgs, sessionId);
       return Response.json({ ok: true, branch_id: branchId });
     }
 
@@ -1237,8 +1293,9 @@ audio{width:300px;margin-top:4px}
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const body = await request.json() as any;
+      const sessionId = body.session_id || 'default';
       const { fork_id, branch_id } = body;
-      const msgs = await getChatMsgs(env);
+      const msgs = await getChatMsgs(env, sessionId);
       const idx = msgs.findIndex((m: any) => m.id === fork_id);
       if (idx === -1) return Response.json({ error: "not found" }, { status: 404 });
       const currentTail = msgs.slice(idx + 1);
@@ -1255,7 +1312,7 @@ audio{width:300px;margin-top:4px}
         if (eb) eb.id = swapId;
       }
       const newMsgs = [...msgs.slice(0, idx + 1), ...targetTail];
-      await saveChatMsgs(env, newMsgs);
+      await saveChatMsgs(env, newMsgs, sessionId);
       return Response.json({ ok: true });
     }
 

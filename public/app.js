@@ -203,6 +203,9 @@ document.addEventListener('DOMContentLoaded', () => {
     new Audio(decodeURIComponent(autoplay)).play().catch(() => {});
     history.replaceState({}, '', '/chat-ui.html');
   }
+
+  const ms = document.getElementById('modelSelect');
+  if (ms) ms.value = currentModel;
 });
 
 // ── 推送通知 ──────────────────────────────────────
@@ -264,9 +267,72 @@ async function sendSubscriptionToServer(sub) {
 
 let chatMsgs = [];
 let chatSending = false;
+let currentSession = 'default';
+let currentModel = localStorage.getItem('chat_model') || 'haiku';
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebarOverlay').classList.add('open');
+  loadSessions();
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
+}
+async function loadSessions() {
+  const list = document.getElementById('sidebarSessions');
+  try {
+    const r = await fetch(BASE + '/api/chat/sessions', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    const sessions = d.sessions || [];
+    list.innerHTML = sessions.map(s => `
+      <div class="sidebar-session ${s.id === currentSession ? 'active' : ''}" onclick="switchSession('${s.id}')">
+        <div class="sidebar-session-title">${escHtml(s.title)}</div>
+        ${s.id !== 'default' ? `<button class="sidebar-del-btn" onclick="event.stopPropagation();deleteSession('${s.id}')">×</button>` : ''}
+      </div>
+    `).join('');
+  } catch {}
+}
+async function newSession() {
+  const r = await fetch(BASE + '/api/chat/sessions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + TOKEN }
+  });
+  const d = await r.json();
+  if (d.id) {
+    currentSession = d.id;
+    chatMsgs = [];
+    renderAllMsgs();
+    closeSidebar();
+  }
+}
+async function switchSession(id) {
+  currentSession = id;
+  closeSidebar();
+  historyLoaded = false;
+  chatMsgs = await _fetchChatMsgs();
+  renderAllMsgs();
+}
+async function deleteSession(id) {
+  if (!confirm('刪除這個對話？')) return;
+  await fetch(BASE + '/api/chat/sessions/' + id, {
+    method: 'DELETE',
+    headers: { 'Authorization': 'Bearer ' + TOKEN }
+  });
+  if (currentSession === id) {
+    currentSession = 'default';
+    chatMsgs = await _fetchChatMsgs();
+    renderAllMsgs();
+  }
+  loadSessions();
+}
+function changeModel(val) {
+  currentModel = val;
+  localStorage.setItem('chat_model', val);
 }
 
 function buildMsgEl(msg, isLast) {
@@ -390,7 +456,7 @@ async function send() {
     const r = await fetch(BASE + '/api/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-      body: JSON.stringify({ content: text }),
+      body: JSON.stringify({ content: text, session_id: currentSession, model: currentModel }),
     });
     const d = await r.json();
     typingEl.remove();
@@ -414,7 +480,7 @@ async function regenerate() {
     const r = await fetch(BASE + '/api/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-      body: JSON.stringify({ retry: true }),
+      body: JSON.stringify({ retry: true, session_id: currentSession }),
     });
     const d = await r.json();
     typingEl.remove();
@@ -466,14 +532,14 @@ async function saveEdit(msgId, btn) {
     await fetch(BASE + '/api/chat/edit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-      body: JSON.stringify({ msg_id: msgId, content }),
+      body: JSON.stringify({ msg_id: msgId, content, session_id: currentSession }),
     });
     // Trigger regen after edit
     const typingEl = _addTyping();
     const r2 = await fetch(BASE + '/api/chat/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-      body: JSON.stringify({ edit_regen: true }),
+      body: JSON.stringify({ edit_regen: true, session_id: currentSession }),
     });
     await r2.json();
     typingEl.remove();
@@ -509,7 +575,7 @@ async function switchEditBranch(forkId, branchId) {
     await fetch(BASE + '/api/chat/branch/switch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-      body: JSON.stringify({ fork_id: forkId, branch_id: branchId }),
+      body: JSON.stringify({ fork_id: forkId, branch_id: branchId, session_id: currentSession }),
     });
     chatMsgs = await _fetchChatMsgs();
     renderAllMsgs();
@@ -518,7 +584,7 @@ async function switchEditBranch(forkId, branchId) {
 }
 
 async function _fetchChatMsgs() {
-  const r = await fetch(BASE + '/api/chat/messages', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  const r = await fetch(BASE + '/api/chat/messages?session_id=' + currentSession, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
   const d = await r.json();
   return (d.messages || []).map(m => ({ ...m, thinking: m.thinking || '' }));
 }
