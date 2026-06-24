@@ -1,4 +1,4 @@
-const CACHE = 'anchor-v2';
+const CACHE = 'anchor-v3';
 const SHELL = [
   '/chat-ui.html',
   '/app.js',
@@ -8,11 +8,11 @@ const SHELL = [
   '/icons/icon-512.png',
 ];
 
-// ── 安裝：預快取 app shell ──────────────────────────────
+// ── 安裝：預快取 app shell（allSettled 確保部分失敗也能繼續）──
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(c => c.addAll(SHELL))
+      .then(c => Promise.allSettled(SHELL.map(u => c.add(u))))
       .then(() => self.skipWaiting())
   );
 });
@@ -26,32 +26,17 @@ self.addEventListener('activate', e => {
   );
 });
 
-// ── Fetch：shell cache-first，跨域 API 不攔截 ──────────
+// ── Fetch：shell cache-first，永不 reject ──────────────
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-
-  // Cloudflare Worker（不同 hostname）→ 直接放行
   if (url.hostname !== self.location.hostname) return;
+  if (!SHELL.includes(url.pathname)) return;
 
-  const path = url.pathname;
-  const isShell = SHELL.includes(path) || path === '/' || path === '';
-
-  // 非 shell（API、其他動態路由）→ 不攔截，讓瀏覽器直接打網路
-  if (!isShell) return;
-
-  // Shell：cache-first，用 ignoreSearch 讓 ?tab=study 也能命中快取
   e.respondWith(
-    caches.open(CACHE).then(async cache => {
-      const cached = await cache.match(path, { ignoreSearch: true });
-      const fetchPromise = fetch(url.pathname)   // 用乾淨 pathname，避免 navigate request 限制
-        .then(resp => {
-          if (resp.ok) cache.put(path, resp.clone());
-          return resp;
-        })
-        .catch(() => null);
-      return cached ?? await fetchPromise ?? new Response('Anchor 暫時不在', { status: 503 });
-    })
+    caches.match(url.pathname)
+      .then(r => r || fetch(url.pathname))
+      .catch(() => new Response('Anchor 暫時不在', { status: 503 }))
   );
 });
 
