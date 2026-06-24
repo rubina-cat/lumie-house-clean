@@ -28,6 +28,11 @@ function switchTab(tabId) {
   document.getElementById('nav-' + tabId).classList.add('active');
   document.getElementById('inputArea').style.display = tabId === 'chat' ? 'flex' : 'none';
 
+  // 切回 chat 時清圖示紅點
+  if (tabId === 'chat' && typeof navigator.clearAppBadge === 'function') {
+    navigator.clearAppBadge().catch(() => {});
+  }
+
   if (tabId === 'memory') loadMemories();
   if (tabId === 'diary') loadDiary();
   if (tabId === 'toy') loadEye();
@@ -197,15 +202,49 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   checkNotificationStatus();
 
+  const params = new URLSearchParams(location.search);
+
   // 從通知點進來時自動播語音
-  const autoplay = new URLSearchParams(location.search).get('autoplay');
+  const autoplay = params.get('autoplay');
   if (autoplay) {
     new Audio(decodeURIComponent(autoplay)).play().catch(() => {});
     history.replaceState({}, '', '/chat-ui.html');
   }
 
+  // manifest shortcuts：長按圖示捷徑跳 tab
+  const tabParam = params.get('tab');
+  if (tabParam) {
+    switchTab(tabParam);
+    history.replaceState({}, '', '/chat-ui.html');
+  }
+
+  // manifest shortcuts：晚安頁
+  if (params.get('night') === '1') {
+    setTimeout(openNight, 200);
+    history.replaceState({}, '', '/chat-ui.html');
+  }
+
   const ms = document.getElementById('modelSelect');
   if (ms) ms.value = currentModel;
+
+  // 進入 chat tab 時清掉圖示 badge
+  if (typeof navigator.clearAppBadge === 'function') {
+    navigator.clearAppBadge().catch(() => {});
+  }
+
+  // 接收 Service Worker 的 badge 訊息
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data?.type === 'set-badge') {
+        if (typeof navigator.setAppBadge === 'function') {
+          navigator.setAppBadge(e.data.count || 1).catch(() => {});
+        }
+      }
+      if (e.data?.type === 'play-audio' && e.data.audioUrl) {
+        new Audio(e.data.audioUrl).play().catch(() => {});
+      }
+    });
+  }
 });
 
 // ── 推送通知 ──────────────────────────────────────

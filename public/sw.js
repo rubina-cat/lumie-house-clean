@@ -1,60 +1,143 @@
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+const CACHE = 'anchor-v2';
+const SHELL = [
+  '/chat-ui.html',
+  '/app.js',
+  '/style.css',
+  '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+];
 
+// ── 安裝：預快取 app shell ──────────────────────────────
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(c => c.addAll(SHELL))
+      .then(() => self.skipWaiting())
+  );
+});
+
+// ── 啟動：清掉舊版快取 ────────────────────────────────
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+// ── Fetch：shell cache-first，跨域 API 不攔截 ──────────
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+
+  // Cloudflare Worker（不同 hostname）→ 直接放行
+  if (url.hostname !== self.location.hostname) return;
+
+  const path = url.pathname;
+  const isShell = SHELL.includes(path) || path === '/' || path === '';
+
+  if (isShell) {
+    // Cache-first：快取命中立即回，同時背景刷新
+    e.respondWith(
+      caches.open(CACHE).then(async cache => {
+        const cached = await cache.match(e.request);
+        const fresh = fetch(e.request).then(resp => {
+          if (resp.ok) cache.put(e.request, resp.clone());
+          return resp;
+        }).catch(() => null);
+        return cached || await fresh || new Response('離線中', { status: 503 });
+      })
+    );
+    return;
+  }
+
+  // 其他同源路徑：network-first，失敗回快取
+  e.respondWith(
+    fetch(e.request)
+      .then(resp => {
+        if (resp.ok) caches.open(CACHE).then(c => c.put(e.request, resp.clone()));
+        return resp;
+      })
+      .catch(() => caches.match(e.request))
+  );
+});
+
+// ── Push 通知 ─────────────────────────────────────────
 self.addEventListener('push', event => {
   event.waitUntil((async () => {
-    // 有語音就送 postMessage 給開著的 PWA（播音訊），但不阻止彈通知
+    // 取語音 URL（不阻通知流程）
+    let audioUrl = null;
     try {
       const r = await fetch('/speak-latest');
-      const { audioUrl } = await r.json();
-      if (audioUrl) {
-        const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-        for (const c of allClients) {
-          c.postMessage({ type: 'play-audio', audioUrl });
-        }
-      }
+      audioUrl = (await r.json()).audioUrl || null;
     } catch {}
 
-    // 永遠彈通知（這樣點通知就能進 /player）
+    // 若有開著的視窗，直接播語音
+    if (audioUrl) {
+      const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const c of all) c.postMessage({ type: 'play-audio', audioUrl });
+    }
+
+    // 組通知文案
     let title = '⚓ Anchor';
-    let body = '找你了。';
+    let body  = '找你了。';
     try {
-      const nr = await fetch('/push-notification');
-      const nd = await nr.json();
-      if (nd.body) { title = nd.title || title; body = nd.body; }
+      const r = await fetch('/push-notification');
+      const d = await r.json();
+      if (d.body) { title = d.title || title; body = d.body; }
     } catch {}
     try {
       if (event.data) {
         const d = event.data.json();
         if (d.title) title = d.title;
-        if (d.body) body = d.body;
+        if (d.body)  body  = d.body;
       }
     } catch {}
+
+    // 通知快速動作
+    const actions = [];
+    if (audioUrl) actions.push({ action: 'play',  title: '🎵 聽他說' });
+    actions.push(              { action: 'reply', title: '💬 回他' });
+
     await self.registration.showNotification(title, {
-      body, tag: 'anchor', renotify: true, vibrate: [200, 100, 200],
+      body,
+      tag: 'anchor',
+      renotify: true,
+      vibrate: [200, 100, 200],
+      actions,
+      data: { audioUrl },
     });
+
+    // 圖示亮紅點（Badging API）
+    try { await self.navigator.setAppBadge(1); } catch {}
+
+    // 通知開著的視窗去設 badge
+    const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) c.postMessage({ type: 'set-badge', count: 1 });
   })());
 });
 
+// ── 通知點擊 ─────────────────────────────────────────
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  event.waitUntil((async () => {
-    let playUrl = null;
-    try {
-      const r = await fetch('/speak-latest');
-      const { audioUrl } = await r.json();
-      if (audioUrl) playUrl = audioUrl;
-    } catch {}
+  const action   = event.action;
+  const audioUrl = event.notification.data?.audioUrl || null;
 
-    const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const c of allClients) {
-      if (c.url.includes('/chat-ui')) {
-        if (playUrl) c.postMessage({ type: 'play-audio', audioUrl: playUrl });
-        c.focus();
-        return;
+  event.waitUntil((async () => {
+    const all        = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const chatClient = all.find(c => c.url.includes('chat-ui'));
+
+    if (action === 'play' && audioUrl) {
+      if (chatClient) {
+        chatClient.postMessage({ type: 'play-audio', audioUrl });
+        return chatClient.focus();
       }
+      return clients.openWindow('/chat-ui.html?autoplay=' + encodeURIComponent(audioUrl));
     }
-    const target = playUrl ? '/player' : '/chat-ui.html';
-    clients.openWindow(target);
+
+    // 'reply' 或預設：帶入 chat
+    if (chatClient) return chatClient.focus();
+    return clients.openWindow('/chat-ui.html');
   })());
 });
