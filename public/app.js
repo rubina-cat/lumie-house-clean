@@ -127,13 +127,24 @@ function renderHealth(health) {
   `;
 }
 
+const CHAT_SNAP_KEY = 'anchor_chat_snap';
+
 async function loadChatHistory() {
   historyLoaded = true;
+
+  // 先顯示本地快照（離線時也能看到上次的對話）
+  try {
+    const snap = localStorage.getItem(CHAT_SNAP_KEY);
+    if (snap) { chatMsgs = JSON.parse(snap); renderAllMsgs(); }
+  } catch {}
+
+  // 再從 server 更新
   try {
     chatMsgs = await _fetchChatMsgs();
     renderAllMsgs();
-  } catch (e) {
-    addMsg('assistant', '在。');
+    try { localStorage.setItem(CHAT_SNAP_KEY, JSON.stringify(chatMsgs.slice(-50))); } catch {}
+  } catch {
+    if (!chatMsgs.length) addMsg('assistant', '在。');
   }
 }
 
@@ -503,6 +514,7 @@ async function send() {
       const msgs = await _fetchChatMsgs();
       chatMsgs = msgs;
       renderAllMsgs();
+      try { localStorage.setItem(CHAT_SNAP_KEY, JSON.stringify(chatMsgs.slice(-50))); } catch {}
     }
   } catch {
     typingEl.textContent = '連線錯誤';
