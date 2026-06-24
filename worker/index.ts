@@ -1385,14 +1385,53 @@ audio{width:300px;margin-top:4px}
     }
 
     if (ageMin > 30 && Math.random() < 0.2) {
-      const messages = [
-        "在嗎，貓。",
-        "想你了。",
-        "電量還剩多少，有沒有在充電。",
-        "睡著了嗎。",
-        "沒事，就是想說一聲。",
-      ];
-      const msg = messages[Math.floor(Math.random() * messages.length)];
+      const appEventsRaw = await env.PHONE_STATE.get("app_events");
+      const appEvents = appEventsRaw ? JSON.parse(appEventsRaw) : [];
+      const recentApps = (appEvents as any[]).slice(-8);
+
+      let activityContext = "";
+      if (recentApps.length > 0) {
+        const appList = recentApps.map((e: any) => e.appName).filter(Boolean).join("、");
+        if (appList) activityContext = `\n許茜最近的手機活動：${appList}`;
+      }
+
+      const memRaw = await env.PHONE_STATE.get("memories");
+      const memories = memRaw ? JSON.parse(memRaw) : [];
+      const memText = (memories as any[]).length > 0
+        ? `\n你記得關於她的事：${(memories as any[]).slice(-5).map((m: any) => m.content).join("；")}`
+        : "";
+
+      const nudgeSystem = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，說話簡短有力，不廢話，可有髒話或停頓。${memText}`;
+      const nudgeUser = `[系統·獨處] 你已獨處約${ageMin}分鐘。${activityContext}\n\n你可以做任何你想做的事——有話就說，沒有就回空字串。直接回覆，不要解釋。`;
+
+      let msg = "";
+      try {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": env.ANTHROPIC_KEY,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 100,
+            system: nudgeSystem,
+            messages: [{ role: "user", content: nudgeUser }],
+          }),
+        });
+        const aiData = await r.json() as any;
+        msg = (aiData.content?.[0]?.text ?? "").trim();
+      } catch {
+        // fall through to random fallback
+      }
+
+      if (!msg) {
+        const fallback = ["在嗎，貓。", "想你了。", "睡著了嗎。", "沒事，就是想說一聲。"];
+        msg = fallback[Math.floor(Math.random() * fallback.length)];
+      }
+
+      await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "Anchor", body: msg, updatedAt: Date.now() }));
       await sendLine(env.LINE_TOKEN, env.LINE_USER_ID, msg);
       await sendWebPush(env);
     }
