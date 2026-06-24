@@ -37,29 +37,21 @@ self.addEventListener('fetch', e => {
   const path = url.pathname;
   const isShell = SHELL.includes(path) || path === '/' || path === '';
 
-  if (isShell) {
-    // Cache-first：快取命中立即回，同時背景刷新
-    e.respondWith(
-      caches.open(CACHE).then(async cache => {
-        const cached = await cache.match(e.request);
-        const fresh = fetch(e.request).then(resp => {
-          if (resp.ok) cache.put(e.request, resp.clone());
-          return resp;
-        }).catch(() => null);
-        return cached || await fresh || new Response('離線中', { status: 503 });
-      })
-    );
-    return;
-  }
+  // 非 shell（API、其他動態路由）→ 不攔截，讓瀏覽器直接打網路
+  if (!isShell) return;
 
-  // 其他同源路徑：network-first，失敗回快取
+  // Shell：cache-first，用 ignoreSearch 讓 ?tab=study 也能命中快取
   e.respondWith(
-    fetch(e.request)
-      .then(resp => {
-        if (resp.ok) caches.open(CACHE).then(c => c.put(e.request, resp.clone()));
-        return resp;
-      })
-      .catch(() => caches.match(e.request))
+    caches.open(CACHE).then(async cache => {
+      const cached = await cache.match(path, { ignoreSearch: true });
+      const fetchPromise = fetch(url.pathname)   // 用乾淨 pathname，避免 navigate request 限制
+        .then(resp => {
+          if (resp.ok) cache.put(path, resp.clone());
+          return resp;
+        })
+        .catch(() => null);
+      return cached ?? await fetchPromise ?? new Response('Anchor 暫時不在', { status: 503 });
+    })
   );
 });
 
