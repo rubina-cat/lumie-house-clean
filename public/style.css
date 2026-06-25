@@ -1603,3 +1603,61 @@ textarea::placeholder { color: var(--light-text); }
   flex-shrink: 0; -webkit-appearance: none; appearance: none;
   text-align: center; min-width: 58px;
 }
+
+/* ── Moodlet 情緒徽章 ─────────────────────────────── */
+.moodlet-card {
+  position: relative;
+  display: inline-block;
+  margin: 6px 0;
+  padding: 8px 12px 8px 14px;
+  border-radius: 12px;
+  border-left: 3px solid var(--mc, #c8b0b0);
+  background: var(--card);
+  box-shadow: 0 1px 8px rgba(0,0,0,0.07);
+  max-width: 220px;
+  overflow: hidden;
+}
+.moodlet-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--mc, #c8b0b0);
+  opacity: 0.08;
+  pointer-events: none;
+}
+.moodlet-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.moodlet-icon { font-size: 15px; line-height: 1; }
+.moodlet-title { font-size: 13px; color: var(--deep); font-weight: 500; letter-spacing: 0.02em; }
+.moodlet-reason {
+  font-size: 11px;
+  color: var(--light-text);
+  margin-top: 4px;
+  font-style: italic;
+  line-height: 1.4;
+}
+.moodlet-vitals {
+  margin-top: 6px;
+}
+.moodlet-vitals summary {
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--light-text);
+  letter-spacing: 0.1em;
+  list-style: none;
+  user-select: none;
+}
+.moodlet-vitals summary::-webkit-details-marker { display: none; }
+.moodlet-vitals-body {
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.moodlet-vitals-body span {
+  font-size: 11px;
+  color: var(--text);
+}

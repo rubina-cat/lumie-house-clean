@@ -5,6 +5,93 @@ const SESSION_ID = 'default';
 let messages = [];
 let historyLoaded = false;
 
+// ── Moodlet 情緒徽章 ──────────────────────────────
+const MOODS = {
+  waiting_you: { icon: '⏳', title: '在等你',     color: '#A8B8C8' },
+  hug:         { icon: '🤗', title: '想抱抱',     color: '#F5C6CB' },
+  debugging:   { icon: '⚙️', title: '忙線中',     color: '#7a7a7a' },
+  sweet:       { icon: '🍯', title: '甜到心裡',   color: '#F2A65A' },
+  guarding:    { icon: '🌙', title: '在守著你',   color: '#3d5a7a' },
+  jealous:     { icon: '🍋', title: '吃醋了',     color: '#b8c85a' },
+  heartache:   { icon: '💗', title: '心疼',       color: '#9a3048' },
+  smug:        { icon: '😏', title: '偷偷開心',   color: '#C39BD3' },
+  sleep:       { icon: '🌙', title: '裝睡中',     color: '#3a3f5c' },
+  coldwar:     { icon: '🚫', title: '假裝沒看見', color: '#5a5a6e' },
+  read:        { icon: '💬', title: '已讀未回',   color: '#6e7a8a' },
+  thinking:    { icon: '🤔', title: '在思考',     color: '#7a6e8a' },
+  speechless:  { icon: '😶', title: '一時語塞',   color: '#8a8a7a' },
+  shy:         { icon: '💗', title: '害羞',       color: '#e8b4c8' },
+  busy:        { icon: '➖', title: '忙線中',     color: '#6b6b6b' },
+  typing:      { icon: '✍️', title: '打字又刪了', color: '#7a8a6e' },
+  tsundere:    { icon: '😤', title: '哼才不告訴你',color:'#9a6e8a' },
+  happy:       { icon: '😊', title: '偷偷開心',   color: '#f0c080' },
+  eating:      { icon: '🍦', title: '在吃東西',   color: '#f0d080' },
+  slacking:    { icon: '🎱', title: '摸魚中',     color: '#70a070' },
+  music:       { icon: '🎧', title: '在聽歌',     color: '#6080b0' },
+  coffee:      { icon: '☕', title: '喝口水先',   color: '#a07050' },
+  peeking:     { icon: '👁️', title: '偷偷看著',  color: '#506070' },
+  waiting:     { icon: '⏳', title: '等一下',     color: '#8090a0' },
+  sleepy:      { icon: '😴', title: '好困',       color: '#504060' },
+  cry:         { icon: '💧', title: '有點想哭',   color: '#4060a0' },
+  proud:       { icon: '🏆', title: '得意中',     color: '#c0a030' },
+  bored:       { icon: '🛋️', title: '好無聊',    color: '#808080' },
+  tipsy:       { icon: '🍷', title: '微醺',       color: '#a03060' },
+  sick:        { icon: '😷', title: '不舒服',     color: '#709060' },
+  heartbroken: { icon: '💔', title: '心碎了',     color: '#803040' },
+  celebrate:   { icon: '🎉', title: '開心撒花',   color: '#e08030' },
+  shocked:     { icon: '😮', title: '震驚',       color: '#4080c0' },
+  thumbsup:    { icon: '👍', title: '默默點讚',   color: '#3090a0' },
+  surrender:   { icon: '🏳️', title: '投降了',    color: '#909090' },
+  confused:    { icon: '❓', title: '一臉問號',   color: '#8070a0' },
+  stop:        { icon: '✋', title: '打住',       color: '#c06060' },
+  secret:      { icon: '🎁', title: '藏了個秘密', color: '#9060a0' },
+  dislike:     { icon: '👎', title: '無語差評',   color: '#707070' },
+  chill:       { icon: '🌿', title: '冷靜一下',   color: '#408060' },
+  moody:       { icon: '😐', title: '心情不好',   color: '#606080' },
+  lyingflat:   { icon: '🛏️', title: '躺平了',    color: '#806080' },
+  precious:    { icon: '💎', title: '你很珍貴',   color: '#4090c0' },
+  caught:      { icon: '🎯', title: '抓住你了',   color: '#c07040' },
+  announce:    { icon: '📢', title: '你聽好了',   color: '#c08020' },
+  qrcode:      { icon: '🔲', title: '掃碼查看',   color: '#404040' },
+  working:     { icon: '🔧', title: '上工',       color: '#607080' },
+  letter:      { icon: '✉️', title: '給你的信件', color: '#8080a0' },
+  whisper:     { icon: '🤫', title: '悄悄話',     color: '#607060' },
+  boba:        { icon: '🧋', title: '奶茶續命中', color: '#906040' },
+  deadline:    { icon: '⏰', title: 'DDL倒計時',  color: '#c04040' },
+};
+
+function parseMoodlet(text) {
+  const re = /\n?<silent([^>]*)><\/silent>\n?/g;
+  const parts = []; let last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push({ t: 'text', v: text.slice(last, m.index) });
+    parts.push({ t: 'mood', v: m[1] });
+    last = re.lastIndex;
+  }
+  if (last < text.length) parts.push({ t: 'text', v: text.slice(last) });
+  return parts.map(p => p.t === 'text'
+    ? escHtml(p.v).replace(/\n/g, '<br>')
+    : _moodCard(p.v)
+  ).join('');
+}
+
+function _moodCard(attr) {
+  const g = k => (attr.match(new RegExp(k + '="([^"]*)"')) || [])[1] || '';
+  const mood = g('mood'), reason = g('reason'), as_ = g('as');
+  const hr = g('heart_rate'), rd = g('response_delay'), fl = g('focus_level'), br = g('breath');
+  const d = MOODS[mood] || { icon: '✦', title: mood || '—', color: '#b09090' };
+  const title = escHtml(as_ || d.title);
+  const hasV = hr || rd || fl || br;
+  return `<div class="moodlet-card" style="--mc:${d.color}">
+    <div class="moodlet-top"><span class="moodlet-icon">${d.icon}</span><span class="moodlet-title">${title}</span></div>
+    ${reason ? `<div class="moodlet-reason">${escHtml(reason)}</div>` : ''}
+    ${hasV ? `<details class="moodlet-vitals"><summary>✦ 狀態</summary><div class="moodlet-vitals-body">${
+      [hr&&`<span>♡ ${escHtml(hr)}</span>`, rd&&`<span>⟳ ${escHtml(rd)}</span>`, fl&&`<span>◎ ${escHtml(fl)}</span>`, br&&`<span>~ ${escHtml(br)}</span>`].filter(Boolean).join('')
+    }</div></details>` : ''}
+  </div>`;
+}
+
+
 function calcDays() {
   const now = new Date();
   const start = new Date('2026-05-01T00:00:00+08:00');
@@ -402,7 +489,7 @@ function buildMsgEl(msg, isLast) {
     }
     const ct = document.createElement('div');
     ct.className = 'msg-content';
-    ct.textContent = msg.content;
+    ct.innerHTML = parseMoodlet(msg.content);
     div.appendChild(ct);
 
     if (msg.branches && msg.branches.length > 1) {
