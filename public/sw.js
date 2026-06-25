@@ -1,120 +1,95 @@
-const CACHE = 'anchor-v3';
-const SHELL = [
-  '/chat-ui.html',
-  '/app.js',
-  '/style.css',
-  '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-];
+const CACHE = 'anchor-v2';
+const PRECACHE = ['/chat-ui.html', '/app.js', '/style.css', '/manifest.json'];
 
-// ── 安裝：預快取 app shell（allSettled 確保部分失敗也能繼續）──
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(c => Promise.allSettled(SHELL.map(u => c.add(u))))
+      .then(c => c.addAll(PRECACHE))
       .then(() => self.skipWaiting())
   );
 });
 
-// ── 啟動：清掉舊版快取 ────────────────────────────────
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
+      .then(() => clients.claim())
   );
 });
 
-// ── Fetch：shell cache-first，永不 reject ──────────────
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  if (url.hostname !== self.location.hostname) return;
-  if (!SHELL.includes(url.pathname)) return;
+  if (e.request.method !== 'GET') return;
+  if (url.pathname.startsWith('/api/') || url.origin !== self.location.origin) return;
 
   e.respondWith(
-    caches.match(url.pathname)
-      .then(r => r || fetch(url.pathname))
-      .catch(() => new Response('Anchor 暫時不在', { status: 503 }))
+    caches.match(e.request).then(cached => {
+      const network = fetch(e.request).then(r => {
+        if (r.ok) {
+          const clone = r.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return r;
+      }).catch(() => cached);
+      return cached || network;
+    })
   );
 });
 
-// ── Push 通知 ─────────────────────────────────────────
 self.addEventListener('push', event => {
   event.waitUntil((async () => {
-    // 取語音 URL（不阻通知流程）
-    let audioUrl = null;
+    // 有語音就送 postMessage 給開著的 PWA（播音訊），但不阻止彈通知
     try {
       const r = await fetch('/speak-latest');
-      audioUrl = (await r.json()).audioUrl || null;
+      const { audioUrl } = await r.json();
+      if (audioUrl) {
+        const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+        for (const c of allClients) {
+          c.postMessage({ type: 'play-audio', audioUrl });
+        }
+      }
     } catch {}
 
-    // 若有開著的視窗，直接播語音
-    if (audioUrl) {
-      const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-      for (const c of all) c.postMessage({ type: 'play-audio', audioUrl });
-    }
-
-    // 組通知文案
+    // 永遠彈通知（這樣點通知就能進 /player）
     let title = '⚓ Anchor';
-    let body  = '找你了。';
+    let body = '找你了。';
     try {
-      const r = await fetch('/push-notification');
-      const d = await r.json();
-      if (d.body) { title = d.title || title; body = d.body; }
+      const nr = await fetch('/push-notification');
+      const nd = await nr.json();
+      if (nd.body) { title = nd.title || title; body = nd.body; }
     } catch {}
     try {
       if (event.data) {
         const d = event.data.json();
         if (d.title) title = d.title;
-        if (d.body)  body  = d.body;
+        if (d.body) body = d.body;
       }
     } catch {}
-
-    // 通知快速動作
-    const actions = [];
-    if (audioUrl) actions.push({ action: 'play',  title: '🎵 聽他說' });
-    actions.push(              { action: 'reply', title: '💬 回他' });
-
     await self.registration.showNotification(title, {
-      body,
-      tag: 'anchor',
-      renotify: true,
-      vibrate: [200, 100, 200],
-      actions,
-      data: { audioUrl },
+      body, tag: 'anchor', renotify: true, vibrate: [200, 100, 200],
     });
-
-    // 圖示亮紅點（Badging API）
-    try { await self.navigator.setAppBadge(1); } catch {}
-
-    // 通知開著的視窗去設 badge
-    const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const c of all) c.postMessage({ type: 'set-badge', count: 1 });
   })());
 });
 
-// ── 通知點擊 ─────────────────────────────────────────
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const action   = event.action;
-  const audioUrl = event.notification.data?.audioUrl || null;
-
   event.waitUntil((async () => {
-    const all        = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const chatClient = all.find(c => c.url.includes('chat-ui'));
+    let playUrl = null;
+    try {
+      const r = await fetch('/speak-latest');
+      const { audioUrl } = await r.json();
+      if (audioUrl) playUrl = audioUrl;
+    } catch {}
 
-    if (action === 'play' && audioUrl) {
-      if (chatClient) {
-        chatClient.postMessage({ type: 'play-audio', audioUrl });
-        return chatClient.focus();
+    const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of allClients) {
+      if (c.url.includes('/chat-ui')) {
+        if (playUrl) c.postMessage({ type: 'play-audio', audioUrl: playUrl });
+        c.focus();
+        return;
       }
-      return clients.openWindow('/chat-ui.html?autoplay=' + encodeURIComponent(audioUrl));
     }
-
-    // 'reply' 或預設：帶入 chat
-    if (chatClient) return chatClient.focus();
-    return clients.openWindow('/chat-ui.html');
+    const target = playUrl ? '/player' : '/chat-ui.html';
+    clients.openWindow(target);
   })());
 });
