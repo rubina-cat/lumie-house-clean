@@ -1,44 +1,8 @@
-const CACHE = 'anchor-v2';
-const PRECACHE = ['/chat-ui.html', '/app.js', '/style.css', '/manifest.json'];
-
-self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE)
-      .then(c => c.addAll(PRECACHE))
-      .then(() => self.skipWaiting())
-  );
-});
-
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => clients.claim())
-  );
-});
-
-self.addEventListener('fetch', e => {
-  const url = new URL(e.request.url);
-  if (e.request.method !== 'GET') return;
-  if (url.pathname.startsWith('/api/') || url.origin !== self.location.origin) return;
-
-  e.respondWith(
-    caches.match(e.request).then(cached => {
-      const network = fetch(e.request).then(r => {
-        if (r.ok) {
-          const clone = r.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
-        return r;
-      }).catch(() => cached);
-      return cached || network;
-    })
-  );
-});
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 
 self.addEventListener('push', event => {
   event.waitUntil((async () => {
-    // 有語音就送 postMessage 給開著的 PWA（播音訊），但不阻止彈通知
     try {
       const r = await fetch('/speak-latest');
       const { audioUrl } = await r.json();
@@ -50,7 +14,6 @@ self.addEventListener('push', event => {
       }
     } catch {}
 
-    // 永遠彈通知（這樣點通知就能進 /player）
     let title = '⚓ Anchor';
     let body = '找你了。';
     try {
