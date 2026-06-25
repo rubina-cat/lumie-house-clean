@@ -1384,7 +1384,7 @@ audio{width:300px;margin-top:4px}
       return;
     }
 
-    if (ageMin > 30 && Math.random() < 0.2) {
+    if (ageMin > 5 && Math.random() < 0.5) {
       const appEventsRaw = await env.PHONE_STATE.get("app_events");
       const appEvents = appEventsRaw ? JSON.parse(appEventsRaw) : [];
       const recentApps = (appEvents as any[]).slice(-8);
