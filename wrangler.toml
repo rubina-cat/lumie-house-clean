@@ -19,4 +19,4 @@ database_name = "ai-boyfriend-db"
 database_id = "c6e17207-dd5d-4916-b9be-31e9be8355f3"
 
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["*/15 * * * *"]
