@@ -764,6 +764,21 @@ async function loadMemories() {
   } catch { list.innerHTML = '<div class="memory-empty">載入失敗</div>'; }
 }
 
+async function exportMemories() {
+  try {
+    const r = await fetch(BASE + '/memory', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    const mems = d.memories || [];
+    const blob = new Blob([JSON.stringify(mems, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `anchor-memories-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch { alert('匯出失敗，請稍後再試'); }
+}
+
 async function loadDiary() {
   const list = document.getElementById('diaryList');
   list.innerHTML = '<div class="diary-loading">載入中…</div>';
