@@ -1391,12 +1391,8 @@ audio{width:300px;margin-top:4px}
     const ageMin = Math.floor((Date.now() - state.reportedAt) / 60000);
     const hour = parseInt(state.hour ?? "0");
 
-    if (hour >= 1 && hour < 4 && state.screenOn === true) {
-      const msg = "還沒睡？放下手機。";
-      await sendLine(env.LINE_TOKEN, env.LINE_USER_ID, msg);
-      await sendWebPush(env);
-      return;
-    }
+    // 夜間（02:00-09:00）不打擾
+    if (hour >= 2 && hour < 9) return;
 
     if (ageMin > 5 && Math.random() < 0.5) {
       const appEventsRaw = await env.PHONE_STATE.get("app_events");
