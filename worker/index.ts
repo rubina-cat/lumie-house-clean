@@ -1377,13 +1377,16 @@ audio{width:300px;margin-top:4px}
 
     const tlRaw = await env.PHONE_STATE.get("screen_timeline");
     const timeline = tlRaw ? JSON.parse(tlRaw) : [];
-    timeline.push({
-      ts: Date.now(),
-      screenOn: state.screenOn,
-      batteryPercent: state.batteryPercent,
-    });
-    if (timeline.length > 400) timeline.splice(0, timeline.length - 400);
-    await env.PHONE_STATE.put("screen_timeline", JSON.stringify(timeline));
+    const lastEntry = timeline[timeline.length - 1];
+    if (!lastEntry || lastEntry.screenOn !== state.screenOn) {
+      timeline.push({
+        ts: Date.now(),
+        screenOn: state.screenOn,
+        batteryPercent: state.batteryPercent,
+      });
+      if (timeline.length > 400) timeline.splice(0, timeline.length - 400);
+      await env.PHONE_STATE.put("screen_timeline", JSON.stringify(timeline));
+    }
 
     const ageMin = Math.floor((Date.now() - state.reportedAt) / 60000);
     const hour = parseInt(state.hour ?? "0");
