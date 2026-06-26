@@ -113,8 +113,11 @@ self.addEventListener('notificationclick', event => {
       return clients.openWindow('/chat-ui.html?autoplay=' + encodeURIComponent(audioUrl));
     }
 
-    // 'reply' 或預設：帶入 chat
-    if (chatClient) return chatClient.focus();
-    return clients.openWindow('/chat-ui.html');
+    // 'reply' 或預設：帶入 chat，reply 動作帶參數讓 app focus 輸入框
+    if (chatClient) {
+      if (action === 'reply') chatClient.postMessage({ type: 'focus-input' });
+      return chatClient.focus();
+    }
+    return clients.openWindow('/chat-ui.html' + (action === 'reply' ? '?reply=1' : ''));
   })());
 });

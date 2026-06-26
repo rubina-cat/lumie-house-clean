@@ -235,6 +235,12 @@ document.addEventListener('DOMContentLoaded', () => {
     history.replaceState({}, '', '/chat-ui.html');
   }
 
+  // 通知「回他」按鈕：打開後自動 focus 輸入框
+  if (params.get('reply') === '1') {
+    setTimeout(() => document.getElementById('input')?.focus(), 300);
+    history.replaceState({}, '', '/chat-ui.html');
+  }
+
   const ms = document.getElementById('modelSelect');
   if (ms) ms.value = currentModel;
 
@@ -253,6 +259,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (e.data?.type === 'play-audio' && e.data.audioUrl) {
         new Audio(e.data.audioUrl).play().catch(() => {});
+      }
+      if (e.data?.type === 'focus-input') {
+        document.getElementById('input')?.focus();
       }
     });
   }
