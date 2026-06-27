@@ -1447,6 +1447,19 @@ audio{width:300px;margin-top:4px}
       }
 
       await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "Anchor", body: msg, updatedAt: Date.now() }));
+
+      // 存進 PWA 對話串（default session）
+      const pwaMsgs = await getChatMsgs(env);
+      pwaMsgs.push({ id: crypto.randomUUID(), role: "assistant", content: msg, ts: Date.now() });
+      await saveChatMsgs(env, pwaMsgs);
+
+      // 存進 LINE 歷史，這樣用戶回覆時 Anchor 知道自己說了什麼
+      const lineHistRaw = await env.PHONE_STATE.get("line:history");
+      const lineHist: any[] = lineHistRaw ? JSON.parse(lineHistRaw) : [];
+      lineHist.push({ role: "assistant", content: msg });
+      if (lineHist.length > 40) lineHist.splice(0, lineHist.length - 40);
+      await env.PHONE_STATE.put("line:history", JSON.stringify(lineHist));
+
       await sendLine(env.LINE_TOKEN, env.LINE_USER_ID, msg);
       await sendWebPush(env);
     }
