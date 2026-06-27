@@ -248,6 +248,42 @@ function closeHistory() {
   document.getElementById('inputArea').style.display = 'flex';
   document.getElementById('historySearch').value = '';
 }
+async function openStats() {
+  const el = document.getElementById('statsOverlay');
+  el.style.display = 'flex';
+  const content = document.getElementById('statsContent');
+  content.innerHTML = '載入中…';
+  try {
+    const r = await fetch('/stats', { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const d = await r.json();
+    const fmt = (n) => n ? `$${(n * 1000).toFixed(3)} 分` : '$0';
+    const fmtUsd = (n) => n ? `≈ $${n.toFixed(5)} USD` : '';
+    content.innerHTML = `
+      <div style="display:grid;gap:14px;">
+        <div style="background:rgba(255,255,255,0.05);border-radius:12px;padding:14px;">
+          <div style="font-size:11px;letter-spacing:0.1em;color:var(--light-text);margin-bottom:6px;">今天</div>
+          <div style="font-size:22px;font-weight:600;color:var(--text);">${d.today?.messages ?? 0} 則</div>
+          <div style="font-size:12px;color:var(--rose);margin-top:2px;">${fmt(d.today?.cost_usd)} ${fmtUsd(d.today?.cost_usd)}</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.05);border-radius:12px;padding:14px;">
+          <div style="font-size:11px;letter-spacing:0.1em;color:var(--light-text);margin-bottom:6px;">近 7 天</div>
+          <div style="font-size:22px;font-weight:600;color:var(--text);">${d.week?.messages ?? 0} 則</div>
+          <div style="font-size:12px;color:var(--rose);margin-top:2px;">${fmt(d.week?.cost_usd)} ${fmtUsd(d.week?.cost_usd)}</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.05);border-radius:12px;padding:14px;">
+          <div style="font-size:11px;letter-spacing:0.1em;color:var(--light-text);margin-bottom:6px;">近 30 天</div>
+          <div style="font-size:22px;font-weight:600;color:var(--text);">${d.month?.messages ?? 0} 則</div>
+          <div style="font-size:12px;color:var(--rose);margin-top:2px;">${fmt(d.month?.cost_usd)} ${fmtUsd(d.month?.cost_usd)}</div>
+        </div>
+        <div style="font-size:11px;color:var(--light-text);text-align:center;">累計 ${d.total?.messages ?? 0} 則 · ${fmtUsd(d.total?.cost_usd)}</div>
+      </div>`;
+  } catch(e) {
+    content.innerHTML = '載入失敗 😥';
+  }
+}
+function closeStats() {
+  document.getElementById('statsOverlay').style.display = 'none';
+}
 async function loadHistory(q) {
   const list = document.getElementById('historyList');
   list.innerHTML = '<div class="history-loading">載入中…</div>';

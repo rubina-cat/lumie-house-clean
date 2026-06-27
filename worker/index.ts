@@ -153,7 +153,20 @@ async function updateSessionTitle(env: any, sessionId: string, title: string): P
     await env.PHONE_STATE.put('chat:sessions', JSON.stringify(sessions), { expirationTtl: 86400 * 365 });
   }
 }
-async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Promise<{ reply: string; thinking: string }> {
+async function logUsage(env: any, usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number }) {
+  try {
+    const isSonnet = usage.model.includes('sonnet');
+    const cost = usage.input_tokens * (isSonnet ? 3e-6 : 1e-6)
+      + usage.output_tokens * (isSonnet ? 15e-6 : 5e-6)
+      + usage.cache_creation_tokens * (isSonnet ? 3.75e-6 : 1.25e-6)
+      + usage.cache_read_tokens * (isSonnet ? 0.3e-6 : 0.1e-6);
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS usage_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, model TEXT NOT NULL, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_creation_tokens INTEGER DEFAULT 0, cache_read_tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0)").run();
+    await env.DB.prepare(
+      "INSERT INTO usage_log (ts, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).bind(Date.now(), usage.model, usage.input_tokens, usage.output_tokens, usage.cache_creation_tokens, usage.cache_read_tokens, cost).run();
+  } catch {}
+}
+async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
   const modelId = modelKey === 'sonnet' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
   const memRaw = await env.PHONE_STATE.get("memories");
   const memories = memRaw ? JSON.parse(memRaw) : [];
@@ -184,6 +197,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   ];
   let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
   const isSonnet = modelKey === 'sonnet';
+  const totalUsage = { model: modelId, input_tokens: 0, output_tokens: 0, cache_creation_tokens: 0, cache_read_tokens: 0 };
   const call = async (m: any[]) => {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -199,6 +213,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     return r.json() as Promise<any>;
   };
   let data = await call(msgs);
+  if (data.usage) { totalUsage.input_tokens += data.usage.input_tokens || 0; totalUsage.output_tokens += data.usage.output_tokens || 0; totalUsage.cache_creation_tokens += data.usage.cache_creation_input_tokens || 0; totalUsage.cache_read_tokens += data.usage.cache_read_input_tokens || 0; }
   for (let i = 0; i < 3 && data.stop_reason === "tool_use"; i++) {
     const results: any[] = [];
     for (const block of (data.content || []).filter((b: any) => b.type === "tool_use")) {
@@ -237,16 +252,33 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     }
     msgs = [...msgs, { role: "assistant", content: data.content }, { role: "user", content: results }];
     data = await call(msgs);
+    if (data.usage) { totalUsage.input_tokens += data.usage.input_tokens || 0; totalUsage.output_tokens += data.usage.output_tokens || 0; totalUsage.cache_creation_tokens += data.usage.cache_creation_input_tokens || 0; totalUsage.cache_read_tokens += data.usage.cache_read_input_tokens || 0; }
   }
   const reply = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") || "（沒有回應）";
   const thinking = isSonnet ? (data.content || []).filter((b: any) => b.type === "thinking").map((b: any) => b.thinking).join("\n") : "";
-  return { reply, thinking };
+  return { reply, thinking, usage: totalUsage };
 }
 
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     const url = new URL(request.url);
-        // GET /vapid-public-key — 不需要 token
+        // GET /stats
+    if (request.method === "GET" && url.pathname === "/stats") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await env.DB.prepare("CREATE TABLE IF NOT EXISTS usage_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, model TEXT NOT NULL, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_creation_tokens INTEGER DEFAULT 0, cache_read_tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0)").run();
+      const now = Date.now();
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const [total, month, week, today] = await Promise.all([
+        env.DB.prepare("SELECT COUNT(*) as messages, COALESCE(SUM(cost_usd),0) as cost_usd FROM usage_log").first(),
+        env.DB.prepare("SELECT COUNT(*) as messages, COALESCE(SUM(cost_usd),0) as cost_usd FROM usage_log WHERE ts >= ?").bind(now - 30*86400000).first(),
+        env.DB.prepare("SELECT COUNT(*) as messages, COALESCE(SUM(cost_usd),0) as cost_usd FROM usage_log WHERE ts >= ?").bind(now - 7*86400000).first(),
+        env.DB.prepare("SELECT COUNT(*) as messages, COALESCE(SUM(cost_usd),0) as cost_usd FROM usage_log WHERE ts >= ?").bind(todayStart.getTime()).first(),
+      ]);
+      return Response.json({ total, month, week, today });
+    }
+
+    // GET /vapid-public-key — 不需要 token
     if (request.method === "GET" && url.pathname === "/vapid-public-key") {
       return Response.json({ key: env.VAPID_PUBLIC_KEY });
     }
@@ -1256,7 +1288,8 @@ audio{width:300px;margin-top:4px}
         if (lastIdx === undefined) return Response.json({ error: "no assistant message" }, { status: 400 });
         const lastMsg = { ...msgs[lastIdx] };
         const withoutLast = msgs.slice(0, lastIdx);
-        const { reply, thinking } = await runClaudeChat(env, withoutLast, modelKey);
+        const { reply, thinking, usage } = await runClaudeChat(env, withoutLast, modelKey);
+        ctx.waitUntil(logUsage(env, usage));
         const newId = `a_${Date.now()}`;
         const newBranch = { id: newId, content: reply, thinking, ts: Date.now() };
         if (!lastMsg.branches) {
@@ -1277,7 +1310,8 @@ audio{width:300px;margin-top:4px}
       }
 
       if (body.edit_regen) {
-        const { reply, thinking } = await runClaudeChat(env, msgs, modelKey);
+        const { reply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
+        ctx.waitUntil(logUsage(env, usage));
         const newId = `a_${Date.now()}`;
         msgs.push({ id: newId, role: "assistant", content: reply, thinking, ts: Date.now() });
         await saveChatMsgs(env, msgs, sessionId);
@@ -1289,7 +1323,8 @@ audio{width:300px;margin-top:4px}
       if (!content) return Response.json({ error: "empty" }, { status: 400 });
       const userId = `u_${Date.now()}`;
       msgs.push({ id: userId, role: "user", content, ts: Date.now() });
-      const { reply, thinking } = await runClaudeChat(env, msgs, modelKey);
+      const { reply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
+      ctx.waitUntil(logUsage(env, usage));
       const assistantId = `a_${Date.now() + 1}`;
       msgs.push({ id: assistantId, role: "assistant", content: reply, thinking, ts: Date.now() });
       await saveChatMsgs(env, msgs, sessionId);
