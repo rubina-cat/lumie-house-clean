@@ -788,16 +788,41 @@ async function loadMemories() {
   try {
     const r = await fetch(BASE + '/memory', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
     const d = await r.json();
-    const mems = (d.memories || []).slice().reverse();
+    const mems = d.memories || [];
     if (!mems.length) { list.innerHTML = '<div class="memory-empty">還沒有記憶</div>'; return; }
-    let htmlContent = '';
-    for (let i = 0; i < mems.length; i++) {
-      const m = mems[i];
-      const dateStr = m.date || new Date(m.savedAt).toLocaleDateString('zh-TW');
-      htmlContent += `<div class="memory-item"><div class="memory-item-date">${dateStr}</div><div class="memory-content">${m.content}</div></div>`;
-    }
-    list.innerHTML = htmlContent;
+    list.innerHTML = mems.map(m => {
+      const dateStr = m.date || new Date(m.saved_at || m.savedAt).toLocaleDateString('zh-TW');
+      const heat = m.heat || 1.0;
+      const heatIcon = heat >= 5 ? '🔥' : heat >= 2 ? '✦' : '·';
+      const lockIcon = m.is_locked ? '🔒' : '🔓';
+      return `<div class="memory-item" id="mem-${m.id}">
+        <div class="memory-item-header">
+          <span class="memory-item-date">${dateStr}</span>
+          <span class="memory-heat">${heatIcon} ${heat.toFixed(1)}</span>
+          <div style="display:flex;gap:6px;">
+            <button onclick="toggleMemoryLock(${m.id},this)" class="mem-action-btn" title="${m.is_locked ? '解除鎖定' : '鎖定'}">${lockIcon}</button>
+            <button onclick="deleteMemory(${m.id})" class="mem-action-btn" title="刪除">🗑</button>
+          </div>
+        </div>
+        <div class="memory-content">${m.content}</div>
+      </div>`;
+    }).join('');
   } catch { list.innerHTML = '<div class="memory-empty">載入失敗</div>'; }
+}
+async function toggleMemoryLock(id, btn) {
+  try {
+    const r = await fetch(BASE + `/memory/${id}/lock`, { method: 'PATCH', headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    btn.textContent = d.is_locked ? '🔒' : '🔓';
+    btn.title = d.is_locked ? '解除鎖定' : '鎖定';
+  } catch {}
+}
+async function deleteMemory(id) {
+  if (!confirm('刪除這條記憶？')) return;
+  try {
+    await fetch(BASE + `/memory/${id}`, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    document.getElementById(`mem-${id}`)?.remove();
+  } catch {}
 }
 
 async function exportMemories() {

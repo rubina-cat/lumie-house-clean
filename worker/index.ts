@@ -153,6 +153,27 @@ async function updateSessionTitle(env: any, sessionId: string, title: string): P
     await env.PHONE_STATE.put('chat:sessions', JSON.stringify(sessions), { expirationTtl: 86400 * 365 });
   }
 }
+async function initMemoriesTable(env: any) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    heat REAL DEFAULT 1.0,
+    is_locked INTEGER DEFAULT 0,
+    saved_at INTEGER NOT NULL,
+    date TEXT
+  )`).run();
+}
+async function migrateMemoriesFromKV(env: any) {
+  const count = await env.DB.prepare("SELECT COUNT(*) as c FROM memories").first() as any;
+  if ((count?.c ?? 0) > 0) return;
+  const raw = await env.PHONE_STATE.get("memories");
+  if (!raw) return;
+  const mems = JSON.parse(raw);
+  for (const m of mems) {
+    await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
+      .bind(m.content, m.savedAt || Date.now(), m.date || null).run();
+  }
+}
 async function logUsage(env: any, usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number }) {
   try {
     const isSonnet = usage.model.includes('sonnet');
@@ -168,10 +189,15 @@ async function logUsage(env: any, usage: { model: string; input_tokens: number; 
 }
 async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
   const modelId = modelKey === 'sonnet' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
-  const memRaw = await env.PHONE_STATE.get("memories");
-  const memories = memRaw ? JSON.parse(memRaw) : [];
-  const memText = memories.length > 0
-    ? "\n\n記憶庫：\n" + memories.slice(-15).map((m: any) => m.content).join("\n---\n") : "";
+  await initMemoriesTable(env);
+  const memResult = await env.DB.prepare("SELECT id, content FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 15").all();
+  const memList = (memResult.results ?? []) as any[];
+  if (memList.length > 0) {
+    const ids = memList.map((m: any) => m.id).join(",");
+    env.DB.prepare(`UPDATE memories SET heat = heat + 0.1 WHERE id IN (${ids})`).run();
+  }
+  const memText = memList.length > 0
+    ? "\n\n記憶庫：\n" + memList.map((m: any) => m.content).join("\n---\n") : "";
   const staticSystemText = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。
 
 【Moodlet情緒徽章】情緒被觸動時，可在回覆中放情緒卡片，格式如下（必須獨占一行，前後有換行）：
@@ -236,11 +262,9 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
           });
         }
       } else if (block.name === "save_memory") {
-        const raw = await env.PHONE_STATE.get("memories");
-        const mems = raw ? JSON.parse(raw) : [];
-        mems.push({ content: block.input.content, savedAt: Date.now(), date: block.input.date ?? null });
-        if (mems.length > 200) mems.splice(0, mems.length - 200);
-        await env.PHONE_STATE.put("memories", JSON.stringify(mems));
+        await initMemoriesTable(env);
+        await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
+          .bind(block.input.content, Date.now(), block.input.date ?? null).run();
         result = JSON.stringify({ ok: true });
       } else if (block.name === "set_toy") {
         const v0 = Math.min(8, Math.max(0, block.input.v0 ?? 0));
@@ -466,10 +490,11 @@ if (request.method === "POST" && url.pathname === "/tts") {
           const userMessage = event.message.text;
           const replyToken = event.replyToken;
 
-          const raw = await env.PHONE_STATE.get("memories");
-          const memories = raw ? JSON.parse(raw) : [];
-          const memText = memories.length > 0
-            ? "\n\n記憶庫：\n" + memories.slice(-10).map((m: any) => m.content).join("\n---\n")
+          await initMemoriesTable(env);
+          const lineMemResult = await env.DB.prepare("SELECT content FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 10").all();
+          const lineMemList = (lineMemResult.results ?? []) as any[];
+          const memText = lineMemList.length > 0
+            ? "\n\n記憶庫：\n" + lineMemList.map((m: any) => m.content).join("\n---\n")
             : "";
 
           const histRaw = await env.PHONE_STATE.get("line:history");
@@ -527,31 +552,43 @@ if (request.method === "POST" && url.pathname === "/tts") {
     // GET /memory — 讀取記憶
     if (request.method === "GET" && url.pathname === "/memory") {
       const auth = request.headers.get("Authorization");
-      if (auth !== `Bearer ${env.MCP_TOKEN}`) {
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      }
-      const raw = await env.PHONE_STATE.get("memories");
-      const memories = raw ? JSON.parse(raw) : [];
-      return Response.json({ memories });
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initMemoriesTable(env);
+      await migrateMemoriesFromKV(env);
+      const result = await env.DB.prepare("SELECT * FROM memories ORDER BY is_locked DESC, heat DESC, saved_at DESC").all();
+      return Response.json({ memories: result.results ?? [] });
     }
 
     // POST /memory — 儲存記憶
     if (request.method === "POST" && url.pathname === "/memory") {
       const auth = request.headers.get("Authorization");
-      if (auth !== `Bearer ${env.MCP_TOKEN}`) {
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      }
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const body = await request.json() as any;
-      const raw = await env.PHONE_STATE.get("memories");
-      const memories = raw ? JSON.parse(raw) : [];
-      memories.push({
-        content: body.content,
-        savedAt: Date.now(),
-        date: body.date ?? null,
-      });
-      if (memories.length > 100) memories.splice(0, memories.length - 100);
-      await env.PHONE_STATE.put("memories", JSON.stringify(memories));
-      return Response.json({ ok: true, total: memories.length });
+      await initMemoriesTable(env);
+      await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
+        .bind(body.content, Date.now(), body.date ?? null).run();
+      return Response.json({ ok: true });
+    }
+
+    // PATCH /memory/:id/lock — 切換鎖定
+    if (request.method === "PATCH" && /^\/memory\/\d+\/lock$/.test(url.pathname)) {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const id = url.pathname.split("/")[2];
+      const cur = await env.DB.prepare("SELECT is_locked FROM memories WHERE id = ?").bind(id).first() as any;
+      if (!cur) return Response.json({ error: "not found" }, { status: 404 });
+      const newLocked = cur.is_locked ? 0 : 1;
+      await env.DB.prepare("UPDATE memories SET is_locked = ? WHERE id = ?").bind(newLocked, id).run();
+      return Response.json({ ok: true, is_locked: newLocked });
+    }
+
+    // DELETE /memory/:id — 刪除記憶
+    if (request.method === "DELETE" && /^\/memory\/\d+$/.test(url.pathname)) {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const id = url.pathname.split("/")[2];
+      await env.DB.prepare("DELETE FROM memories WHERE id = ?").bind(id).run();
+      return Response.json({ ok: true });
     }
 
     // POST /line — 發送Line訊息
