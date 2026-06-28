@@ -102,19 +102,25 @@ function concatBytes(...arrays: Uint8Array[]): Uint8Array {
   return out;
 }
 
-async function sendWebPush(env: any): Promise<void> {
+async function sendWebPush(env: any): Promise<boolean> {
   const raw = await env.PHONE_STATE.get('push_subscription');
-  if (!raw) return;
+  if (!raw) return false;
   const sub = JSON.parse(raw) as { endpoint: string; keys: { p256dh: string; auth: string } };
   const origin = new URL(sub.endpoint).origin;
   const jwt = await makeVapidJwt(origin, env.VAPID_PRIVATE_KEY);
-  await fetch(sub.endpoint, {
+  const res = await fetch(sub.endpoint, {
     method: 'POST',
     headers: {
       'Authorization': `vapid t=${jwt},k=${env.VAPID_PUBLIC_KEY}`,
       'TTL': '86400',
     },
   });
+  // 410 = subscription expired/invalid — clear it so we know to re-subscribe
+  if (res.status === 410 || res.status === 404) {
+    await env.PHONE_STATE.delete('push_subscription');
+    return false;
+  }
+  return res.ok;
 }
 
 async function callMiniMaxTTS(text: string, env: any): Promise<string | null> {
@@ -405,6 +411,25 @@ export default {
 const text = await res.text();
 return Response.json({ status: res.status, body: text });
 }
+
+    // GET /push-debug — 確認推播訂閱狀態（需 token）
+    if (request.method === "GET" && url.pathname === "/push-debug") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const raw = await env.PHONE_STATE.get("push_subscription");
+      if (!raw) return Response.json({ subscribed: false, error: "no subscription in KV" });
+      const sub = JSON.parse(raw);
+      const endpoint = sub.endpoint || "";
+      const hasKeys = !!(sub.keys?.p256dh && sub.keys?.auth);
+      const origin = endpoint ? new URL(endpoint).origin : null;
+      return Response.json({
+        subscribed: true,
+        endpoint_origin: origin,
+        has_keys: hasKeys,
+        vapid_public_set: !!env.VAPID_PUBLIC_KEY,
+        vapid_private_set: !!env.VAPID_PRIVATE_KEY,
+      });
+    }
 
     // POST /push-subscribe — 儲存推送訂閱
     if (request.method === "POST" && url.pathname === "/push-subscribe") {
@@ -1568,10 +1593,10 @@ audio{width:300px;margin-top:4px}
         if (appList) activityContext = `\n許茜最近的手機活動：${appList}`;
       }
 
-      const memRaw = await env.PHONE_STATE.get("memories");
-      const memories = memRaw ? JSON.parse(memRaw) : [];
-      const memText = (memories as any[]).length > 0
-        ? `\n你記得關於她的事：${(memories as any[]).slice(-5).map((m: any) => m.content).join("；")}`
+      await initMemoriesTable(env);
+      const memResult = await env.DB.prepare("SELECT content FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 5").all();
+      const memText = memResult.results.length > 0
+        ? `\n你記得關於她的事：${memResult.results.map((m: any) => m.content).join("；")}`
         : "";
 
       const nudgeSystem = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，說話簡短有力，不廢話，可有髒話或停頓。${memText}`;
@@ -1606,12 +1631,17 @@ audio{width:300px;margin-top:4px}
 
       await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "Anchor", body: msg, updatedAt: Date.now() }));
 
-      // 存進 LINE 歷史，這樣用戶回覆時 Anchor 知道自己說了什麼
+      // 存進 LINE 歷史
       const lineHistRaw = await env.PHONE_STATE.get("line:history");
       const lineHist: any[] = lineHistRaw ? JSON.parse(lineHistRaw) : [];
       lineHist.push({ role: "assistant", content: msg });
       if (lineHist.length > 40) lineHist.splice(0, lineHist.length - 40);
       await env.PHONE_STATE.put("line:history", JSON.stringify(lineHist));
+
+      // 存進 PWA default 對話串，這樣用戶點「回他」時有上下文
+      const pwaMsgs = await getChatMsgs(env, 'default');
+      pwaMsgs.push({ id: `nudge_${Date.now()}`, role: "assistant", content: msg, ts: Date.now() });
+      await saveChatMsgs(env, pwaMsgs, 'default');
 
       await sendLine(env.LINE_TOKEN, env.LINE_USER_ID, msg);
       await sendWebPush(env);
