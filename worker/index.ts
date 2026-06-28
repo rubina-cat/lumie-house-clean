@@ -350,7 +350,16 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
     const url = new URL(request.url);
-        // GET /stats
+        // POST /diary-trigger — 手動測試寫日記
+    if (request.method === "POST" && url.pathname === "/diary-trigger") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (!env.NOTION_TOKEN_PWA) return Response.json({ error: "NOTION_TOKEN_PWA not set" }, { status: 500 });
+      ctx.waitUntil(writePWADiary(env));
+      return Response.json({ ok: true, message: "日記寫入中，稍等幾秒後去 Notion 看" });
+    }
+
+    // GET /stats
     if (request.method === "GET" && url.pathname === "/stats") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
