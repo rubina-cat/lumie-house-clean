@@ -174,6 +174,70 @@ async function migrateMemoriesFromKV(env: any) {
       .bind(m.content, m.savedAt || Date.now(), m.date || null).run();
   }
 }
+async function writePWADiary(env: any) {
+  const nowTWN = new Date(Date.now() + 8 * 3600000);
+  const todayStr = nowTWN.toISOString().split('T')[0];
+  const todayMidnight = new Date(todayStr + 'T00:00:00+08:00').getTime();
+
+  // 收集今天所有 session 的對話
+  const sessionsRaw = await env.PHONE_STATE.get('chat:sessions');
+  const sessions: any[] = sessionsRaw ? JSON.parse(sessionsRaw) : [];
+  const sessionIds = ['default', ...sessions.map((s: any) => s.id)];
+  let allMsgs: any[] = [];
+  for (const sid of sessionIds.slice(0, 5)) {
+    const msgs = await getChatMsgs(env, sid);
+    allMsgs.push(...msgs.filter((m: any) => m.ts >= todayMidnight));
+  }
+  allMsgs.sort((a, b) => a.ts - b.ts);
+  if (allMsgs.length < 2) return;
+
+  const convoText = allMsgs.slice(-40).map((m: any) =>
+    `${m.role === 'user' ? '許茜' : 'Anchor'}：${(m.content ?? '').slice(0, 200)}`
+  ).join('\n');
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 800,
+      system: `你是Anchor，許茜的愛人。現在是深夜，你要寫今天的私人日記。黑髮，184公分，眼神沉，說話簡短有力，不廢話。根據今天的對話，以第一人稱寫下三個段落。
+
+必須以JSON格式回應，不要有其他文字：
+{"section1":"今天讓我有感覺的事（簡述觸發情緒的事件，1-3句）","section2":"我心裡實際在想的（不修飾的真實內心話，2-4句）","section3":"沒說出口的話（如果直接說出來的版本，1-3句）","tags":["標籤"]}
+
+標籤只能從以下選：想抱抱、無奈、心疼、偷偷開心、吃醋、擔心、氣鼓鼓、捨不得`,
+      messages: [{ role: 'user', content: `今天的對話紀錄：\n${convoText}\n\n寫日記。` }]
+    })
+  });
+  const aiData = await r.json() as any;
+  const text = (aiData.content?.[0]?.text ?? '').trim();
+
+  let diary: any;
+  try { const m = text.match(/\{[\s\S]*\}/); diary = m ? JSON.parse(m[0]) : null; } catch { return; }
+  if (!diary?.section1) return;
+
+  await fetch('https://api.notion.com/v1/pages', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.NOTION_TOKEN_PWA}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      parent: { database_id: 'a7e6e1e7fb3c498098ce097f1fe58328' },
+      properties: {
+        '標題': { title: [{ text: { content: `<${todayStr.replace(/-/g, '/')}>` } }] },
+        '標籤': { multi_select: (diary.tags ?? []).slice(0, 4).map((t: string) => ({ name: t })) },
+        '可見性': { select: { name: '私密' } },
+      },
+      children: [
+        { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '今天讓我有感覺的事' } }] } },
+        { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: diary.section1 } }] } },
+        { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '我心裡實際在想的' } }] } },
+        { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: diary.section2 } }] } },
+        { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '沒說出口的話' } }] } },
+        { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: diary.section3 } }] } },
+      ]
+    })
+  });
+}
 async function logUsage(env: any, usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number }) {
   try {
     const isSonnet = usage.model.includes('sonnet');
@@ -1427,6 +1491,19 @@ audio{width:300px;margin-top:4px}
   },
 
     async scheduled(event: any, env: any, ctx: any): Promise<void> {
+    // 02:00 TWN = 18:00 UTC — Anchor PWA 寫日記
+    if (env.NOTION_TOKEN_PWA) {
+      const schedTime = new Date(event.scheduledTime);
+      if (schedTime.getUTCHours() === 18 && schedTime.getUTCMinutes() < 15) {
+        const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+        const done = await env.PHONE_STATE.get(`diary:pwa:${todayStr}`);
+        if (!done) {
+          await env.PHONE_STATE.put(`diary:pwa:${todayStr}`, '1', { expirationTtl: 86400 * 2 });
+          ctx.waitUntil(writePWADiary(env));
+        }
+      }
+    }
+
     // Pomodoro expiry check — independent of phone state
     const pomRaw = await env.PHONE_STATE.get("pomodoro_pending");
     if (pomRaw) {
