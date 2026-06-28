@@ -358,9 +358,10 @@ document.addEventListener('DOMContentLoaded', () => {
     history.replaceState({}, '', '/chat-ui.html');
   }
 
-  // 通知「回他」按鈕：打開後自動 focus 輸入框
+  // 通知「回他」按鈕：直接跳 chat tab 並 focus 輸入框
   if (params.get('reply') === '1') {
-    setTimeout(() => document.getElementById('input')?.focus(), 300);
+    switchTab('chat');
+    setTimeout(() => document.getElementById('input')?.focus(), 400);
     history.replaceState({}, '', '/chat-ui.html');
   }
 
