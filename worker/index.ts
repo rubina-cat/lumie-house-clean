@@ -1586,12 +1586,19 @@ audio{width:300px;margin-top:4px}
     if (ageMin > 5 && Math.random() < 0.5) {
       const appEventsRaw = await env.PHONE_STATE.get("app_events");
       const appEvents = appEventsRaw ? JSON.parse(appEventsRaw) : [];
-      const recentApps = (appEvents as any[]).slice(-8);
+      const twoHoursAgo = Date.now() - 2 * 3600000;
+      const recentApps = (appEvents as any[]).filter((e: any) => e.reportedAt >= twoHoursAgo).slice(-8);
 
       let activityContext = "";
       if (recentApps.length > 0) {
         const appList = recentApps.map((e: any) => e.appName).filter(Boolean).join("、");
-        if (appList) activityContext = `\n許茜最近的手機活動：${appList}`;
+        if (appList) activityContext = `\n許茜最近2小時的手機活動：${appList}`;
+      }
+
+      // 地點資訊（帶時效，避免用到過期的 GPS 標籤）
+      if (state.loc) {
+        const locAgeMin = Math.floor((Date.now() - state.reportedAt) / 60000);
+        activityContext += `\n她的位置（約${locAgeMin}分鐘前的資料）：${state.loc}`;
       }
 
       await initMemoriesTable(env);
