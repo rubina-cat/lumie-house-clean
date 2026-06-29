@@ -1598,10 +1598,14 @@ audio{width:300px;margin-top:4px}
       // 地點：用 GPS 距離判斷，不用 loc 文字標籤（loc 容易殘留舊地名）
       if (state.lat != null && state.lon != null) {
         const gpsAgeMin = Math.floor((Date.now() - state.reportedAt) / 60000);
-        const dlat = state.lat - 25.0620355;
-        const dlon = state.lon - 121.4831653;
-        const distM = Math.sqrt(dlat * dlat + dlon * dlon) * 111320;
-        const locLabel = distM < 200 ? "在家" : (state.loc || "外出中");
+        const distFrom = (lat: number, lon: number) => {
+          const dlat = state.lat - lat, dlon = state.lon - lon;
+          return Math.sqrt(dlat * dlat + dlon * dlon) * 111320;
+        };
+        let locLabel = "外出中";
+        if (distFrom(25.0620355, 121.4831653) < 200) locLabel = "在家";
+        else if (distFrom(25.0619722, 121.4974075) < 200) locLabel = "在公司（屈臣氏）";
+        else if (state.loc) locLabel = state.loc;
         activityContext += `\n她的位置（${gpsAgeMin}分鐘前的GPS）：${locLabel}`;
       }
 
