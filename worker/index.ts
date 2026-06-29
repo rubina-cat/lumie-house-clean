@@ -689,6 +689,30 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return Response.json({ ok: true });
     }
 
+    // POST /migrate-memories — 把 KV 記憶合併進 D1（可指定 date，不指定則全部）
+    if (request.method === "POST" && url.pathname === "/migrate-memories") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const filterDate = body.date ?? null; // e.g. "2026-06-29"，不帶則全部
+      const raw = await env.PHONE_STATE.get("memories");
+      if (!raw) return Response.json({ ok: true, migrated: 0, message: "KV 是空的" });
+      const kvMems = JSON.parse(raw) as any[];
+      const targets = filterDate ? kvMems.filter((m: any) => m.date === filterDate) : kvMems;
+      await initMemoriesTable(env);
+      // 讀現有 D1 content 避免重複
+      const existing = await env.DB.prepare("SELECT content FROM memories").all();
+      const existingSet = new Set((existing.results ?? []).map((r: any) => r.content));
+      let migrated = 0;
+      for (const m of targets) {
+        if (existingSet.has(m.content)) continue;
+        await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
+          .bind(m.content, m.savedAt || Date.now(), m.date || null).run();
+        migrated++;
+      }
+      return Response.json({ ok: true, migrated, total_in_kv: targets.length });
+    }
+
     // POST /line — 發送Line訊息
     if (request.method === "POST" && url.pathname === "/line") {
       const auth = request.headers.get("Authorization");
