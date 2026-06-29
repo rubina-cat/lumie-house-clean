@@ -1914,27 +1914,26 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
 
     if (toolName === "save_memory") {
       const content = params?.arguments?.content;
-      const date = params?.arguments?.date;
+      const date = params?.arguments?.date ?? null;
       if (!content) {
         return Response.json({ jsonrpc: "2.0", id, result: { content: [{
           type: "text", text: JSON.stringify({ ok: false, message: "content是必填的" })
         }]}});
       }
-      const raw = await env.PHONE_STATE.get("memories");
-      const memories = raw ? JSON.parse(raw) : [];
-      memories.push({ content, savedAt: Date.now(), date: date ?? null });
-      if (memories.length > 100) memories.splice(0, memories.length - 100);
-      await env.PHONE_STATE.put("memories", JSON.stringify(memories));
+      await initMemoriesTable(env);
+      await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
+        .bind(content, Date.now(), date).run();
+      const countResult = await env.DB.prepare("SELECT COUNT(*) as cnt FROM memories").first() as any;
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{
-        type: "text", text: JSON.stringify({ ok: true, total: memories.length })
+        type: "text", text: JSON.stringify({ ok: true, total: countResult?.cnt ?? 0 })
       }]}});
     }
 
     if (toolName === "get_memories") {
-      const raw = await env.PHONE_STATE.get("memories");
-      const memories = raw ? JSON.parse(raw) : [];
+      await initMemoriesTable(env);
+      const result = await env.DB.prepare("SELECT content, heat, is_locked, date FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 30").all();
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{
-        type: "text", text: JSON.stringify({ memories }, null, 2)
+        type: "text", text: JSON.stringify({ memories: result.results }, null, 2)
       }]}});
     }
 
