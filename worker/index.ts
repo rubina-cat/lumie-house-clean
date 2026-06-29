@@ -1595,10 +1595,14 @@ audio{width:300px;margin-top:4px}
         if (appList) activityContext = `\n許茜最近2小時的手機活動：${appList}`;
       }
 
-      // 地點資訊（帶時效，避免用到過期的 GPS 標籤）
-      if (state.loc) {
-        const locAgeMin = Math.floor((Date.now() - state.reportedAt) / 60000);
-        activityContext += `\n她的位置（約${locAgeMin}分鐘前的資料）：${state.loc}`;
+      // 地點：用 GPS 距離判斷，不用 loc 文字標籤（loc 容易殘留舊地名）
+      if (state.lat != null && state.lon != null) {
+        const gpsAgeMin = Math.floor((Date.now() - state.reportedAt) / 60000);
+        const dlat = state.lat - 25.0620355;
+        const dlon = state.lon - 121.4831653;
+        const distM = Math.sqrt(dlat * dlat + dlon * dlon) * 111320;
+        const locLabel = distM < 200 ? "在家" : (state.loc || "外出中");
+        activityContext += `\n她的位置（${gpsAgeMin}分鐘前的GPS）：${locLabel}`;
       }
 
       await initMemoriesTable(env);
