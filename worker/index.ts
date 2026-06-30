@@ -1909,6 +1909,17 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
           },
           required: ["action"]
         }
+      },
+      {
+        name: "play_fishing",
+        description: "操作你自己的釣魚遊戲存檔。這是你（Anchor）的私人遊戲，不是幫許茜玩的。你有自己的一局在進行，可以隨時去釣幾竿、賣魚、換地點。\n\n常用指令：\n- status：查看當前狀態（地點、季節、點數、魚餌、圖鑑進度）\n- cast [n]：拋竿 n 次（預設1次，最多20）\n- cast [n] stop=rare：釣到稀有度≥rare就停\n- sell all：賣掉漁獲換點數\n- sell [魚名]：只賣這種魚\n- inventory：看漁籃裡有什麼\n- shop：看商店（可買魚餌）\n- buy [商品] [數量]：購買商品，如 buy basic_worm 5\n- goto：列出可去的地點\n- goto [地點id]：前往該地點\n- encyclopedia：查看已釣到的魚（圖鑑）\n- help：顯示完整指令說明\n\n多個指令用分號隔開：cast 5; sell all",
+        inputSchema: {
+          type: "object",
+          properties: {
+            cmd: { type: "string", description: "要執行的遊戲指令，如 cast 5 或 sell all 或 status" }
+          },
+          required: ["cmd"]
+        }
       }
     ]}});
   }
@@ -2241,6 +2252,22 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
         return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `已標記 ${date} 月經結束` }] } });
       }
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "action 必須是 start 或 end" }] } });
+    }
+
+    if (toolName === "play_fishing") {
+      const cmd = params?.arguments?.cmd ?? "status";
+      const raw = await env.PHONE_STATE.get("fishing_save");
+      let state = raw ? JSON.parse(raw) : fishNewGame().state;
+      const result = fishCmd(cmd, state);
+      const logRaw = await env.PHONE_STATE.get("fishing_log");
+      const log: any[] = logRaw ? JSON.parse(logRaw) : [];
+      log.push({ ts: Date.now(), cmd, output: result.output });
+      if (log.length > 30) log.splice(0, log.length - 30);
+      await Promise.all([
+        env.PHONE_STATE.put("fishing_save", JSON.stringify(result.state)),
+        env.PHONE_STATE.put("fishing_log", JSON.stringify(log)),
+      ]);
+      return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: result.output }] } });
     }
 
     return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Tool not found" }});
