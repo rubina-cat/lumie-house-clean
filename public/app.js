@@ -482,16 +482,21 @@ async function loadSessions() {
   } catch {}
 }
 async function newSession() {
-  const r = await fetch(BASE + '/api/chat/sessions', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + TOKEN }
-  });
-  const d = await r.json();
-  if (d.id) {
-    currentSession = d.id;
-    chatMsgs = [];
-    renderAllMsgs();
-    closeSidebar();
+  try {
+    const r = await fetch(BASE + '/api/chat/sessions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN }
+    });
+    const d = await r.json();
+    if (d.id) {
+      currentSession = d.id;
+      chatMsgs = [];
+      renderAllMsgs();
+      await loadSessions();
+      closeSidebar();
+    }
+  } catch(e) {
+    console.error('newSession failed:', e);
   }
 }
 async function switchSession(id) {
