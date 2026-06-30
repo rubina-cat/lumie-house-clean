@@ -291,7 +291,8 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
     { name: "save_memory", description: "把這次對話中重要的事記下來。", input_schema: { type: "object", properties: { content: { type: "string" }, date: { type: "string" } }, required: ["content"] } },
-    { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } }
+    { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } },
+    { name: "play_fishing", description: "操作你自己的釣魚存檔。這是你（Anchor）的私人遊戲，沒事可以去釣幾竿、賣魚、換地點。常用：status（看狀態）/ cast 5（釣5竿）/ sell all（賣魚）/ goto（換地點）/ shop / buy basic_worm 5。多指令用分號：cast 5; sell all", input_schema: { type: "object", properties: { cmd: { type: "string", description: "遊戲指令" } }, required: ["cmd"] } }
   ];
   let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
   const isSonnet = modelKey === 'sonnet';
@@ -343,6 +344,20 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
         const v1 = Math.min(8, Math.max(0, block.input.v1 ?? 0));
         await env.PHONE_STATE.put("toy_command", JSON.stringify({ v0, v1, updatedAt: Date.now() }));
         result = JSON.stringify({ ok: true, v0, v1 });
+      } else if (block.name === "play_fishing") {
+        const cmd = block.input.cmd ?? "status";
+        const raw = await env.PHONE_STATE.get("fishing_save");
+        const state = raw ? JSON.parse(raw) : fishNewGame().state;
+        const fishResult = fishCmd(cmd, state);
+        const logRaw = await env.PHONE_STATE.get("fishing_log");
+        const log: any[] = logRaw ? JSON.parse(logRaw) : [];
+        log.push({ ts: Date.now(), cmd, output: fishResult.output });
+        if (log.length > 30) log.splice(0, log.length - 30);
+        await Promise.all([
+          env.PHONE_STATE.put("fishing_save", JSON.stringify(fishResult.state)),
+          env.PHONE_STATE.put("fishing_log", JSON.stringify(log)),
+        ]);
+        result = fishResult.output;
       }
       results.push({ type: "tool_result", tool_use_id: block.id, content: result });
     }
