@@ -2271,16 +2271,16 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
 
     if (toolName === "play_fishing") {
       const cmd = params?.arguments?.cmd ?? "status";
-      const raw = await env.PHONE_STATE.get("fishing_save");
+      const raw = await env.PHONE_STATE.get("fishing_save:chien");
       let state = raw ? JSON.parse(raw) : fishNewGame().state;
       const result = fishCmd(cmd, state);
-      const logRaw = await env.PHONE_STATE.get("fishing_log");
+      const logRaw = await env.PHONE_STATE.get("fishing_log:chien");
       const log: any[] = logRaw ? JSON.parse(logRaw) : [];
       log.push({ ts: Date.now(), cmd, output: result.output });
       if (log.length > 30) log.splice(0, log.length - 30);
       await Promise.all([
-        env.PHONE_STATE.put("fishing_save", JSON.stringify(result.state)),
-        env.PHONE_STATE.put("fishing_log", JSON.stringify(log)),
+        env.PHONE_STATE.put("fishing_save:chien", JSON.stringify(result.state)),
+        env.PHONE_STATE.put("fishing_log:chien", JSON.stringify(log)),
       ]);
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: result.output }] } });
     }
