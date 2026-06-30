@@ -1566,13 +1566,18 @@ audio{width:300px;margin-top:4px}
     // ── 釣魚存檔 ─────────────────────────────────────────
     if (url.pathname === "/fishing/state") {
       if (request.method === "GET") {
-        const raw = await env.PHONE_STATE.get("fishing_save");
+        // who=anchor → 讀 MCP Anchor 的存檔（顯示在 PWA）；否則讀前端的
+        const who = url.searchParams.get("who");
+        const key = who === "anchor" ? "fishing_save:chien" : "fishing_save";
+        const raw = await env.PHONE_STATE.get(key);
         return Response.json({ state: raw ? JSON.parse(raw) : null });
       }
       if (request.method === "POST") {
         if (request.headers.get("Authorization") !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
         const body = await request.json() as any;
-        if (body.state) await env.PHONE_STATE.put("fishing_save", JSON.stringify(body.state));
+        const who = url.searchParams.get("who");
+        const key = who === "anchor" ? "fishing_save:chien" : "fishing_save";
+        if (body.state) await env.PHONE_STATE.put(key, JSON.stringify(body.state));
         return Response.json({ ok: true });
       }
     }
@@ -1601,7 +1606,9 @@ audio{width:300px;margin-top:4px}
 
     // GET /fishing/log — 最近 30 筆遊戲紀錄
     if (request.method === "GET" && url.pathname === "/fishing/log") {
-      const raw = await env.PHONE_STATE.get("fishing_log");
+      const who = url.searchParams.get("who");
+      const key = who === "anchor" ? "fishing_log:chien" : "fishing_log";
+      const raw = await env.PHONE_STATE.get(key);
       return Response.json({ log: raw ? JSON.parse(raw) : [] });
     }
 

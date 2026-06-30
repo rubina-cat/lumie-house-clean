@@ -1555,8 +1555,8 @@ async function refreshFishing() {
   const out = document.getElementById('fishOutput');
   try {
     const [stateRes, logRes] = await Promise.all([
-      fetch(`${BASE}/fishing/state`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
-      fetch(`${BASE}/fishing/log`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
+      fetch(`${BASE}/fishing/state?who=anchor`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
+      fetch(`${BASE}/fishing/log?who=anchor`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
     ]);
     const { state } = await stateRes.json();
     const { log } = await logRes.json();
