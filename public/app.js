@@ -1569,17 +1569,19 @@ async function refreshFishing() {
     }
 
     // 狀態欄
-    const sea = state.season || '';
-    const loc = state.location || '';
+    const loc = state.location_id || '';
+    const sea = state.season_id || '';
     const pts = state.points ?? 0;
-    const caught = (state.caught || []).length;
+    const caught = Object.keys(state.encyclopedia || {}).length;
     const total = 81;
     bar.textContent = `${pts}點 · ${loc} · ${sea} · ${caught}/${total}種`;
 
     // 統計卡片
-    const worms = state.bait?.worm ?? 0;
-    const lures = state.bait?.lure ?? 0;
-    const bagFish = (state.bag || []).length;
+    const baitInv = state.bait_inventory || {};
+    const worms = baitInv.basic_worm ?? 0;
+    const lures = Object.entries(baitInv).filter(([k]) => k !== 'basic_worm').reduce((s, [, v]) => s + (v as number), 0);
+    const bagFish = (state.catch_inventory || []).length;
+    const round = state.turn ?? 0;
     stats.innerHTML = `
       <div class="fish-card">
         <span>📍 ${loc}</span>
@@ -1588,6 +1590,7 @@ async function refreshFishing() {
         <span>🐠 圖鑑 ${caught}/${total}</span>
         <span>🪣 魚簍 ${bagFish}條</span>
         <span>🪱 蚯蚓 ${worms} · 假餌 ${lures}</span>
+        <span>🔁 回合 ${round}</span>
       </div>`;
 
     // 日誌
