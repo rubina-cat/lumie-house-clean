@@ -1543,129 +1543,101 @@ function previewChatPhoto(input) {
 }
 
 // ── 釣魚 🎣 ────────────────────────────────────────────────────────────────
-let _pyodide = null;
-let _fishReady = false;
-let _fishLoading = false;
+let _fishBusy = false;
 
 async function loadFishing() {
-  if (_fishReady) { fishingCmd('status'); return; }
-  if (_fishLoading) return;
-  _fishLoading = true;
+  await refreshFishing();
+}
 
-  const out = document.getElementById('fishOutput');
+async function refreshFishing() {
   const bar = document.getElementById('fishBar');
-  out.innerHTML = '<div class="fish-sys">🐟 首次載入需要 10–20 秒，之後就快了…</div>';
-  bar.textContent = '⏳ 準備中';
-
+  const stats = document.getElementById('fishStats');
+  const out = document.getElementById('fishOutput');
   try {
-    if (!window.loadPyodide) {
-      bar.textContent = '⏳ 下載引擎';
-      await new Promise((res, rej) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.3/full/pyodide.js';
-        s.onload = res; s.onerror = rej;
-        document.head.appendChild(s);
-      });
-    }
-
-    bar.textContent = '⏳ 啟動 Python';
-    _pyodide = await window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.3/full/' });
-
-    bar.textContent = '⏳ 載入遊戲';
-    const [engineResp, stateResp] = await Promise.all([
-      fetch('/fishing.py'),
-      fetch(`${BASE}/fishing/state`),
+    const [stateRes, logRes] = await Promise.all([
+      fetch(`${BASE}/fishing/state`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
+      fetch(`${BASE}/fishing/log`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
     ]);
-    const engineSrc = await engineResp.text();
-    const stateData = await stateResp.json();
+    const { state } = await stateRes.json();
+    const { log } = await logRes.json();
 
-    _pyodide.FS.writeFile('/home/pyodide/fishing.py', engineSrc, { encoding: 'utf8' });
-    if (stateData.state) {
-      _pyodide.FS.writeFile('/home/pyodide/fishing_save.json',
-        JSON.stringify(stateData.state), { encoding: 'utf8' });
+    if (!state) {
+      bar.textContent = '尚無存檔';
+      stats.innerHTML = '<div class="fish-hint">Anchor 還沒開局，等他心情好了就去釣了。</div>';
+      out.innerHTML = '';
+      return;
     }
 
-    await _pyodide.runPythonAsync(
-      'import sys; sys.path.insert(0, "/home/pyodide"); import fishing'
-    );
+    // 狀態欄
+    const sea = state.season || '';
+    const loc = state.location || '';
+    const pts = state.points ?? 0;
+    const caught = (state.caught || []).length;
+    const total = 81;
+    bar.textContent = `${pts}點 · ${loc} · ${sea} · ${caught}/${total}種`;
 
-    _fishReady = true;
-    _fishLoading = false;
+    // 統計卡片
+    const worms = state.bait?.worm ?? 0;
+    const lures = state.bait?.lure ?? 0;
+    const bagFish = (state.bag || []).length;
+    stats.innerHTML = `
+      <div class="fish-card">
+        <span>📍 ${loc}</span>
+        <span>🌸 ${sea}</span>
+        <span>💎 ${pts}點</span>
+        <span>🐠 圖鑑 ${caught}/${total}</span>
+        <span>🪣 魚簍 ${bagFish}條</span>
+        <span>🪱 蚯蚓 ${worms} · 假餌 ${lures}</span>
+      </div>`;
 
-    document.getElementById('fishCmd').addEventListener('keydown', e => {
-      if (e.key === 'Enter') fishingCmdFromInput();
-    });
-
-    out.innerHTML = '';
-    await fishingCmd('status');
+    // 日誌
+    if (!log || log.length === 0) {
+      out.innerHTML = '<div class="fish-hint">還沒有記錄。</div>';
+    } else {
+      out.innerHTML = log.slice().reverse().map(entry => {
+        const t = new Date(entry.ts);
+        const hm = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+        const lines = (entry.output || '').split('\n')
+          .filter(l => l.trim() && !l.startsWith('📊 '))
+          .slice(0, 6)
+          .map(l => `<div class="fish-log-line">${escHtml(l)}</div>`)
+          .join('');
+        return `<div class="fish-entry">
+          <div class="fish-entry-meta">${hm} <span class="fish-cmd-label">${escHtml(entry.cmd)}</span></div>
+          ${lines}
+        </div>`;
+      }).join('');
+      out.scrollTop = 0;
+    }
   } catch (e) {
-    _fishLoading = false;
-    appendFishLine('❌ 初始化失敗：' + e.message, 'fish-err');
-    document.getElementById('fishBar').textContent = '❌ 失敗';
+    bar.textContent = '❌ 讀取失敗';
+    stats.innerHTML = `<div class="fish-hint">錯誤：${e.message}</div>`;
   }
 }
 
-async function fishingCmd(cmd) {
-  if (!_fishReady) { loadFishing(); return; }
-  if (!cmd || !cmd.trim()) return;
-
-  const out = document.getElementById('fishOutput');
-  const statusLine = document.createElement('div');
-  statusLine.className = 'fish-thinking';
-  statusLine.textContent = '🎣…';
-  out.appendChild(statusLine);
-  out.scrollTop = out.scrollHeight;
-
+async function anchorDo(cmd) {
+  if (_fishBusy) return;
+  _fishBusy = true;
+  const bar = document.getElementById('fishBar');
+  const prevBar = bar.textContent;
+  bar.textContent = '⏳ Anchor 在釣…';
   try {
-    const result = await _pyodide.runPythonAsync(`fishing.cmd(${JSON.stringify(cmd.trim())})`);
-    statusLine.remove();
-
-    // Parse 📊 status bar out of result
-    const lines = result.split('\n');
-    const barIdx = lines.findIndex(l => l.startsWith('📊 '));
-    let displayText = result;
-    if (barIdx !== -1) {
-      try {
-        const j = JSON.parse(lines[barIdx].slice(2).trim());
-        const loc = j.loc || '';
-        const sea = j.sea || '';
-        document.getElementById('fishBar').textContent =
-          `${j.pts}點 · ${loc} · ${sea} · ${j.enc}`;
-      } catch {}
-      displayText = lines.filter((_, i) => i !== barIdx).join('\n').trim();
-    }
-
-    appendFishLine(displayText, 'fish-result');
-
-    // Sync save state to server (non-blocking)
-    try {
-      const raw = _pyodide.FS.readFile('/home/pyodide/fishing_save.json', { encoding: 'utf8' });
-      fetch(`${BASE}/fishing/state`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
-        body: JSON.stringify({ state: JSON.parse(raw) }),
-      });
-    } catch {}
+    const res = await fetch(`${BASE}/fishing/cmd`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ line: cmd }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await refreshFishing();
   } catch (e) {
-    statusLine.remove();
-    appendFishLine('❌ ' + e.message, 'fish-err');
+    bar.textContent = prevBar;
+    const stats = document.getElementById('fishStats');
+    stats.innerHTML = `<div class="fish-hint">❌ ${e.message}</div>` + stats.innerHTML;
+  } finally {
+    _fishBusy = false;
   }
 }
 
-async function fishingCmdFromInput() {
-  const input = document.getElementById('fishCmd');
-  const cmd = input.value.trim();
-  if (!cmd) return;
-  appendFishLine('› ' + cmd, 'fish-input');
-  input.value = '';
-  await fishingCmd(cmd);
-}
-
-function appendFishLine(text, cls) {
-  const out = document.getElementById('fishOutput');
-  const div = document.createElement('div');
-  div.className = 'fish-line ' + cls;
-  div.textContent = text;
-  out.appendChild(div);
-  out.scrollTop = out.scrollHeight;
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }

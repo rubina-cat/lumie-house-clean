@@ -1,3 +1,5 @@
+import { fishCmd, fishNewGame } from './fishing-engine';
+
 // ── VAPID / Web Push helpers ──────────────────────
 function b64urlToBytes(b64url: string): Uint8Array {
   const pad = '='.repeat((4 - b64url.length % 4) % 4);
@@ -1558,6 +1560,43 @@ audio{width:300px;margin-top:4px}
         if (body.state) await env.PHONE_STATE.put("fishing_save", JSON.stringify(body.state));
         return Response.json({ ok: true });
       }
+    }
+
+    // POST /fishing/cmd — Anchor 下指令，引擎跑一步並更新存檔
+    if (request.method === "POST" && url.pathname === "/fishing/cmd") {
+      if (request.headers.get("Authorization") !== `Bearer ${env.MCP_TOKEN}`)
+        return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      let state = body.state ?? null;
+      if (!state) {
+        const raw = await env.PHONE_STATE.get("fishing_save");
+        state = raw ? JSON.parse(raw) : fishNewGame().state;
+      }
+      const result = fishCmd(body.line ?? "", state);
+      const logRaw = await env.PHONE_STATE.get("fishing_log");
+      const log: any[] = logRaw ? JSON.parse(logRaw) : [];
+      log.push({ ts: Date.now(), cmd: body.line ?? "", output: result.output });
+      if (log.length > 30) log.splice(0, log.length - 30);
+      await Promise.all([
+        env.PHONE_STATE.put("fishing_save", JSON.stringify(result.state)),
+        env.PHONE_STATE.put("fishing_log", JSON.stringify(log)),
+      ]);
+      return Response.json(result);
+    }
+
+    // GET /fishing/log — 最近 30 筆遊戲紀錄
+    if (request.method === "GET" && url.pathname === "/fishing/log") {
+      const raw = await env.PHONE_STATE.get("fishing_log");
+      return Response.json({ log: raw ? JSON.parse(raw) : [] });
+    }
+
+    // POST /fishing/new — 開新局（重置存檔）
+    if (request.method === "POST" && url.pathname === "/fishing/new") {
+      if (request.headers.get("Authorization") !== `Bearer ${env.MCP_TOKEN}`)
+        return Response.json({ error: "unauthorized" }, { status: 401 });
+      const result = fishNewGame();
+      await env.PHONE_STATE.put("fishing_save", JSON.stringify(result.state));
+      return Response.json(result);
     }
 
     return Response.json({ error: "not found" }, { status: 404 });

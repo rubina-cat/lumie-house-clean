@@ -350,21 +350,17 @@
   <div class="page" id="fishing">
     <div class="fish-wrap">
       <div class="fish-header">
-        <span class="fish-title">🎣 釣魚日誌</span>
-        <span class="fish-bar" id="fishBar"></span>
+        <span class="fish-title">🎣 Anchor 的釣場</span>
+        <span class="fish-bar" id="fishBar">載入中…</span>
       </div>
-      <div class="fish-quick-btns">
-        <button onclick="fishingCmd('cast')">🎣 拋竿</button>
-        <button onclick="fishingCmd('sell all')">💰 賣魚</button>
-        <button onclick="fishingCmd('goto')">🗺️ 換地</button>
-        <button onclick="fishingCmd('status')">📊 狀態</button>
-        <button onclick="fishingCmd('inventory')">🎒 魚簍</button>
-        <button onclick="fishingCmd('encyclopedia')">📖 圖鑑</button>
-      </div>
-      <div class="fish-output" id="fishOutput"></div>
-      <div class="fish-input-row">
-        <input id="fishCmd" type="text" placeholder="cast 5 / sell all / goto / help …" autocomplete="off" autocapitalize="none" spellcheck="false">
-        <button class="fish-send" onclick="fishingCmdFromInput()">↑</button>
+      <div class="fish-stats" id="fishStats"></div>
+      <div class="fish-log" id="fishOutput"></div>
+      <div class="fish-actions">
+        <button onclick="anchorDo('cast 3')">🎣 讓他釣一輪</button>
+        <button onclick="anchorDo('sell all')">💰 賣魚</button>
+        <button onclick="anchorDo('status')">📊 狀態</button>
+        <button onclick="anchorDo('inventory')">🎒 魚簍</button>
+        <button onclick="refreshFishing()">🔄 刷新</button>
       </div>
     </div>
   </div>
