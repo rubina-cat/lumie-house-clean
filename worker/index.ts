@@ -1546,6 +1546,20 @@ audio{width:300px;margin-top:4px}
       return Response.json({ ok: true });
     }
 
+    // ── 釣魚存檔 ─────────────────────────────────────────
+    if (url.pathname === "/fishing/state") {
+      if (request.method === "GET") {
+        const raw = await env.PHONE_STATE.get("fishing_save");
+        return Response.json({ state: raw ? JSON.parse(raw) : null });
+      }
+      if (request.method === "POST") {
+        if (request.headers.get("Authorization") !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+        const body = await request.json() as any;
+        if (body.state) await env.PHONE_STATE.put("fishing_save", JSON.stringify(body.state));
+        return Response.json({ ok: true });
+      }
+    }
+
     return Response.json({ error: "not found" }, { status: 404 });
   },
 

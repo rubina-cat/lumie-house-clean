@@ -1682,3 +1682,128 @@ textarea::placeholder { color: var(--light-text); }
   font-size: 11px;
   color: var(--text);
 }
+
+/* ── 釣魚 🎣 ─────────────────────────────────────────────────── */
+.fish-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(180deg, #1a2332 0%, #0f1a26 100%);
+  color: #c8d8e8;
+  font-family: 'Noto Sans TC', monospace, sans-serif;
+}
+
+.fish-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 8px;
+  border-bottom: 1px solid rgba(100,160,200,0.15);
+  flex-shrink: 0;
+}
+
+.fish-title {
+  font-size: 14px;
+  color: #7ab8d8;
+  letter-spacing: 0.05em;
+}
+
+.fish-bar {
+  font-size: 11px;
+  color: #5a8aaa;
+  text-align: right;
+}
+
+.fish-quick-btns {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.fish-quick-btns::-webkit-scrollbar { display: none; }
+
+.fish-quick-btns button {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(100,180,220,0.25);
+  background: rgba(100,180,220,0.08);
+  color: #90c0d8;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.fish-quick-btns button:active { background: rgba(100,180,220,0.2); }
+
+.fish-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fish-line {
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fish-result { color: #c8d8e8; }
+.fish-input  { color: #5a8aaa; font-size: 12px; }
+.fish-err    { color: #e88888; }
+.fish-sys    { color: #5a7a8a; font-size: 12px; font-style: italic; }
+.fish-thinking { color: #3a6a8a; font-size: 12px; animation: fishPulse 1s infinite; }
+
+@keyframes fishPulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1; }
+}
+
+.fish-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(100,160,200,0.15);
+  flex-shrink: 0;
+}
+
+.fish-input-row input {
+  flex: 1;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(100,180,220,0.2);
+  border-radius: 20px;
+  padding: 8px 14px;
+  color: #c8d8e8;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.fish-input-row input::placeholder { color: #3a6a8a; }
+.fish-input-row input:focus { border-color: rgba(100,180,220,0.4); }
+
+.fish-send {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(100,180,220,0.2);
+  color: #90c0d8;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.fish-send:active { background: rgba(100,180,220,0.35); }

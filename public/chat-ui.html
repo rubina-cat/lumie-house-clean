@@ -346,6 +346,29 @@
     </div>
   </div>
 
+  <!-- 釣魚 🎣 -->
+  <div class="page" id="fishing">
+    <div class="fish-wrap">
+      <div class="fish-header">
+        <span class="fish-title">🎣 釣魚日誌</span>
+        <span class="fish-bar" id="fishBar"></span>
+      </div>
+      <div class="fish-quick-btns">
+        <button onclick="fishingCmd('cast')">🎣 拋竿</button>
+        <button onclick="fishingCmd('sell all')">💰 賣魚</button>
+        <button onclick="fishingCmd('goto')">🗺️ 換地</button>
+        <button onclick="fishingCmd('status')">📊 狀態</button>
+        <button onclick="fishingCmd('inventory')">🎒 魚簍</button>
+        <button onclick="fishingCmd('encyclopedia')">📖 圖鑑</button>
+      </div>
+      <div class="fish-output" id="fishOutput"></div>
+      <div class="fish-input-row">
+        <input id="fishCmd" type="text" placeholder="cast 5 / sell all / goto / help …" autocomplete="off" autocapitalize="none" spellcheck="false">
+        <button class="fish-send" onclick="fishingCmdFromInput()">↑</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <div class="input-area" id="inputArea" style="display:none;">
@@ -391,6 +414,10 @@
   <button class="nav-item" onclick="switchTab('toy')" id="nav-toy">
     <span class="nav-icon">👁️</span>
     <span class="nav-dark-text">眼睛</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('fishing')" id="nav-fishing">
+    <span class="nav-icon">🎣</span>
+    <span class="nav-dark-text">釣魚</span>
   </button>
 </nav>
 

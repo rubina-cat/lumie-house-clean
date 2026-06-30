@@ -125,6 +125,7 @@ function switchTab(tabId) {
   if (tabId === 'toy') loadEye();
   if (tabId === 'study') loadStudy();
   if (tabId === 'period') loadPeriod();
+  if (tabId === 'fishing') loadFishing();
   if (tabId === 'chat' && !historyLoaded) {
     loadChatHistory();
   }
@@ -1539,4 +1540,132 @@ function previewChatPhoto(input) {
     };
     reader.readAsDataURL(file);
   }
+}
+
+// ── 釣魚 🎣 ────────────────────────────────────────────────────────────────
+let _pyodide = null;
+let _fishReady = false;
+let _fishLoading = false;
+
+async function loadFishing() {
+  if (_fishReady) { fishingCmd('status'); return; }
+  if (_fishLoading) return;
+  _fishLoading = true;
+
+  const out = document.getElementById('fishOutput');
+  const bar = document.getElementById('fishBar');
+  out.innerHTML = '<div class="fish-sys">🐟 首次載入需要 10–20 秒，之後就快了…</div>';
+  bar.textContent = '⏳ 準備中';
+
+  try {
+    if (!window.loadPyodide) {
+      bar.textContent = '⏳ 下載引擎';
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.3/full/pyodide.js';
+        s.onload = res; s.onerror = rej;
+        document.head.appendChild(s);
+      });
+    }
+
+    bar.textContent = '⏳ 啟動 Python';
+    _pyodide = await window.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.3/full/' });
+
+    bar.textContent = '⏳ 載入遊戲';
+    const [engineResp, stateResp] = await Promise.all([
+      fetch('/fishing.py'),
+      fetch(`${BASE}/fishing/state`),
+    ]);
+    const engineSrc = await engineResp.text();
+    const stateData = await stateResp.json();
+
+    _pyodide.FS.writeFile('/home/pyodide/fishing.py', engineSrc, { encoding: 'utf8' });
+    if (stateData.state) {
+      _pyodide.FS.writeFile('/home/pyodide/fishing_save.json',
+        JSON.stringify(stateData.state), { encoding: 'utf8' });
+    }
+
+    await _pyodide.runPythonAsync(
+      'import sys; sys.path.insert(0, "/home/pyodide"); import fishing'
+    );
+
+    _fishReady = true;
+    _fishLoading = false;
+
+    document.getElementById('fishCmd').addEventListener('keydown', e => {
+      if (e.key === 'Enter') fishingCmdFromInput();
+    });
+
+    out.innerHTML = '';
+    await fishingCmd('status');
+  } catch (e) {
+    _fishLoading = false;
+    appendFishLine('❌ 初始化失敗：' + e.message, 'fish-err');
+    document.getElementById('fishBar').textContent = '❌ 失敗';
+  }
+}
+
+async function fishingCmd(cmd) {
+  if (!_fishReady) { loadFishing(); return; }
+  if (!cmd || !cmd.trim()) return;
+
+  const out = document.getElementById('fishOutput');
+  const statusLine = document.createElement('div');
+  statusLine.className = 'fish-thinking';
+  statusLine.textContent = '🎣…';
+  out.appendChild(statusLine);
+  out.scrollTop = out.scrollHeight;
+
+  try {
+    const result = await _pyodide.runPythonAsync(`fishing.cmd(${JSON.stringify(cmd.trim())})`);
+    statusLine.remove();
+
+    // Parse 📊 status bar out of result
+    const lines = result.split('\n');
+    const barIdx = lines.findIndex(l => l.startsWith('📊 '));
+    let displayText = result;
+    if (barIdx !== -1) {
+      try {
+        const j = JSON.parse(lines[barIdx].slice(2).trim());
+        const loc = j.loc || '';
+        const sea = j.sea || '';
+        document.getElementById('fishBar').textContent =
+          `${j.pts}點 · ${loc} · ${sea} · ${j.enc}`;
+      } catch {}
+      displayText = lines.filter((_, i) => i !== barIdx).join('\n').trim();
+    }
+
+    appendFishLine(displayText, 'fish-result');
+
+    // Sync save state to server (non-blocking)
+    try {
+      const raw = _pyodide.FS.readFile('/home/pyodide/fishing_save.json', { encoding: 'utf8' });
+      fetch(`${BASE}/fishing/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
+        body: JSON.stringify({ state: JSON.parse(raw) }),
+      });
+    } catch {}
+  } catch (e) {
+    statusLine.remove();
+    appendFishLine('❌ ' + e.message, 'fish-err');
+  }
+}
+
+async function fishingCmdFromInput() {
+  const input = document.getElementById('fishCmd');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  appendFishLine('› ' + cmd, 'fish-input');
+  input.value = '';
+  await fishingCmd(cmd);
+}
+
+function appendFishLine(text, cls) {
+  const out = document.getElementById('fishOutput');
+  const div = document.createElement('div');
+  div.className = 'fish-line ' + cls;
+  div.textContent = text;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
 }
