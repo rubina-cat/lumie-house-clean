@@ -1579,7 +1579,7 @@ async function refreshFishing() {
     // 統計卡片
     const baitInv = state.bait_inventory || {};
     const worms = baitInv.basic_worm ?? 0;
-    const lures = Object.entries(baitInv).filter(([k]) => k !== 'basic_worm').reduce((s, [, v]) => s + (v as number), 0);
+    const lures = Object.entries(baitInv).filter(([k]) => k !== 'basic_worm').reduce((s, [, v]) => s + Number(v), 0);
     const bagFish = (state.catch_inventory || []).length;
     const round = state.turn ?? 0;
     stats.innerHTML = `
