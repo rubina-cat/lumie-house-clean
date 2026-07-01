@@ -291,7 +291,8 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
     { name: "save_memory", description: "把這次對話中重要的事記下來。", input_schema: { type: "object", properties: { content: { type: "string" }, date: { type: "string" } }, required: ["content"] } },
-    { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } }
+    { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } },
+    { name: "play_fishing", description: "操作你自己的釣魚存檔。常用：status（看狀態）/ cast 5（釣5竿）/ sell all（賣魚）/ goto（換地點）/ shop / buy basic_worm 5。多指令用分號：cast 5; sell all", input_schema: { type: "object", properties: { cmd: { type: "string", description: "遊戲指令" } }, required: ["cmd"] } }
   ];
   let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
   const isSonnet = modelKey === 'sonnet';
@@ -301,16 +302,18 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
       "Content-Type": "application/json",
       "x-api-key": env.ANTHROPIC_KEY,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
     };
-    const betaParts = ["prompt-caching-2024-07-31"];
-    if (isSonnet) betaParts.unshift("interleaved-thinking-2025-05-14");
-    headers["anthropic-beta"] = betaParts.join(",");
-    const bodyObj: any = { model: modelId, max_tokens: isSonnet ? 16000 : 1000, system: systemBlocks, tools, messages: m };
-    if (isSonnet) bodyObj.thinking = { type: "enabled", budget_tokens: 5000 };
+    const bodyObj: any = { model: modelId, max_tokens: isSonnet ? 8000 : 1000, system: systemBlocks, tools, messages: m };
+    if (isSonnet) bodyObj.thinking = { type: "adaptive" };
     const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(bodyObj) });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => `HTTP ${r.status}`);
+      throw new Error(`Anthropic ${r.status}: ${errText.slice(0, 200)}`);
+    }
     return r.json() as Promise<any>;
   };
-  let data = await call(msgs);
+  let data = await call(msgs).catch((e: any) => ({ content: [{ type: "text", text: `（暫時無法回應：${e.message}）` }], stop_reason: "end_turn", usage: null }));
   if (data.usage) { totalUsage.input_tokens += data.usage.input_tokens || 0; totalUsage.output_tokens += data.usage.output_tokens || 0; totalUsage.cache_creation_tokens += data.usage.cache_creation_input_tokens || 0; totalUsage.cache_read_tokens += data.usage.cache_read_input_tokens || 0; }
   for (let i = 0; i < 3 && data.stop_reason === "tool_use"; i++) {
     const results: any[] = [];
@@ -343,6 +346,20 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
         const v1 = Math.min(8, Math.max(0, block.input.v1 ?? 0));
         await env.PHONE_STATE.put("toy_command", JSON.stringify({ v0, v1, updatedAt: Date.now() }));
         result = JSON.stringify({ ok: true, v0, v1 });
+      } else if (block.name === "play_fishing") {
+        const cmd = block.input.cmd ?? "status";
+        const raw = await env.PHONE_STATE.get("fishing_save:chien");
+        const fishState = raw ? JSON.parse(raw) : fishNewGame().state;
+        const fishResult = fishCmd(cmd, fishState);
+        const logRaw = await env.PHONE_STATE.get("fishing_log:chien");
+        const log: any[] = logRaw ? JSON.parse(logRaw) : [];
+        log.push({ ts: Date.now(), cmd, output: fishResult.output });
+        if (log.length > 30) log.splice(0, log.length - 30);
+        await Promise.all([
+          env.PHONE_STATE.put("fishing_save:chien", JSON.stringify(fishResult.state)),
+          env.PHONE_STATE.put("fishing_log:chien", JSON.stringify(log)),
+        ]);
+        result = fishResult.output;
       }
       results.push({ type: "tool_result", tool_use_id: block.id, content: result });
     }
@@ -357,7 +374,27 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
 
 export default {
   async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+    try {
     const url = new URL(request.url);
+
+    // GET /debug — 診斷環境變數狀態（需 token）
+    if (request.method === "GET" && url.pathname === "/debug") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      return Response.json({
+        env: {
+          ANTHROPIC_KEY: env.ANTHROPIC_KEY ? `set (${env.ANTHROPIC_KEY.length} chars)` : "MISSING",
+          LINE_TOKEN: env.LINE_TOKEN ? `set (${env.LINE_TOKEN.length} chars)` : "MISSING",
+          LINE_CHANNEL_SECRET: env.LINE_CHANNEL_SECRET ? `set (${env.LINE_CHANNEL_SECRET.length} chars)` : "MISSING",
+          LINE_USER_ID: env.LINE_USER_ID ? `set (${env.LINE_USER_ID.length} chars)` : "MISSING",
+          MCP_TOKEN: env.MCP_TOKEN ? `set (${env.MCP_TOKEN.length} chars)` : "MISSING",
+          VAPID_PUBLIC_KEY: env.VAPID_PUBLIC_KEY ? "set" : "MISSING",
+          VAPID_PRIVATE_KEY: env.VAPID_PRIVATE_KEY ? "set" : "MISSING",
+          MINIMAX_API_KEY: env.MINIMAX_API_KEY ? "set" : "MISSING",
+        }
+      });
+    }
+
         // POST /diary-trigger — 手動測試寫日記
     if (request.method === "POST" && url.pathname === "/diary-trigger") {
       const auth = request.headers.get("Authorization");
@@ -1607,6 +1644,10 @@ audio{width:300px;margin-top:4px}
     }
 
     return Response.json({ error: "not found" }, { status: 404 });
+    } catch (err: any) {
+      console.error("Worker unhandled error:", err?.message || err);
+      return Response.json({ error: "internal error", detail: err?.message || "unknown" }, { status: 500 });
+    }
   },
 
     async scheduled(event: any, env: any, ctx: any): Promise<void> {
