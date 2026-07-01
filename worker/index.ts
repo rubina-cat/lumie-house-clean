@@ -1738,7 +1738,14 @@ audio{width:300px;margin-top:4px}
         let locLabel = "外出中";
         if (distFrom(25.0620355, 121.4831653) < 200) locLabel = "在家";
         else if (distFrom(25.0619722, 121.4974075) < 200) locLabel = "在公司（屈臣氏）";
-        else if (state.loc) locLabel = state.loc;
+        else {
+          // 用GPS經緯度推算大區域，不信容易過期的 loc 文字標籤
+          const lat = state.lat as number;
+          if (lat > 24.5) locLabel = "北部外出中";
+          else if (lat > 23.5) locLabel = "中部外出中";
+          else if (lat > 22.5) locLabel = "南部外出中";
+          else locLabel = "最南部外出中";
+        }
         activityContext += `\n她的位置（${gpsAgeMin}分鐘前的GPS）：${locLabel}`;
       }
 
