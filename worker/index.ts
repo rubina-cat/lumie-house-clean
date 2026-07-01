@@ -248,11 +248,12 @@ async function writePWADiary(env: any) {
 }
 async function logUsage(env: any, usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number }) {
   try {
-    const isSonnet = usage.model.includes('sonnet');
-    const cost = usage.input_tokens * (isSonnet ? 3e-6 : 1e-6)
-      + usage.output_tokens * (isSonnet ? 15e-6 : 5e-6)
-      + usage.cache_creation_tokens * (isSonnet ? 3.75e-6 : 1.25e-6)
-      + usage.cache_read_tokens * (isSonnet ? 0.3e-6 : 0.1e-6);
+    // $/1M tokens: haiku=1/5, sonnet=3/15, opus=5/25
+    const m = usage.model;
+    const inRate  = m.includes('opus') ? 5e-6 : m.includes('sonnet') ? 3e-6 : 1e-6;
+    const outRate = m.includes('opus') ? 25e-6 : m.includes('sonnet') ? 15e-6 : 5e-6;
+    const cost = usage.input_tokens * inRate + usage.output_tokens * outRate
+      + usage.cache_creation_tokens * inRate * 1.25 + usage.cache_read_tokens * inRate * 0.1;
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS usage_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, model TEXT NOT NULL, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_creation_tokens INTEGER DEFAULT 0, cache_read_tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0)").run();
     await env.DB.prepare(
       "INSERT INTO usage_log (ts, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -260,7 +261,13 @@ async function logUsage(env: any, usage: { model: string; input_tokens: number; 
   } catch {}
 }
 async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
-  const modelId = modelKey === 'sonnet' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+  const MODEL_MAP: Record<string, string> = {
+    haiku:    'claude-haiku-4-5-20251001',
+    sonnet:   'claude-sonnet-4-6',
+    sonnet5:  'claude-sonnet-5',
+    opus:     'claude-opus-4-8',
+  };
+  const modelId = MODEL_MAP[modelKey] ?? 'claude-haiku-4-5-20251001';
   await initMemoriesTable(env);
   const memResult = await env.DB.prepare("SELECT id, content FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 15").all();
   const memList = (memResult.results ?? []) as any[];
@@ -295,7 +302,8 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     { name: "play_fishing", description: "操作你自己的釣魚存檔。常用：status（看狀態）/ cast 5（釣5竿）/ sell all（賣魚）/ goto（換地點）/ shop / buy basic_worm 5。多指令用分號：cast 5; sell all", input_schema: { type: "object", properties: { cmd: { type: "string", description: "遊戲指令" } }, required: ["cmd"] } }
   ];
   let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
-  const isSonnet = modelKey === 'sonnet';
+  const usesThinking = modelKey !== 'haiku';
+  const maxTok = modelKey === 'haiku' ? 1000 : modelKey === 'sonnet' ? 8000 : 16000;
   const totalUsage = { model: modelId, input_tokens: 0, output_tokens: 0, cache_creation_tokens: 0, cache_read_tokens: 0 };
   const call = async (m: any[]) => {
     const headers: Record<string, string> = {
@@ -304,8 +312,8 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
       "anthropic-version": "2023-06-01",
       "anthropic-beta": "prompt-caching-2024-07-31",
     };
-    const bodyObj: any = { model: modelId, max_tokens: isSonnet ? 8000 : 1000, system: systemBlocks, tools, messages: m };
-    if (isSonnet) bodyObj.thinking = { type: "adaptive" };
+    const bodyObj: any = { model: modelId, max_tokens: maxTok, system: systemBlocks, tools, messages: m };
+    if (usesThinking) bodyObj.thinking = { type: "adaptive" };
     const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(bodyObj) });
     if (!r.ok) {
       const errText = await r.text().catch(() => `HTTP ${r.status}`);
@@ -368,7 +376,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     if (data.usage) { totalUsage.input_tokens += data.usage.input_tokens || 0; totalUsage.output_tokens += data.usage.output_tokens || 0; totalUsage.cache_creation_tokens += data.usage.cache_creation_input_tokens || 0; totalUsage.cache_read_tokens += data.usage.cache_read_input_tokens || 0; }
   }
   const reply = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") || "（沒有回應）";
-  const thinking = isSonnet ? (data.content || []).filter((b: any) => b.type === "thinking").map((b: any) => b.thinking).join("\n") : "";
+  const thinking = usesThinking ? (data.content || []).filter((b: any) => b.type === "thinking").map((b: any) => b.thinking).join("\n") : "";
   return { reply, thinking, usage: totalUsage };
 }
 
