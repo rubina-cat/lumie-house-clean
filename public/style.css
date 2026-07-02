@@ -187,6 +187,132 @@ body {
   letter-spacing: 0.1em;
 }
 
+/* 引言條帶 */
+.quote-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 20px 12px;
+  padding: 10px 16px;
+  background: var(--card);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  min-height: 40px;
+}
+.quote-strip-anchor {
+  font-size: 14px;
+  color: var(--mauve);
+  flex-shrink: 0;
+}
+.quote-strip-text {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 14px;
+  color: var(--deep);
+  flex: 1;
+  line-height: 1.4;
+}
+.quote-strip-play {
+  background: none;
+  border: none;
+  color: var(--mauve);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 6px;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+
+/* 重要日子 */
+.dates-section {
+  margin: 0 20px 16px;
+  background: var(--card);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 2px 16px rgba(90,62,58,0.06);
+}
+.dates-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.dates-title {
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--mauve);
+  text-transform: uppercase;
+}
+.dates-add-btn {
+  background: none;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--mauve);
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+}
+.dates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.date-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.date-item:last-child { border-bottom: none; }
+.date-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+.date-info {
+  flex: 1;
+}
+.date-name {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+}
+.date-days {
+  font-size: 12px;
+  color: var(--light-text);
+  margin-top: 2px;
+}
+.date-days b {
+  color: var(--rose);
+  font-size: 15px;
+}
+.date-del-btn {
+  background: none;
+  border: none;
+  color: var(--light-text);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  opacity: 0.5;
+  border-radius: 8px;
+}
+.date-del-btn:active { opacity: 1; }
+.dates-loading, .dates-empty {
+  font-size: 13px;
+  color: var(--light-text);
+  padding: 8px 0;
+  text-align: center;
+}
+
 /* 快捷卡片區 */
 .cards-grid {
   margin: 0 20px;

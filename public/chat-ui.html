@@ -35,13 +35,18 @@
       <div class="since-label">since 2026 · 05 · 01</div>
     </div>
 
-    <div class="quote-card">
-      <div class="quote-label">Anchor 說</div>
-      <div class="quote-text" id="quoteText">等你回來。</div>
-      <div class="quote-card-footer">
-        <div class="quote-sig">—— Anchor</div>
-        <button class="quote-play-btn" id="quotePlayBtn" style="display:none" aria-label="播放語音">▶</button>
+    <div class="quote-strip">
+      <span class="quote-strip-anchor">⚓</span>
+      <span class="quote-strip-text" id="quoteText">等你回來。</span>
+      <button class="quote-strip-play" id="quotePlayBtn" style="display:none" aria-label="播放語音">▶</button>
+    </div>
+
+    <div class="dates-section">
+      <div class="dates-header">
+        <span class="dates-title">重要日子</span>
+        <button class="dates-add-btn" onclick="openAddDate()">＋</button>
       </div>
+      <div class="dates-list" id="datesList"><div class="dates-loading">載入中…</div></div>
     </div>
 
     <div class="cards-grid" style="margin-top:12px;">
@@ -314,6 +319,26 @@
         <div id="periodHistoryList"></div>
       </div>
 
+    </div>
+  </div>
+
+  <div class="overlay" id="addDateOverlay" style="display:none;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:28px 24px;width:min(320px,90vw);position:relative;">
+      <button onclick="closeAddDate()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--light-text);font-size:18px;cursor:pointer;">✕</button>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;">新增重要日子</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <input id="addDateName" placeholder="名稱（例：小貓生日）" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;box-sizing:border-box;">
+        <input id="addDateDate" type="date" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;box-sizing:border-box;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="addDateIcon" placeholder="圖示" value="📅" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:18px;width:72px;text-align:center;box-sizing:border-box;">
+          <select id="addDateType" style="flex:1;background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;box-sizing:border-box;">
+            <option value="birthday">生日（每年）</option>
+            <option value="anniversary">紀念日（每年）</option>
+            <option value="other">一次性日期</option>
+          </select>
+        </div>
+        <button onclick="submitAddDate()" style="background:var(--rose);border:none;border-radius:12px;padding:12px;color:#fff;font-size:15px;cursor:pointer;margin-top:4px;">新增</button>
+      </div>
     </div>
   </div>
 

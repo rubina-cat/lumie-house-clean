@@ -171,6 +171,59 @@ async function initMemoriesTable(env: any) {
     date TEXT
   )`).run();
 }
+async function initDatesTable(env: any) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS dates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    date TEXT NOT NULL,
+    icon TEXT DEFAULT '📅',
+    type TEXT DEFAULT 'other',
+    pinned INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`).run();
+  const count = await env.DB.prepare("SELECT COUNT(*) as c FROM dates").first() as any;
+  if ((count?.c ?? 0) === 0) {
+    await env.DB.prepare("INSERT INTO dates (name, date, icon, type, pinned) VALUES (?, ?, ?, ?, ?)")
+      .bind('在一起', '2026-05-01', '💕', 'anniversary', 1).run();
+  }
+}
+
+async function autoExtractMemories(env: any, history: any[]) {
+  try {
+    const userMsgs = history.filter((m: any) => m.role === 'user');
+    if (userMsgs.length < 2) return;
+    const convText = history.slice(-8).map((m: any) => {
+      const role = m.role === 'user' ? '貓' : 'Anchor';
+      const text = Array.isArray(m.content)
+        ? m.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join(' ')
+        : String(m.content || '');
+      return `${role}: ${text.slice(0, 300)}`;
+    }).join('\n');
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 400,
+        system: `從對話中提取1-3條值得長期記住的具體事實（關於用戶的個人資訊、偏好、情緒、重要事件）。
+每條一行，不超過50字。只提取真正有意義的資訊，不要記錄普通閒聊或Anchor自己的話。
+如果沒有值得記錄的，只回覆「無」。`,
+        messages: [{ role: "user", content: `請從以下對話提取重要記憶：\n\n${convText}` }]
+      })
+    });
+    if (!r.ok) return;
+    const data = await r.json() as any;
+    const text = (data.content?.[0]?.text || '').trim();
+    if (!text || text === '無') return;
+    const lines = text.split('\n').map((l: string) => l.trim()).filter((l: string) => l && l !== '無' && l.length > 5);
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+    for (const line of lines.slice(0, 3)) {
+      await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
+        .bind(line, Date.now(), today).run().catch(() => {});
+    }
+  } catch {}
+}
+
 async function migrateMemoriesFromKV(env: any) {
   const count = await env.DB.prepare("SELECT COUNT(*) as c FROM memories").first() as any;
   if ((count?.c ?? 0) > 0) return;
@@ -733,6 +786,36 @@ if (request.method === "POST" && url.pathname === "/tts") {
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const id = url.pathname.split("/")[2];
       await env.DB.prepare("DELETE FROM memories WHERE id = ?").bind(id).run();
+      return Response.json({ ok: true });
+    }
+
+    // GET /dates — 讀取重要日子
+    if (request.method === "GET" && url.pathname === "/dates") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initDatesTable(env);
+      const result = await env.DB.prepare("SELECT * FROM dates ORDER BY pinned DESC, date ASC").all();
+      return Response.json({ dates: result.results ?? [] });
+    }
+
+    // POST /dates — 新增日子
+    if (request.method === "POST" && url.pathname === "/dates") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      if (!body.name || !body.date) return Response.json({ error: "name and date required" }, { status: 400 });
+      await initDatesTable(env);
+      await env.DB.prepare("INSERT INTO dates (name, date, icon, type) VALUES (?, ?, ?, ?)")
+        .bind(body.name, body.date, body.icon ?? '📅', body.type ?? 'other').run();
+      return Response.json({ ok: true });
+    }
+
+    // DELETE /dates/:id — 刪除日子
+    if (request.method === "DELETE" && /^\/dates\/\d+$/.test(url.pathname)) {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const id = url.pathname.split("/")[2];
+      await env.DB.prepare("DELETE FROM dates WHERE id = ? AND pinned = 0").bind(id).run();
       return Response.json({ ok: true });
     }
 
@@ -1531,7 +1614,7 @@ audio{width:300px;margin-top:4px}
       const userId = `u_${Date.now()}`;
       msgs.push({ id: userId, role: "user", content, ts: Date.now() });
       const { reply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
-      ctx.waitUntil(logUsage(env, usage));
+      ctx.waitUntil(Promise.all([logUsage(env, usage), autoExtractMemories(env, msgs)]));
       const assistantId = `a_${Date.now() + 1}`;
       msgs.push({ id: assistantId, role: "assistant", content: reply, thinking, ts: Date.now() });
       await saveChatMsgs(env, msgs, sessionId);

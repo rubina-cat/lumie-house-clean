@@ -326,6 +326,7 @@ function formatDayLabel(d) {
 }
 document.addEventListener('DOMContentLoaded', () => {
   fetchQuote();
+  loadDates();
   const _h = new Date().getHours();
   if (_h >= 22 || _h < 4) document.getElementById('nightCard').style.display = '';
   const sr = document.getElementById('historySearch');
@@ -884,6 +885,72 @@ async function fetchQuote() {
     }
   } catch {}
   document.getElementById('quoteText').textContent = _fallbackQuotes[Math.floor(Math.random() * _fallbackQuotes.length)];
+}
+
+// ── 重要日子 ──────────────────────────────────────
+async function loadDates() {
+  const list = document.getElementById('datesList');
+  if (!list) return;
+  try {
+    const r = await fetch(BASE + '/dates', { headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const dates = d.dates || [];
+    if (!dates.length) { list.innerHTML = '<div class="dates-empty">還沒有日子</div>'; return; }
+    const now = new Date();
+    list.innerHTML = dates.map(item => {
+      let daysHtml = '';
+      if (item.pinned) {
+        const start = new Date(item.date + 'T00:00:00+08:00');
+        const days = Math.floor((now - start) / 86400000) + 1;
+        daysHtml = `在一起 <b>${days}</b> 天`;
+      } else {
+        const isRecurring = item.type === 'birthday' || item.type === 'anniversary';
+        let next = new Date(item.date + 'T00:00:00+08:00');
+        if (isRecurring) {
+          next.setFullYear(now.getFullYear());
+          if (next <= now) next.setFullYear(now.getFullYear() + 1);
+        }
+        const days = Math.ceil((next - now) / 86400000);
+        if (days <= 0 && !isRecurring) daysHtml = `已過 <b>${Math.abs(days)}</b> 天`;
+        else if (days === 0) daysHtml = '今天！🎉';
+        else daysHtml = `還有 <b>${days}</b> 天`;
+      }
+      const del = item.pinned ? '' : `<button class="date-del-btn" onclick="deleteDate(${item.id})">×</button>`;
+      return `<div class="date-item"><span class="date-icon">${item.icon||'📅'}</span><div class="date-info"><div class="date-name">${escHtml(item.name)}</div><div class="date-days">${daysHtml}</div></div>${del}</div>`;
+    }).join('');
+  } catch { list.innerHTML = '<div class="dates-empty">載入失敗</div>'; }
+}
+function openAddDate() {
+  document.getElementById('addDateName').value = '';
+  document.getElementById('addDateDate').value = '';
+  document.getElementById('addDateIcon').value = '📅';
+  document.getElementById('addDateType').value = 'birthday';
+  const ov = document.getElementById('addDateOverlay');
+  ov.style.display = 'flex';
+}
+function closeAddDate() { document.getElementById('addDateOverlay').style.display = 'none'; }
+async function submitAddDate() {
+  const name = document.getElementById('addDateName').value.trim();
+  const date = document.getElementById('addDateDate').value;
+  const icon = document.getElementById('addDateIcon').value.trim() || '📅';
+  const type = document.getElementById('addDateType').value;
+  if (!name || !date) { alert('請填寫名稱和日期'); return; }
+  try {
+    const r = await fetch(BASE + '/dates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ name, date, icon, type })
+    });
+    if (!r.ok) throw new Error();
+    closeAddDate();
+    loadDates();
+  } catch { alert('新增失敗，請重試'); }
+}
+async function deleteDate(id) {
+  if (!confirm('確定刪除？')) return;
+  await fetch(BASE + '/dates/' + id, { method: 'DELETE', headers: { Authorization: `Bearer ${TOKEN}` } });
+  loadDates();
 }
 
 // ── 生理期追蹤 ─────────────────────────────────────
