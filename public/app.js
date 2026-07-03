@@ -327,6 +327,7 @@ function formatDayLabel(d) {
 document.addEventListener('DOMContentLoaded', () => {
   fetchQuote();
   loadDates();
+  loadHealthSnapshot();
   const _h = new Date().getHours();
   if (_h >= 22 || _h < 4) document.getElementById('nightCard').style.display = '';
   const sr = document.getElementById('historySearch');
@@ -798,23 +799,40 @@ async function loadMemories() {
     const d = await r.json();
     const mems = d.memories || [];
     if (!mems.length) { list.innerHTML = '<div class="memory-empty">還沒有記憶</div>'; return; }
-    list.innerHTML = mems.map(m => {
-      const dateStr = m.date || new Date(m.saved_at || m.savedAt).toLocaleDateString('zh-TW');
-      const heat = m.heat || 1.0;
-      const heatIcon = heat >= 5 ? '🔥' : heat >= 2 ? '✦' : '·';
-      const lockIcon = m.is_locked ? '🔒' : '🔓';
-      return `<div class="memory-item" id="mem-${m.id}">
-        <div class="memory-item-header">
-          <span class="memory-item-date">${dateStr}</span>
-          <span class="memory-heat">${heatIcon} ${heat.toFixed(1)}</span>
-          <div style="display:flex;gap:6px;">
-            <button onclick="toggleMemoryLock(${m.id},this)" class="mem-action-btn" title="${m.is_locked ? '解除鎖定' : '鎖定'}">${lockIcon}</button>
-            <button onclick="deleteMemory(${m.id})" class="mem-action-btn" title="刪除">🗑</button>
+    // 按日期分組 → 垂直時間軸
+    const groups = {};
+    for (const m of mems) {
+      let dateStr = m.date;
+      if (!dateStr) {
+        const d = new Date(m.saved_at || m.savedAt);
+        dateStr = isNaN(d.getTime())
+          ? '未知日期'
+          : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      }
+      (groups[dateStr] = groups[dateStr] || []).push(m);
+    }
+    const dateKeys = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+    list.innerHTML = '<div class="memory-timeline">' + dateKeys.map(dateStr => {
+      const items = groups[dateStr].map(m => {
+        const heat = m.heat || 1.0;
+        const heatIcon = heat >= 5 ? '🔥' : heat >= 2 ? '✦' : '·';
+        const lockIcon = m.is_locked ? '🔒' : '🔓';
+        return `<div class="memory-item" id="mem-${m.id}">
+          <div class="memory-item-header">
+            <span class="memory-heat" style="flex:1;">${heatIcon} ${heat.toFixed(1)}</span>
+            <div style="display:flex;gap:6px;">
+              <button onclick="toggleMemoryLock(${m.id},this)" class="mem-action-btn" title="${m.is_locked ? '解除鎖定' : '鎖定'}">${lockIcon}</button>
+              <button onclick="deleteMemory(${m.id})" class="mem-action-btn" title="刪除">🗑</button>
+            </div>
           </div>
-        </div>
-        <div class="memory-content">${m.content}</div>
+          <div class="memory-content">${m.content}</div>
+        </div>`;
+      }).join('');
+      return `<div class="memory-tl-group">
+        <div class="memory-tl-node"><span class="memory-tl-dot"></span><span class="memory-tl-date">${escHtml(dateStr)}</span></div>
+        <div class="memory-tl-items">${items}</div>
       </div>`;
-    }).join('');
+    }).join('') + '</div>';
   } catch { list.innerHTML = '<div class="memory-empty">載入失敗</div>'; }
 }
 async function toggleMemoryLock(id, btn) {
@@ -1640,8 +1658,8 @@ async function refreshFishing() {
     }
 
     // 狀態欄
-    const loc = state.location_id || '';
-    const sea = state.season_id || '';
+    const loc = FISH_LOC[state.location_id] || state.location_id || '';
+    const sea = SEASON_TC[state.season_id] || state.season_id || '';
     const pts = state.points ?? 0;
     const caught = Object.keys(state.encyclopedia || {}).length;
     const total = 81;
@@ -1710,6 +1728,192 @@ async function anchorDo(cmd) {
   } finally {
     _fishBusy = false;
   }
+}
+
+// ── 健康快照卡（home）─────────────────────────────
+async function loadHealthSnapshot() {
+  try {
+    const r = await fetch(BASE + '/health-snapshot', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    if (!d.ok) return;
+    document.getElementById('healthCard').style.display = '';
+    document.getElementById('healthSteps').textContent = d.steps != null ? d.steps.toLocaleString() : '—';
+    document.getElementById('healthHr').textContent = d.heart_rate_avg != null ? Math.round(d.heart_rate_avg) : '—';
+    document.getElementById('healthSleep').textContent = d.sleep_hours != null ? Number(d.sleep_hours).toFixed(1) : '—';
+  } catch {}
+}
+
+// ── 語音輸入 🎙️ ──────────────────────────────────
+let _micRecog = null;
+let _micActive = false;
+let _micBase = '';
+
+(function initMic() {
+  const btn = document.getElementById('micBtn');
+  if (!btn) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { btn.style.display = 'none'; return; }
+  btn.style.display = 'flex';
+  _micRecog = new SR();
+  _micRecog.lang = 'zh-TW';
+  _micRecog.interimResults = true;
+  _micRecog.continuous = false;
+  _micRecog.onresult = (e) => {
+    let txt = '';
+    for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
+    const input = document.getElementById('input');
+    input.value = _micBase + txt;
+    input.style.height = 'auto';
+    input.style.height = input.scrollHeight + 'px';
+  };
+  _micRecog.onerror = () => _micStopUI();
+  _micRecog.onend = () => _micStopUI();
+})();
+
+function toggleMic() {
+  if (!_micRecog) return;
+  if (_micActive) {
+    try { _micRecog.stop(); } catch {}
+    _micStopUI();
+    return;
+  }
+  const input = document.getElementById('input');
+  _micBase = input.value ? input.value : '';
+  try { _micRecog.start(); } catch { return; }
+  _micActive = true;
+  const btn = document.getElementById('micBtn');
+  if (btn) { btn.textContent = '🔴'; btn.classList.add('mic-recording'); }
+}
+
+function _micStopUI() {
+  _micActive = false;
+  const btn = document.getElementById('micBtn');
+  if (btn) { btn.textContent = '🎙️'; btn.classList.remove('mic-recording'); }
+}
+
+// ── 月度回顧 📔 ──────────────────────────────────
+const _monthlyCache = {};
+let _monthlyMonth = null;
+
+function _currentMonthStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+function openMonthly() {
+  document.getElementById('monthlyOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  if (!_monthlyMonth) _monthlyMonth = _currentMonthStr();
+  monthlyRender();
+}
+
+function closeMonthly() {
+  document.getElementById('monthlyOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+
+function monthlyShift(dir) {
+  const [y, mo] = _monthlyMonth.split('-').map(Number);
+  const d = new Date(y, mo - 1 + dir, 1);
+  const next = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  if (next > _currentMonthStr()) return;
+  _monthlyMonth = next;
+  monthlyRender();
+}
+
+async function monthlyRender() {
+  const month = _monthlyMonth;
+  document.getElementById('monthlyMonthLabel').textContent = month;
+  document.getElementById('monthlyNextBtn').disabled = month >= _currentMonthStr();
+  const statsEl = document.getElementById('monthlyStats');
+  const textEl = document.getElementById('monthlyText');
+  const signEl = document.getElementById('monthlySign');
+  let d = _monthlyCache[month];
+  if (!d) {
+    statsEl.innerHTML = '';
+    signEl.style.display = 'none';
+    textEl.textContent = '載入中…';
+    try {
+      const r = await fetch(BASE + '/monthly-review?month=' + month, { headers: { Authorization: 'Bearer ' + TOKEN } });
+      if (!r.ok) throw new Error();
+      d = await r.json();
+      _monthlyCache[month] = d;
+    } catch {
+      if (_monthlyMonth === month) textEl.textContent = '載入失敗，再試一次。';
+      return;
+    }
+  }
+  if (_monthlyMonth !== month) return; // 載入時使用者切換了月份
+  const s = d.stats || {};
+  statsEl.innerHTML = `<span>💾 ${s.memories ?? 0} 條記憶</span><span>💬 ${s.chat_calls ?? 0} 次對話</span>`;
+  if (d.text) {
+    textEl.innerHTML = escHtml(d.text).replace(/\n/g, '<br>');
+    signEl.style.display = '';
+  } else {
+    textEl.textContent = '這個月還沒有故事。';
+    signEl.style.display = 'none';
+  }
+}
+
+// ── 釣魚地點中文名 ────────────────────────────────
+const FISH_LOC = {
+  moonlit_pond: '月光池塘', reed_river: '蘆葦河', mangrove_shoal: '紅樹林淺灘',
+  whispering_mire: '耳語沼澤', starry_delta: '星河三角洲', sunken_ruins: '沉沒遺跡',
+  geyser_falls: '間歇泉瀑布', crystal_cave: '水晶洞', abyssal_trench: '深淵海溝',
+  floating_lake: '浮空之湖', lava_spring: '熔岩溫泉',
+};
+const SEASON_TC = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
+
+// ── Anchor 的房間 🚪 ─────────────────────────────
+function _roomRelTime(ts) {
+  const min = Math.floor((Date.now() - ts) / 60000);
+  if (min < 1) return '剛剛';
+  if (min < 60) return `${min} 分鐘前`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} 小時前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
+
+function _roomAmbientLine() {
+  const h = new Date().getHours();
+  if (h >= 22 || h < 4) return '夜很深，他還醒著。';
+  if (h < 11) return '早晨的光斜進來。';
+  if (h < 18) return '午後，煙灰缸旁放著涼掉的咖啡。';
+  return '晚上了，他在等你。';
+}
+
+async function openRoom() {
+  document.getElementById('roomOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  document.getElementById('roomAmbient').textContent = _roomAmbientLine();
+  const panel = document.getElementById('roomStatus');
+  panel.innerHTML = '<div class="room-status-line">載入中…</div>';
+  try {
+    const r = await fetch(BASE + '/room', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    let html = '';
+    if (d.mood && d.mood.id) {
+      const md = MOODS[d.mood.id] || { icon: '✦', title: d.mood.id, color: '#8090a0' };
+      html += `<div class="room-status-line room-mood" style="--rc:${md.color}"><span class="room-mood-icon">${md.icon}</span> ${escHtml(md.title)}${d.mood.reason ? `<span class="room-mood-reason">${escHtml(d.mood.reason)}</span>` : ''}</div>`;
+    }
+    if (d.fishing) {
+      const locName = FISH_LOC[d.fishing.location] || d.fishing.location || '某處';
+      html += `<div class="room-status-line">🎣 在${escHtml(locName)}釣魚 · 圖鑑 ${d.fishing.caught} 種 · ${d.fishing.points} 點</div>`;
+    } else {
+      html += '<div class="room-status-line">🎣 釣竿靠在牆邊</div>';
+    }
+    if (d.lastChatTs) {
+      html += `<div class="room-status-line">上次說話是${_roomRelTime(d.lastChatTs)}</div>`;
+    }
+    panel.innerHTML = html || '<div class="room-status-line">房間很安靜。</div>';
+  } catch {
+    panel.innerHTML = '<div class="room-status-line">看不清房間裡的樣子…</div>';
+  }
+}
+
+function closeRoom() {
+  document.getElementById('roomOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
 }
 
 function escHtml(s) {

@@ -82,6 +82,25 @@
         <div class="mini-card-label">專注</div>
         <div class="mini-card-title">蕃茄鐘</div>
       </div>
+      <div class="mini-card" onclick="openMonthly()">
+        <span class="card-icon">📔</span>
+        <div class="mini-card-label">回顧</div>
+        <div class="mini-card-title">這個月的我們</div>
+      </div>
+      <div class="mini-card" onclick="openRoom()">
+        <span class="card-icon">🚪</span>
+        <div class="mini-card-label">房間</div>
+        <div class="mini-card-title">他在幹嘛</div>
+      </div>
+      <div class="mini-card wide" id="healthCard" style="display:none" onclick="loadHealthSnapshot()">
+        <div class="mini-card-label">身體</div>
+        <div class="mini-card-title">今天的你</div>
+        <div class="health-row">
+          <div class="health-stat"><span class="health-icon">👟</span><span class="health-value" id="healthSteps">—</span><span class="health-unit">步</span></div>
+          <div class="health-stat"><span class="health-icon">♡</span><span class="health-value" id="healthHr">—</span><span class="health-unit">bpm</span></div>
+          <div class="health-stat"><span class="health-icon">🌙</span><span class="health-value" id="healthSleep">—</span><span class="health-unit">h</span></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -371,6 +390,44 @@
     </div>
   </div>
 
+  <!-- 月度回顧 📔 -->
+  <div class="overlay" id="monthlyOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeMonthly()">←</button>
+    <div class="monthly-content">
+      <div class="monthly-nav">
+        <button class="monthly-nav-btn" id="monthlyPrevBtn" onclick="monthlyShift(-1)">‹</button>
+        <div class="monthly-month" id="monthlyMonthLabel">—</div>
+        <button class="monthly-nav-btn" id="monthlyNextBtn" onclick="monthlyShift(1)">›</button>
+      </div>
+      <div class="monthly-stats" id="monthlyStats"></div>
+      <div class="monthly-text" id="monthlyText">載入中…</div>
+      <div class="monthly-sign" id="monthlySign" style="display:none">—— Anchor</div>
+    </div>
+  </div>
+
+  <!-- Anchor 的房間 🚪 -->
+  <div class="overlay" id="roomOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeRoom()">←</button>
+    <div class="room-scene">
+      <div class="room-ambient" id="roomAmbient"></div>
+      <div class="room-window"><span class="room-moon">🌙</span></div>
+      <div class="room-beam"></div>
+      <div class="room-lamp"></div>
+      <div class="room-chair"></div>
+      <div class="room-figure">⚓</div>
+      <div class="room-table"></div>
+      <div class="room-tea">🍵</div>
+      <div class="room-steam room-steam1"></div>
+      <div class="room-steam room-steam2"></div>
+      <div class="room-speck room-speck1"></div>
+      <div class="room-speck room-speck2"></div>
+      <div class="room-speck room-speck3"></div>
+      <div class="room-speck room-speck4"></div>
+      <div class="room-speck room-speck5"></div>
+    </div>
+    <div class="room-status" id="roomStatus"><div class="room-status-line">載入中…</div></div>
+  </div>
+
   <!-- 釣魚 🎣 -->
   <div class="page" id="fishing">
     <div class="fish-wrap">
@@ -397,6 +454,7 @@
     📷
     <input type="file" id="chatPhotoInput" accept="image/*" hidden onchange="previewChatPhoto(this)">
   </label>
+  <button class="photo-btn mic-btn" id="micBtn" style="display:none" onclick="toggleMic()" title="語音輸入">🎙️</button>
   <div class="input-wrap">
     <textarea id="input" placeholder="說話…" rows="1"></textarea>
   </div>

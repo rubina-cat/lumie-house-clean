@@ -2017,3 +2017,376 @@ textarea::placeholder { color: var(--light-text); }
 
 /* 生理期底線也一起換 */
 .eye-now-row { border-bottom-color: rgba(156,142,194,0.15); }
+
+/* ===== 健康快照卡 ===== */
+.health-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 12px;
+}
+.health-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.health-icon { font-size: 15px; }
+.health-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 24px;
+  font-weight: 300;
+  color: var(--deep);
+  line-height: 1;
+}
+.health-unit {
+  font-size: 11px;
+  color: var(--light-text);
+  letter-spacing: 0.05em;
+}
+
+/* ===== 記憶時間軸 ===== */
+.memory-timeline {
+  position: relative;
+  padding-left: 22px;
+}
+.memory-timeline::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--rose), rgba(156,142,194,0.15));
+}
+.memory-tl-group {
+  position: relative;
+  margin-bottom: 24px;
+}
+.memory-tl-group:last-child { margin-bottom: 0; }
+.memory-tl-node {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.memory-tl-dot {
+  position: absolute;
+  left: -22px;
+  top: 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--rose);
+  border: 2px solid var(--cream);
+  box-shadow: 0 0 0 2px rgba(156,142,194,0.3);
+}
+.memory-tl-date {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  color: var(--mauve);
+}
+.memory-tl-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ===== 語音輸入 🎙️ ===== */
+.mic-btn { padding: 0; }
+.mic-btn.mic-recording {
+  border-color: rgba(200,80,90,0.55);
+  box-shadow: 0 0 0 4px rgba(200,80,90,0.15);
+  animation: micPulse 1.4s ease-in-out infinite;
+}
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(200,80,90,0.12); }
+  50% { box-shadow: 0 0 0 7px rgba(200,80,90,0.22); }
+}
+
+/* ===== 月度回顧 📔 ===== */
+#monthlyOverlay {
+  background: var(--cream);
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+#monthlyOverlay .overlay-back { color: var(--deep); opacity: 0.5; }
+.monthly-content {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  flex: 1;
+  padding: 80px 28px calc(48px + env(safe-area-inset-bottom));
+}
+.monthly-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+.monthly-nav-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  color: var(--mauve);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.monthly-nav-btn:disabled { opacity: 0.3; cursor: default; }
+.monthly-month {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 26px;
+  font-weight: 300;
+  letter-spacing: 0.15em;
+  color: var(--deep);
+  min-width: 128px;
+  text-align: center;
+}
+.monthly-stats {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  font-size: 13px;
+  color: var(--light-text);
+  letter-spacing: 0.05em;
+  margin-bottom: 30px;
+  min-height: 18px;
+}
+.monthly-text {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 16px;
+  line-height: 2.1;
+  color: var(--text);
+  word-break: break-word;
+}
+.monthly-sign {
+  margin-top: 30px;
+  text-align: right;
+  font-size: 14px;
+  color: var(--light-text);
+  letter-spacing: 0.1em;
+}
+
+/* ===== Anchor 的房間 🚪 ===== */
+#roomOverlay {
+  background: linear-gradient(170deg, #0e1220 0%, #151a29 45%, #1b1f30 100%);
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+.room-scene {
+  position: relative;
+  flex: 1;
+  min-height: 58dvh;
+  overflow: hidden;
+}
+.room-ambient {
+  position: absolute;
+  top: 68px;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  padding: 0 36px;
+  text-align: center;
+  font-family: 'Noto Serif TC', serif;
+  font-size: 14px;
+  letter-spacing: 0.15em;
+  line-height: 1.8;
+  color: rgba(200,206,228,0.65);
+}
+/* 窗與月光 */
+.room-window {
+  position: absolute;
+  top: 17%;
+  right: 11%;
+  width: 108px;
+  height: 148px;
+  border: 2px solid rgba(160,172,205,0.28);
+  border-radius: 8px;
+  background: linear-gradient(200deg, rgba(180,198,240,0.18) 0%, rgba(140,160,210,0.07) 55%, transparent 100%);
+  box-shadow: 0 0 55px 12px rgba(168,188,235,0.10);
+}
+.room-window::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(160,172,205,0.22);
+}
+.room-window::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(160,172,205,0.22);
+}
+.room-moon {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  font-size: 20px;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 10px rgba(200,214,255,0.6));
+}
+.room-beam {
+  position: absolute;
+  top: calc(17% + 148px);
+  right: 6%;
+  width: 170px;
+  height: 200px;
+  background: linear-gradient(215deg, rgba(188,204,245,0.10), transparent 70%);
+  transform: skewX(-16deg);
+  pointer-events: none;
+}
+/* 檯燈光暈 */
+.room-lamp {
+  position: absolute;
+  bottom: 18%;
+  left: 4%;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle at 40% 60%, rgba(255,198,128,0.20) 0%, rgba(255,178,108,0.07) 42%, transparent 70%);
+  pointer-events: none;
+}
+/* 扶手椅與人影 */
+.room-chair {
+  position: absolute;
+  bottom: 14%;
+  left: 12%;
+  width: 150px;
+  height: 92px;
+  border-radius: 26px 26px 10px 10px;
+  background: linear-gradient(180deg, rgba(58,52,72,0.75), rgba(38,36,52,0.85));
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+}
+.room-figure {
+  position: absolute;
+  bottom: calc(14% + 44px);
+  left: calc(12% + 46px);
+  font-size: 56px;
+  line-height: 1;
+  opacity: 0.85;
+  filter: drop-shadow(0 6px 20px rgba(0,0,0,0.55));
+  animation: roomBreath 4s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+/* 小茶几與茶 */
+.room-table {
+  position: absolute;
+  bottom: 14%;
+  left: calc(12% + 164px);
+  width: 68px;
+  height: 46px;
+  border-radius: 10px 10px 4px 4px;
+  background: linear-gradient(180deg, rgba(72,58,52,0.8), rgba(48,40,38,0.85));
+  box-shadow: 0 8px 22px rgba(0,0,0,0.4);
+}
+.room-tea {
+  position: absolute;
+  bottom: calc(14% + 38px);
+  left: calc(12% + 182px);
+  font-size: 22px;
+  line-height: 1;
+  filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5));
+}
+/* 茶的熱氣 */
+.room-steam {
+  position: absolute;
+  bottom: calc(14% + 66px);
+  width: 7px;
+  height: 74px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, transparent 0%, rgba(228,232,244,0.05) 25%, rgba(228,232,244,0.20) 70%, rgba(228,232,244,0.08) 100%);
+  filter: blur(3px);
+  transform-origin: bottom center;
+  animation: roomSteam 6s ease-in-out infinite;
+}
+.room-steam1 { left: calc(12% + 189px); }
+.room-steam2 { left: calc(12% + 197px); height: 56px; animation-duration: 7.5s; animation-delay: 1.6s; opacity: 0.7; }
+/* 光裡的浮塵（集中在窗光束附近） */
+.room-speck {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(238,232,214,0.6);
+  filter: blur(2px);
+  opacity: 0;
+  animation: roomFloat 12s linear infinite;
+}
+.room-speck1 { right: 12%; bottom: 34%; animation-duration: 11s; }
+.room-speck2 { right: 20%; bottom: 40%; animation-duration: 15s; animation-delay: 2s; width: 4px; height: 4px; }
+.room-speck3 { right: 8%;  bottom: 28%; animation-duration: 13s; animation-delay: 5s; }
+.room-speck4 { right: 26%; bottom: 30%; animation-duration: 17s; animation-delay: 8s; width: 6px; height: 6px; }
+.room-speck5 { left: 16%;  bottom: 30%; animation-duration: 19s; animation-delay: 4s; width: 4px; height: 4px; background: rgba(255,214,170,0.5); }
+
+@keyframes roomFloat {
+  0% { transform: translateY(0) translateX(0); opacity: 0; }
+  12% { opacity: 0.7; }
+  55% { transform: translateY(-100px) translateX(8px); }
+  85% { opacity: 0.4; }
+  100% { transform: translateY(-190px) translateX(-4px); opacity: 0; }
+}
+@keyframes roomSteam {
+  0%, 100% { transform: translateX(0) scaleY(1); opacity: 0.85; }
+  30% { transform: translateX(5px) scaleY(1.08); opacity: 1; }
+  60% { transform: translateX(-4px) scaleY(0.94); opacity: 0.65; }
+}
+@keyframes roomBreath {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+/* 底部狀態玻璃卡 */
+.room-status {
+  position: relative;
+  z-index: 2;
+  margin: 0 20px calc(24px + env(safe-area-inset-bottom, 20px));
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 18px;
+  padding: 16px 20px;
+  color: rgba(218,222,240,0.85);
+  font-size: 14px;
+}
+.room-status-line {
+  padding: 6px 0;
+  line-height: 1.6;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.room-status-line:last-child { border-bottom: none; }
+.room-mood {
+  border-left: 3px solid var(--rc, #8090a0);
+  padding-left: 12px;
+}
+.room-mood-icon { font-size: 16px; margin-right: 2px; }
+.room-mood-reason {
+  display: block;
+  font-size: 12px;
+  font-style: italic;
+  color: rgba(200,206,228,0.55);
+  margin-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room-speck, .room-steam, .room-figure, .mic-btn.mic-recording {
+    animation: none;
+  }
+  .room-speck { opacity: 0.4; }
+  .room-steam { opacity: 0.5; }
+}
