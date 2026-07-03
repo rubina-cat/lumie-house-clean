@@ -1445,6 +1445,7 @@ textarea::placeholder { color: var(--light-text); }
 .overlay-back {
   position: absolute;
   top: 20px; left: 20px;
+  z-index: 10;
   background: transparent;
   border: none;
   font-size: 22px;
