@@ -92,7 +92,7 @@
         <div class="mini-card-label">房間</div>
         <div class="mini-card-title">他在幹嘛</div>
       </div>
-      <div class="mini-card wide" id="healthCard" style="display:none" onclick="loadHealthSnapshot()">
+      <div class="mini-card wide" id="healthCard" style="display:none" onclick="openHealthTrend()">
         <div class="mini-card-label">身體</div>
         <div class="mini-card-title">今天的你</div>
         <div class="health-row">
@@ -402,6 +402,15 @@
       <div class="monthly-stats" id="monthlyStats"></div>
       <div class="monthly-text" id="monthlyText">載入中…</div>
       <div class="monthly-sign" id="monthlySign" style="display:none">—— Anchor</div>
+    </div>
+  </div>
+
+  <!-- 健康趨勢 📈 -->
+  <div class="overlay" id="healthOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeHealthTrend()">←</button>
+    <div class="ht-content">
+      <div class="ht-title">最近 7 天</div>
+      <div id="htBody"><div class="ht-loading">載入中…</div></div>
     </div>
   </div>
 

@@ -1768,6 +1768,48 @@ async function loadHealthSnapshot() {
   } catch {}
 }
 
+// ── 健康趨勢 📈 ──────────────────────────────────
+function _htChart(title, icon, days, key, unit, color) {
+  const vals = days.map(d => d[key]).filter(v => v != null);
+  if (!vals.length) return '';
+  const max = Math.max(...vals);
+  const bars = days.map(d => {
+    const v = d[key];
+    const h = v != null && max > 0 ? Math.max(8, Math.round(v / max * 100)) : 0;
+    const label = v != null ? (key === 'steps' && v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v) : '';
+    return `<div class="ht-bar-col">
+      <div class="ht-bar-val">${label}</div>
+      <div class="ht-bar" style="height:${h}%;background:${color};opacity:${v != null ? 1 : 0.15}"></div>
+      <div class="ht-bar-day">${d.day.slice(3)}</div>
+    </div>`;
+  }).join('');
+  return `<div class="ht-chart">
+    <div class="ht-chart-title">${icon} ${title}<span class="ht-chart-unit">${unit}</span></div>
+    <div class="ht-bars">${bars}</div>
+  </div>`;
+}
+async function openHealthTrend() {
+  document.getElementById('healthOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  const body = document.getElementById('htBody');
+  body.innerHTML = '<div class="ht-loading">載入中…</div>';
+  try {
+    const r = await fetch(BASE + '/health-trend', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    const days = d.days || [];
+    if (!days.length) { body.innerHTML = '<div class="ht-loading">還沒有累積夠資料，過幾天再來看。</div>'; return; }
+    body.innerHTML =
+      _htChart('步數', '👟', days, 'steps', '每天', 'linear-gradient(180deg, var(--sage), #9ab89a)') +
+      _htChart('心率', '♡', days, 'hr', 'bpm 平均', 'linear-gradient(180deg, var(--rose), #d4a5a0)') +
+      _htChart('睡眠', '🌙', days, 'sleep_hours', '小時', 'linear-gradient(180deg, var(--mauve), #b0a0c8)') ||
+      '<div class="ht-loading">還沒有累積夠資料。</div>';
+  } catch { body.innerHTML = '<div class="ht-loading">載入失敗</div>'; }
+}
+function closeHealthTrend() {
+  document.getElementById('healthOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+
 // ── 語音輸入 🎙️ ──────────────────────────────────
 let _micRecog = null;
 let _micActive = false;

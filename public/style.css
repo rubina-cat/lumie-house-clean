@@ -2303,6 +2303,69 @@ textarea::placeholder { color: var(--light-text); }
   animation: roomBreath 4s ease-in-out infinite;
   transform-origin: center bottom;
 }
+/* ── 健康趨勢 📈 ── */
+#healthOverlay {
+  background: var(--bg, #faf6f3);
+  display: flex;
+  flex-direction: column;
+}
+#healthOverlay .overlay-back { color: var(--deep); opacity: 0.5; }
+.ht-content {
+  flex: 1;
+  padding: 72px 24px 40px;
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+  overflow-y: auto;
+}
+.ht-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 24px;
+  color: var(--deep);
+  text-align: center;
+  letter-spacing: 0.1em;
+  margin-bottom: 24px;
+}
+.ht-loading { text-align: center; color: var(--light-text); font-size: 14px; padding: 24px 0; }
+.ht-chart {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 16px rgba(90,62,58,0.06);
+}
+.ht-chart-title {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 14px;
+}
+.ht-chart-unit { font-size: 11px; color: var(--light-text); margin-left: 8px; }
+.ht-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 110px;
+}
+.ht-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+}
+.ht-bar {
+  width: 70%;
+  max-width: 26px;
+  border-radius: 6px 6px 2px 2px;
+  transition: height 0.4s ease;
+}
+.ht-bar-val { font-size: 10px; color: var(--light-text); }
+.ht-bar-day { font-size: 10px; color: var(--light-text); }
+
 /* 像素圖主場景 */
 .room-art {
   position: absolute;

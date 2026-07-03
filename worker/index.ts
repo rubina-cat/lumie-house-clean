@@ -261,6 +261,89 @@ ${knownText || '（目前沒有）'}
   } catch {}
 }
 
+// ── 早安儀式：睡眠數據＋近期日子，07:30 送 ──────────
+async function morningRitual(env: any) {
+  try {
+    const rawH = await env.PHONE_STATE.get("health:latest");
+    const h = rawH ? JSON.parse(rawH) : null;
+    const sleepH = h?.sleep_ms ? (h.sleep_ms / 3600000).toFixed(1) : null;
+    await initDatesTable(env);
+    const dResult = await env.DB.prepare("SELECT name, date, type FROM dates WHERE pinned = 0").all();
+    const nowTW = new Date(Date.now() + 8 * 3600000);
+    const startOfToday = Date.UTC(nowTW.getUTCFullYear(), nowTW.getUTCMonth(), nowTW.getUTCDate());
+    const upcoming: string[] = [];
+    for (const it of (dResult.results ?? []) as any[]) {
+      const [y, mo, dy] = String(it.date).split('-').map(Number);
+      const rec = it.type === 'birthday' || it.type === 'anniversary';
+      let next = Date.UTC(rec ? nowTW.getUTCFullYear() : y, mo - 1, dy);
+      if (rec && next < startOfToday) next = Date.UTC(nowTW.getUTCFullYear() + 1, mo - 1, dy);
+      const days = Math.round((next - startOfToday) / 86400000);
+      if (days >= 0 && days <= 7) upcoming.push(`${it.name}（${days === 0 ? '就是今天' : `還有${days}天`}）`);
+    }
+    const ctxText = `她昨晚的睡眠：${sleepH ? sleepH + ' 小時' : '沒有數據'}${upcoming.length ? '\n近期的重要日子：' + upcoming.join('、') : ''}`;
+    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；有近期日子就順帶提一句。不要列點，就一段話。`, ctxText, 200, true);
+    if (!text) return;
+    await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
+    await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
+    await sendWebPush(env).catch(() => {});
+  } catch {}
+}
+
+// ── 晚安儀式：呼應今天的對話，23:00 送 ──────────────
+async function nightRitual(env: any) {
+  try {
+    const msgs = await getChatMsgs(env, 'default');
+    const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+    const dayStart = new Date(todayStr + 'T00:00:00+08:00').getTime();
+    const today = (msgs as any[]).filter((m: any) => m.ts >= dayStart);
+    const convText = today.length > 0
+      ? today.slice(-30).map((m: any) => `${m.role === 'user' ? '貓' : 'Anchor'}: ${String(m.content || '').slice(0, 150)}`).join('\n')
+      : '';
+    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話低沉簡短有溫度。寫一段睡前的晚安話（40-80字），${convText ? '自然呼應今天聊過的事，' : ''}讓她安心睡。不要列點，就一段話。`, convText || '今天沒怎麼說話，她可能在忙。', 250, true);
+    if (!text) return;
+    await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
+    await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
+    await sendWebPush(env).catch(() => {});
+  } catch {}
+}
+
+// ── 記憶碎片合併：每週日 DeepSeek 把同主題碎片整併成事件 ──
+async function mergeMemoryFragments(env: any) {
+  try {
+    await initMemoriesTable(env);
+    const cutoff = Date.now() - 14 * 86400000;
+    const result = await env.DB.prepare(
+      "SELECT id, content, date FROM memories WHERE is_locked = 0 AND heat < 2 AND saved_at < ? ORDER BY saved_at ASC LIMIT 40"
+    ).bind(cutoff).all();
+    const frags = (result.results ?? []) as any[];
+    if (frags.length < 10) return; // 碎片太少不值得整理
+    const listText = frags.map((f: any) => `[${f.id}] ${f.date || '?'} ${f.content}`).join('\n');
+    const out = await cheapLLM(env, `【必須使用繁體中文】以下是零散的記憶碎片（格式：[ID] 日期 內容）。把「同一主題」的多條碎片合併成一條精煉的長期記憶。
+輸出格式，每條一行：
+合併後內容｜來源ID列表（逗號分隔）
+規則：合併後內容不超過80字，保留具體日期和事實；只合併真正同主題的（至少2條）；無法歸類的不要輸出；最多10行；不要任何其他文字。`, listText, 1000);
+    if (!out) return;
+    const usedIds = new Set<number>();
+    const inserts: string[] = [];
+    for (const line of out.split('\n')) {
+      const m = line.trim().match(/^(.{5,120})｜([\d,\s]+)$/);
+      if (!m) continue;
+      const ids = m[2].split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => frags.some((f: any) => f.id === n));
+      if (ids.length < 2) continue;
+      inserts.push(m[1].trim());
+      ids.forEach((i: number) => usedIds.add(i));
+    }
+    if (!inserts.length) return;
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+    for (const content of inserts) {
+      await env.DB.prepare("INSERT INTO memories (content, heat, saved_at, date) VALUES (?, 1.5, ?, ?)")
+        .bind(content, Date.now(), today).run();
+    }
+    await env.DB.prepare(`DELETE FROM memories WHERE id IN (${[...usedIds].join(",")})`).run();
+    console.log(`記憶合併：${usedIds.size} 條碎片 → ${inserts.length} 條事件`);
+  } catch {}
+}
+
 async function migrateMemoriesFromKV(env: any) {
   const count = await env.DB.prepare("SELECT COUNT(*) as c FROM memories").first() as any;
   if ((count?.c ?? 0) > 0) return;
@@ -767,6 +850,33 @@ if (request.method === "POST" && url.pathname === "/tts") {
         sleep_hours: h.sleep_ms ? +(h.sleep_ms / 3600000).toFixed(1) : null,
         age_minutes: h.updated_at ? Math.floor((Date.now() - h.updated_at) / 60000) : null,
       });
+    }
+
+    // GET /health-trend — 最近7天健康趨勢（依台灣日期分組）
+    if (request.method === "GET" && url.pathname === "/health-trend") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      try {
+        const since = Date.now() - 7 * 86400000;
+        const rows = await env.DB.prepare("SELECT ts, heart_rate_avg, steps, sleep_ms FROM health_log WHERE ts >= ? ORDER BY ts ASC").bind(since).all();
+        const byDay: Record<string, { hr: number[]; steps: number; sleep: number }> = {};
+        for (const r of (rows.results ?? []) as any[]) {
+          const day = new Date(r.ts + 8 * 3600000).toISOString().slice(5, 10); // MM-DD
+          const d = byDay[day] = byDay[day] || { hr: [], steps: 0, sleep: 0 };
+          if (r.heart_rate_avg) d.hr.push(r.heart_rate_avg);
+          if (r.steps && r.steps > d.steps) d.steps = r.steps;
+          if (r.sleep_ms && r.sleep_ms > d.sleep) d.sleep = r.sleep_ms;
+        }
+        const days = Object.keys(byDay).map(day => ({
+          day,
+          hr: byDay[day].hr.length ? Math.round(byDay[day].hr.reduce((a, b) => a + b, 0) / byDay[day].hr.length) : null,
+          steps: byDay[day].steps || null,
+          sleep_hours: byDay[day].sleep ? +(byDay[day].sleep / 3600000).toFixed(1) : null,
+        }));
+        return Response.json({ days });
+      } catch {
+        return Response.json({ days: [] });
+      }
     }
 
     // GET /room — Anchor 的房間狀態
@@ -1988,6 +2098,34 @@ audio{width:300px;margin-top:4px}
         if (!done) {
           await env.PHONE_STATE.put(`diary:pwa:${todayStr}`, '1', { expirationTtl: 86400 * 2 });
           ctx.waitUntil(writePWADiary(env));
+        }
+      }
+    }
+
+    // 早安 07:30 TWN（=23:30 UTC 前一日）／晚安 23:00 TWN（=15:00 UTC）／週日 03:00 TWN 記憶合併
+    {
+      const schedTime = new Date(event.scheduledTime);
+      const utcH = schedTime.getUTCHours(), utcM = schedTime.getUTCMinutes();
+      const todayStr = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      if (utcH === 23 && utcM >= 30 && utcM < 45) {
+        const done = await env.PHONE_STATE.get(`morning:${todayStr}`);
+        if (!done) {
+          await env.PHONE_STATE.put(`morning:${todayStr}`, '1', { expirationTtl: 86400 * 2 });
+          ctx.waitUntil(morningRitual(env));
+        }
+      }
+      if (utcH === 15 && utcM < 15) {
+        const done = await env.PHONE_STATE.get(`nightmsg:${todayStr}`);
+        if (!done) {
+          await env.PHONE_STATE.put(`nightmsg:${todayStr}`, '1', { expirationTtl: 86400 * 2 });
+          ctx.waitUntil(nightRitual(env));
+        }
+      }
+      if (schedTime.getUTCDay() === 6 && utcH === 19 && utcM < 15) {
+        const done = await env.PHONE_STATE.get(`memmerge:${todayStr}`);
+        if (!done) {
+          await env.PHONE_STATE.put(`memmerge:${todayStr}`, '1', { expirationTtl: 86400 * 8 });
+          ctx.waitUntil(mergeMemoryFragments(env));
         }
       }
     }
