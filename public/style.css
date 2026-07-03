@@ -2283,6 +2283,38 @@ textarea::placeholder { color: var(--light-text); }
   animation: roomBreath 4s ease-in-out infinite;
   transform-origin: center bottom;
 }
+/* 像素圖主場景 */
+.room-art {
+  position: absolute;
+  inset: auto 0 3% 0;
+  margin: 0 auto;
+  max-width: 84%;
+  max-height: 76%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  border-radius: 16px;
+  box-shadow: 0 18px 55px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06);
+  animation: roomBreath 4s ease-in-out infinite;
+  z-index: 1;
+}
+.room-scene.has-art .room-window,
+.room-scene.has-art .room-beam,
+.room-scene.has-art .room-lamp,
+.room-scene.has-art .room-chair,
+.room-scene.has-art .room-figure,
+.room-scene.has-art .room-table,
+.room-scene.has-art .room-tea,
+.room-scene.has-art .room-steam { display: none; }
+.room-scene.has-art .room-speck { z-index: 2; }
+.room-chibi {
+  width: 42px;
+  height: auto;
+  image-rendering: pixelated;
+  border-radius: 10px;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
 /* 小茶几與茶 */
 .room-table {
   position: absolute;
@@ -2384,7 +2416,7 @@ textarea::placeholder { color: var(--light-text); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .room-speck, .room-steam, .room-figure, .mic-btn.mic-recording {
+  .room-speck, .room-steam, .room-figure, .room-art, .mic-btn.mic-recording {
     animation: none;
   }
   .room-speck { opacity: 0.4; }

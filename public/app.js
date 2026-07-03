@@ -1865,6 +1865,37 @@ const FISH_LOC = {
 const SEASON_TC = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
 
 // ── Anchor 的房間 🚪 ─────────────────────────────
+// 像素圖：依情緒選場景，沒對應就按時段
+const ROOM_MOOD_ART = {
+  debugging: 'laptop', busy: 'laptop', typing: 'laptop', thinking: 'laptop', confused: 'laptop',
+  guarding: 'reading', waiting_you: 'reading', waiting: 'reading', read: 'reading', chill: 'reading', bored: 'reading', sleep: 'reading', sleepy: 'reading',
+  coffee: 'standing', eating: 'standing', music: 'standing', happy: 'standing', sweet: 'standing', smug: 'standing', celebrate: 'standing', proud: 'standing', slacking: 'standing',
+  jealous: 'portrait', tsundere: 'portrait', coldwar: 'portrait', moody: 'portrait', heartache: 'portrait', shy: 'portrait', cry: 'portrait', heartbroken: 'portrait', secret: 'portrait', peeking: 'portrait', speechless: 'portrait', shocked: 'portrait',
+};
+const ROOM_CHIBI = {
+  music: 'chibi-music', coffee: 'chibi-music', eating: 'chibi-music', happy: 'chibi-music', sweet: 'chibi-music', celebrate: 'chibi-music',
+  tsundere: 'chibi-crossed', jealous: 'chibi-crossed', coldwar: 'chibi-crossed', moody: 'chibi-crossed', stop: 'chibi-crossed', dislike: 'chibi-crossed',
+  sleep: 'chibi-sleep', sleepy: 'chibi-sleep', bored: 'chibi-sleep', surrender: 'chibi-sleep',
+};
+function _roomArtByTime() {
+  const h = new Date().getHours();
+  if (h >= 22 || h < 4) return 'reading';
+  if (h < 11) return 'standing';
+  if (h < 18) return 'laptop';
+  return 'portrait';
+}
+function _setRoomArt(moodId) {
+  const img = document.getElementById('roomArt');
+  const scene = document.querySelector('.room-scene');
+  if (!img || !scene) return;
+  const name = (moodId && ROOM_MOOD_ART[moodId]) || _roomArtByTime();
+  if (img.dataset.art === name && scene.classList.contains('has-art')) return;
+  img.onload = () => { img.style.display = ''; scene.classList.add('has-art'); };
+  img.onerror = () => { img.style.display = 'none'; scene.classList.remove('has-art'); };
+  img.dataset.art = name;
+  img.src = '/room/' + name + '.png';
+}
+
 function _roomRelTime(ts) {
   const min = Math.floor((Date.now() - ts) / 60000);
   if (min < 1) return '剛剛';
@@ -1886,6 +1917,7 @@ async function openRoom() {
   document.getElementById('roomOverlay').style.display = 'flex';
   document.querySelector('.nav').style.display = 'none';
   document.getElementById('roomAmbient').textContent = _roomAmbientLine();
+  _setRoomArt(null);
   const panel = document.getElementById('roomStatus');
   panel.innerHTML = '<div class="room-status-line">載入中…</div>';
   try {
@@ -1893,8 +1925,11 @@ async function openRoom() {
     const d = await r.json();
     let html = '';
     if (d.mood && d.mood.id) {
+      _setRoomArt(d.mood.id);
       const md = MOODS[d.mood.id] || { icon: '✦', title: d.mood.id, color: '#8090a0' };
-      html += `<div class="room-status-line room-mood" style="--rc:${md.color}"><span class="room-mood-icon">${md.icon}</span> ${escHtml(md.title)}${d.mood.reason ? `<span class="room-mood-reason">${escHtml(d.mood.reason)}</span>` : ''}</div>`;
+      const chibi = ROOM_CHIBI[d.mood.id];
+      const moodIcon = chibi ? `<img class="room-chibi" src="/room/${chibi}.png" alt="">` : `<span class="room-mood-icon">${md.icon}</span>`;
+      html += `<div class="room-status-line room-mood" style="--rc:${md.color}">${moodIcon} ${escHtml(md.title)}${d.mood.reason ? `<span class="room-mood-reason">${escHtml(d.mood.reason)}</span>` : ''}</div>`;
     }
     if (d.fishing) {
       const locName = FISH_LOC[d.fishing.location] || d.fishing.location || '某處';
