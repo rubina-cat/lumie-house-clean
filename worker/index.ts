@@ -188,6 +188,43 @@ async function initDatesTable(env: any) {
   }
 }
 
+// 後台資料處理用的便宜模型：優先 DeepSeek，沒設 key 或失敗就退回 Haiku
+async function cheapLLM(env: any, system: string, user: string, maxTokens = 400): Promise<string> {
+  if (env.DEEPSEEK_API_KEY) {
+    try {
+      const r = await fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}` },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          max_tokens: maxTokens,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }]
+        })
+      });
+      if (r.ok) {
+        const d = await r.json() as any;
+        const text = (d.choices?.[0]?.message?.content || '').trim();
+        if (text) return text;
+      }
+    } catch {}
+  }
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content: user }]
+      })
+    });
+    if (!r.ok) return '';
+    const data = await r.json() as any;
+    return (data.content?.[0]?.text || '').trim();
+  } catch { return ''; }
+}
+
 async function autoExtractMemories(env: any, history: any[]) {
   try {
     const userMsgs = history.filter((m: any) => m.role === 'user');
@@ -204,24 +241,12 @@ async function autoExtractMemories(env: any, history: any[]) {
     }).join('\n');
     const recentMem = await env.DB.prepare("SELECT content FROM memories ORDER BY saved_at DESC LIMIT 20").all();
     const knownText = ((recentMem.results ?? []) as any[]).map((m: any) => m.content).join('\n');
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 400,
-        system: `從對話中提取1-3條值得長期記住的具體事實（關於用戶的個人資訊、偏好、情緒、重要事件）。
+    const text = await cheapLLM(env, `【必須使用繁體中文】從對話中提取1-3條值得長期記住的具體事實（關於用戶的個人資訊、偏好、情緒、重要事件）。
 每條一行，不加編號，不超過50字。只提取真正有意義的資訊，不要記錄普通閒聊或Anchor自己的話。
 以下是已知的記憶，內容相同或相近的不要重複提取：
 ${knownText || '（目前沒有）'}
-如果沒有新的值得記錄的，只回覆「無」。`,
-        messages: [{ role: "user", content: `請從以下對話提取重要記憶：\n\n${convText}` }]
-      })
-    });
-    if (!r.ok) return;
+如果沒有新的值得記錄的，只回覆「無」。`, `請從以下對話提取重要記憶：\n\n${convText}`);
     await env.PHONE_STATE.put('mem_extract_ts', String(Date.now()));
-    const data = await r.json() as any;
-    const text = (data.content?.[0]?.text || '').trim();
     if (!text || text === '無') return;
     const lines = text.split('\n')
       .map((l: string) => l.trim().replace(/^[\d]+[\.、\)]\s*/, '').replace(/^[-•]\s*/, ''))
