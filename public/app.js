@@ -1878,7 +1878,7 @@ function _roomAmbientLine() {
   const h = new Date().getHours();
   if (h >= 22 || h < 4) return '夜很深，他還醒著。';
   if (h < 11) return '早晨的光斜進來。';
-  if (h < 18) return '午後，煙灰缸旁放著涼掉的咖啡。';
+  if (h < 18) return '午後，茶涼了一半，他還沒動。';
   return '晚上了，他在等你。';
 }
 
