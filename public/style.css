@@ -623,6 +623,23 @@ body {
   padding: 10px 16px;
   background: linear-gradient(0deg, rgba(250,246,243,0.98) 60%, transparent);
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.input-tools {
+  display: flex;
+  gap: 8px;
+}
+
+.input-tools .photo-btn {
+  width: 34px; height: 34px;
+  font-size: 15px;
+}
+
+.input-main {
+  display: flex;
   gap: 8px;
   align-items: flex-end;
 }

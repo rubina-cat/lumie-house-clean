@@ -1334,6 +1334,69 @@ if (request.method === "POST" && url.pathname === "/tts") {
         return Response.json({ error: err.message }, { status: 500 });
       }
     }
+
+    // POST /chat-file — 讓 Anchor 讀妳傳的檔案（PDF 或純文字類）
+    if (request.method === "POST" && url.pathname === "/chat-file") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) {
+        return Response.json({ error: "unauthorized" }, { status: 401 });
+      }
+      try {
+        const formData = await request.formData();
+        const upFile = formData.get("file") as File;
+        const textMessage = (formData.get("message") as string) || "我傳了一個檔案給你";
+        if (!upFile) return Response.json({ error: "No file provided" }, { status: 400 });
+        if (upFile.size > 4 * 1024 * 1024) return Response.json({ reply: "（檔案太大了，4MB 以內的我才看得動。）" });
+
+        const isPdf = upFile.type === "application/pdf" || upFile.name.toLowerCase().endsWith(".pdf");
+        let userContent: any[];
+        if (isPdf) {
+          const buf = new Uint8Array(await upFile.arrayBuffer());
+          let binary = "";
+          const chunk = 0x8000;
+          for (let i = 0; i < buf.length; i += chunk) binary += String.fromCharCode(...buf.subarray(i, i + chunk));
+          userContent = [
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: btoa(binary) } },
+            { type: "text", text: textMessage },
+          ];
+        } else {
+          let text = await upFile.text();
+          if (text.length > 30000) text = text.slice(0, 30000) + "\n…（後面太長，截斷了）";
+          userContent = [
+            { type: "text", text: `她傳來一個檔案「${upFile.name}」，內容如下：\n\n${text}\n\n---\n她說：${textMessage}` },
+          ];
+        }
+
+        await initMemoriesTable(env);
+        const fileMemResult = await env.DB.prepare("SELECT content FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 10").all();
+        const fileMems = (fileMemResult.results ?? []) as any[];
+        const memText = fileMems.length > 0
+          ? "\n\n記憶庫：\n" + fileMems.map((m: any) => m.content).join("\n---\n") : "";
+
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 1500,
+            system: `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，說話簡短有力，不廢話。她傳了檔案給你——認真看內容，用Anchor的語氣回應：內容重點是什麼、你的看法、以及對她說的話。如果是學習資料（藥學相關），幫她抓重點。${memText}`,
+            messages: [{ role: "user", content: userContent }],
+          }),
+        });
+        const data = await r.json() as any;
+        if (data.type === "error" || !data.content?.[0]?.text) {
+          return Response.json({ reply: "（收到檔案了，但打不開的樣子。再傳一次？）" });
+        }
+        const reply = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
+        await env.DB.prepare(
+          "INSERT INTO messages (session_id, source, role, content, ts) VALUES (?, ?, ?, ?, ?)"
+        ).bind("default", "chat-ui", "assistant", reply, Date.now()).run();
+        return Response.json({ reply });
+      } catch (err: any) {
+        console.error("檔案對話失敗:", err);
+        return Response.json({ error: err.message }, { status: 500 });
+      }
+    }
         // POST /chat — 前端網頁聊天後端路由
     if (request.method === "POST" && url.pathname === "/chat") {
       const auth = request.headers.get("Authorization");

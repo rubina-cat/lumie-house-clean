@@ -1613,6 +1613,31 @@ async function sendImageMessage(file, textMessage) {
   }
 }
 
+async function sendChatFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  input.value = '';
+  if (file.size > 4 * 1024 * 1024) { addMsg('assistant', '（檔案太大了，4MB 以內的我才看得動。）'); return; }
+  const textMessage = document.getElementById('input').value.trim();
+  document.getElementById('input').value = '';
+  const messagesContainer = document.getElementById('messages');
+  addMsg('user', `📎 ${file.name}`);
+  if (textMessage) addMsg('user', textMessage);
+  const thinking = document.createElement('div');
+  thinking.className = 'msg thinking'; thinking.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+  messagesContainer.appendChild(thinking); thinking.scrollIntoView({ behavior: 'smooth' });
+  const formData = new FormData();
+  formData.append('file', file); formData.append('message', textMessage || `我傳了一個檔案給你：${file.name}`);
+  try {
+    const response = await fetch(BASE + '/chat-file', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN }, body: formData });
+    const data = await response.json(); thinking.remove();
+    const reply = data.reply || '（收到檔案了，看了一會兒沒說話）';
+    addMsg('assistant', reply); saveMessage('assistant', reply);
+  } catch {
+    thinking.remove(); addMsg('assistant', '（檔案好像傳丟了，再試一次？）');
+  }
+}
+
 function previewChatPhoto(input) {
   if (input.files && input.files[0]) {
     if (document.getElementById('chat-photo-preview-wrap')) { document.getElementById('chat-photo-preview-wrap').remove(); }
