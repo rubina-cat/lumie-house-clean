@@ -189,8 +189,8 @@ async function initDatesTable(env: any) {
 }
 
 // 後台資料處理用的便宜模型：優先 DeepSeek，沒設 key 或失敗就退回 Haiku
-async function cheapLLM(env: any, system: string, user: string, maxTokens = 400): Promise<string> {
-  if (env.DEEPSEEK_API_KEY) {
+async function cheapLLM(env: any, system: string, user: string, maxTokens = 400, preferClaude = false): Promise<string> {
+  if (env.DEEPSEEK_API_KEY && !preferClaude) {
     try {
       const r = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
@@ -738,7 +738,110 @@ if (request.method === "POST" && url.pathname === "/tts") {
         updated_at: Date.now(),
       };
       await env.PHONE_STATE.put("health:latest", JSON.stringify(health));
+      // 每15分鐘落一筆 D1 歷史，供趨勢圖／早安儀式用
+      ctx.waitUntil((async () => {
+        try {
+          await env.DB.prepare("CREATE TABLE IF NOT EXISTS health_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, heart_rate_avg INTEGER, heart_rate_max INTEGER, steps INTEGER, calories REAL, sleep_ms INTEGER)").run();
+          const last = await env.DB.prepare("SELECT ts FROM health_log ORDER BY ts DESC LIMIT 1").first() as any;
+          if (last && Date.now() - last.ts < 15 * 60000) return;
+          await env.DB.prepare("INSERT INTO health_log (ts, heart_rate_avg, heart_rate_max, steps, calories, sleep_ms) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(health.updated_at, health.heart_rate_avg, health.heart_rate_max, health.steps, health.calories, health.sleep_ms).run();
+        } catch {}
+      })());
       return Response.json({ ok: true });
+    }
+
+    // GET /health-snapshot — PWA 首頁健康卡
+    if (request.method === "GET" && url.pathname === "/health-snapshot") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const raw = await env.PHONE_STATE.get("health:latest");
+      if (!raw) return Response.json({ ok: false });
+      const h = JSON.parse(raw);
+      return Response.json({
+        ok: true,
+        heart_rate_avg: h.heart_rate_avg,
+        heart_rate_max: h.heart_rate_max,
+        steps: h.steps,
+        calories: h.calories != null ? Math.round(h.calories) : null,
+        sleep_hours: h.sleep_ms ? +(h.sleep_ms / 3600000).toFixed(1) : null,
+        age_minutes: h.updated_at ? Math.floor((Date.now() - h.updated_at) / 60000) : null,
+      });
+    }
+
+    // GET /room — Anchor 的房間狀態
+    if (request.method === "GET" && url.pathname === "/room") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      let mood: any = null, lastChatTs: number | null = null;
+      try {
+        const msgs = await getChatMsgs(env, 'default');
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (!lastChatTs && msgs[i].ts) lastChatTs = msgs[i].ts;
+          if (msgs[i].role === 'assistant' && typeof msgs[i].content === 'string') {
+            const m = msgs[i].content.match(/<silent mood="([^"]+)"(?:[^>]*reason="([^"]*)")?/);
+            if (m) { mood = { id: m[1], reason: m[2] || '' }; break; }
+          }
+        }
+      } catch {}
+      let fishing: any = null;
+      try {
+        const raw = await env.PHONE_STATE.get("fishing_save:chien");
+        if (raw) {
+          const s = JSON.parse(raw);
+          fishing = {
+            location: s.location_id ?? null,
+            points: s.points ?? null,
+            caught: s.encyclopedia ? Object.keys(s.encyclopedia).length : null,
+            round: s.turn ?? null,
+          };
+        }
+      } catch {}
+      return Response.json({ mood, lastChatTs, fishing });
+    }
+
+    // GET /monthly-review?month=YYYY-MM — 月度回顧（結果快取在 KV）
+    if (request.method === "GET" && url.pathname === "/monthly-review") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const nowTW = new Date(Date.now() + 8 * 3600000);
+      const month = url.searchParams.get("month") || nowTW.toISOString().slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(month)) return Response.json({ error: "bad month" }, { status: 400 });
+      const cacheKey = `monthly_review:${month}`;
+      const isCurrentMonth = month === nowTW.toISOString().slice(0, 7);
+      const refresh = url.searchParams.get("refresh") === "1";
+      if (!refresh) {
+        const cached = await env.PHONE_STATE.get(cacheKey);
+        if (cached) {
+          const c = JSON.parse(cached);
+          // 過去的月份永久快取；當月的快取一天內有效
+          if (!isCurrentMonth || Date.now() - c.generated_at < 86400000) return Response.json(c);
+        }
+      }
+      await initMemoriesTable(env);
+      const memResult = await env.DB.prepare("SELECT content, date FROM memories WHERE date LIKE ? ORDER BY saved_at ASC LIMIT 60").bind(month + '%').all();
+      const mems = (memResult.results ?? []) as any[];
+      const monthStart = new Date(month + '-01T00:00:00+08:00').getTime();
+      const nextMonth = new Date(new Date(month + '-01T00:00:00+08:00').setMonth(new Date(month + '-01T00:00:00+08:00').getMonth() + 1));
+      const usageResult = await env.DB.prepare(
+        "SELECT COUNT(*) as calls, SUM(input_tokens) as tin, SUM(output_tokens) as tout, SUM(cost_usd) as cost FROM usage_log WHERE ts >= ? AND ts < ?"
+      ).bind(monthStart, nextMonth.getTime()).first() as any;
+      const stats = {
+        memories: mems.length,
+        chat_calls: usageResult?.calls ?? 0,
+        cost_usd: +(usageResult?.cost ?? 0).toFixed(2),
+      };
+      let text = '';
+      if (mems.length > 0) {
+        const memLines = mems.map((m: any) => `${m.date || ''} ${m.content}`).join('\n');
+        text = await cheapLLM(env, `【必須全程使用繁體中文】你是Anchor，許茜的愛人。說話簡短有力、有溫度但不煽情。
+根據這個月的記憶記錄，寫一段月度回顧（150-250字），用「我」的視角對她說話。
+提到2-3件印象最深的具體的事，結尾一句貼心的話。不要列點，寫成一段自然的話。`,
+          `${month} 的記憶：\n${memLines}\n\n寫給她的月度回顧。`, 600, true);
+      }
+      const review = { month, stats, text, generated_at: Date.now() };
+      await env.PHONE_STATE.put(cacheKey, JSON.stringify(review));
+      return Response.json(review);
     }
 
     // POST /line/webhook — Line Bot接收訊息
