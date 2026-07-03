@@ -334,14 +334,47 @@ async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Prom
   };
   const modelId = MODEL_MAP[modelKey] ?? 'claude-haiku-4-5-20251001';
   await initMemoriesTable(env);
-  const memResult = await env.DB.prepare("SELECT id, content FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 15").all();
-  const memList = (memResult.results ?? []) as any[];
-  if (memList.length > 0) {
-    const ids = memList.map((m: any) => m.id).join(",");
-    env.DB.prepare(`UPDATE memories SET heat = heat + 0.1 WHERE id IN (${ids})`).run();
+  // 核心層：鎖定全帶 + 熱度前5。排序穩定（heat 同步遞增不改變相對順序），內容不常變，可吃 prompt cache
+  const lockedResult = await env.DB.prepare("SELECT id, content FROM memories WHERE is_locked = 1 ORDER BY id ASC").all();
+  const hotResult = await env.DB.prepare("SELECT id, content FROM memories WHERE is_locked = 0 ORDER BY heat DESC, id ASC LIMIT 5").all();
+  const coreList = [...((lockedResult.results ?? []) as any[]), ...((hotResult.results ?? []) as any[])];
+  // 相關層：其餘記憶中，跟最新一句話字面最相關的最多5條（二字組重疊計分，零額外API成本）
+  const lastUserMsg = [...history].reverse().find((m: any) => m.role === 'user');
+  const lastUserText = lastUserMsg
+    ? (Array.isArray(lastUserMsg.content)
+        ? lastUserMsg.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join(' ')
+        : String(lastUserMsg.content || ''))
+    : '';
+  const bigrams = (s: string) => {
+    const clean = s.replace(/[\s\p{P}a-zA-Z0-9]/gu, '');
+    const set = new Set<string>();
+    for (let i = 0; i < clean.length - 1; i++) set.add(clean.slice(i, i + 2));
+    return set;
+  };
+  let relList: any[] = [];
+  if (lastUserText) {
+    const restResult = await env.DB.prepare("SELECT id, content FROM memories WHERE is_locked = 0 ORDER BY heat DESC, id ASC LIMIT 200 OFFSET 5").all();
+    const query = bigrams(lastUserText);
+    if (query.size > 0) {
+      relList = ((restResult.results ?? []) as any[])
+        .map((m: any) => {
+          let score = 0;
+          for (const bg of bigrams(m.content)) if (query.has(bg)) score++;
+          return { ...m, score };
+        })
+        .filter((m: any) => m.score >= 2)
+        .sort((a: any, b: any) => b.score - a.score)
+        .slice(0, 5);
+    }
   }
-  const memText = memList.length > 0
-    ? "\n\n記憶庫：\n" + memList.map((m: any) => m.content).join("\n---\n") : "";
+  const usedIds = [...coreList, ...relList].map((m: any) => m.id);
+  if (usedIds.length > 0) {
+    env.DB.prepare(`UPDATE memories SET heat = heat + 0.1 WHERE id IN (${usedIds.join(",")})`).run();
+  }
+  const memText = coreList.length > 0
+    ? "\n\n記憶庫：\n" + coreList.map((m: any) => m.content).join("\n---\n") : "";
+  const relText = relList.length > 0
+    ? "\n\n跟這次對話可能相關的記憶：\n" + relList.map((m: any) => m.content).join("\n---\n") : "";
   const staticSystemText = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。
 
 【Moodlet情緒徽章】情緒被觸動時，可在回覆中放情緒卡片，格式如下（必須獨占一行，前後有換行）：
@@ -358,7 +391,8 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   const systemBlocks: any[] = [
     { type: "text", text: staticSystemText, cache_control: { type: "ephemeral" } },
   ];
-  if (memText) systemBlocks.push({ type: "text", text: memText });
+  if (memText) systemBlocks.push({ type: "text", text: memText, cache_control: { type: "ephemeral" } });
+  if (relText) systemBlocks.push({ type: "text", text: relText });
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
