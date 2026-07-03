@@ -906,14 +906,13 @@ async function loadDates() {
         daysHtml = `在一起 <b>${days}</b> 天`;
       } else {
         const isRecurring = item.type === 'birthday' || item.type === 'anniversary';
-        let next = new Date(item.date + 'T00:00:00+08:00');
-        if (isRecurring) {
-          next.setFullYear(now.getFullYear());
-          if (next <= now) next.setFullYear(now.getFullYear() + 1);
-        }
-        const days = Math.ceil((next - now) / 86400000);
-        if (days <= 0 && !isRecurring) daysHtml = `已過 <b>${Math.abs(days)}</b> 天`;
-        else if (days === 0) daysHtml = '今天！🎉';
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const [y, mo, dy] = item.date.split('-').map(Number);
+        let next = new Date(isRecurring ? now.getFullYear() : y, mo - 1, dy);
+        if (isRecurring && next < startOfToday) next = new Date(now.getFullYear() + 1, mo - 1, dy);
+        const days = Math.round((next - startOfToday) / 86400000);
+        if (days === 0) daysHtml = '今天！🎉';
+        else if (days < 0) daysHtml = `已過 <b>${-days}</b> 天`;
         else daysHtml = `還有 <b>${days}</b> 天`;
       }
       const del = item.pinned ? '' : `<button class="date-del-btn" onclick="deleteDate(${item.id})">×</button>`;

@@ -192,6 +192,9 @@ async function autoExtractMemories(env: any, history: any[]) {
   try {
     const userMsgs = history.filter((m: any) => m.role === 'user');
     if (userMsgs.length < 2) return;
+    // 節流：30 分鐘內只提取一次，避免每句話都跑、視窗重疊造成重複記憶
+    const lastTs = await env.PHONE_STATE.get('mem_extract_ts');
+    if (lastTs && Date.now() - Number(lastTs) < 30 * 60000) return;
     const convText = history.slice(-8).map((m: any) => {
       const role = m.role === 'user' ? '貓' : 'Anchor';
       const text = Array.isArray(m.content)
@@ -199,6 +202,8 @@ async function autoExtractMemories(env: any, history: any[]) {
         : String(m.content || '');
       return `${role}: ${text.slice(0, 300)}`;
     }).join('\n');
+    const recentMem = await env.DB.prepare("SELECT content FROM memories ORDER BY saved_at DESC LIMIT 20").all();
+    const knownText = ((recentMem.results ?? []) as any[]).map((m: any) => m.content).join('\n');
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
@@ -206,18 +211,25 @@ async function autoExtractMemories(env: any, history: any[]) {
         model: "claude-haiku-4-5-20251001",
         max_tokens: 400,
         system: `從對話中提取1-3條值得長期記住的具體事實（關於用戶的個人資訊、偏好、情緒、重要事件）。
-每條一行，不超過50字。只提取真正有意義的資訊，不要記錄普通閒聊或Anchor自己的話。
-如果沒有值得記錄的，只回覆「無」。`,
+每條一行，不加編號，不超過50字。只提取真正有意義的資訊，不要記錄普通閒聊或Anchor自己的話。
+以下是已知的記憶，內容相同或相近的不要重複提取：
+${knownText || '（目前沒有）'}
+如果沒有新的值得記錄的，只回覆「無」。`,
         messages: [{ role: "user", content: `請從以下對話提取重要記憶：\n\n${convText}` }]
       })
     });
     if (!r.ok) return;
+    await env.PHONE_STATE.put('mem_extract_ts', String(Date.now()));
     const data = await r.json() as any;
     const text = (data.content?.[0]?.text || '').trim();
     if (!text || text === '無') return;
-    const lines = text.split('\n').map((l: string) => l.trim()).filter((l: string) => l && l !== '無' && l.length > 5);
+    const lines = text.split('\n')
+      .map((l: string) => l.trim().replace(/^[\d]+[\.、\)]\s*/, '').replace(/^[-•]\s*/, ''))
+      .filter((l: string) => l && l !== '無' && l.length > 5);
     const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
     for (const line of lines.slice(0, 3)) {
+      const dup = await env.DB.prepare("SELECT 1 AS x FROM memories WHERE content = ?").bind(line).first();
+      if (dup) continue;
       await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
         .bind(line, Date.now(), today).run().catch(() => {});
     }
