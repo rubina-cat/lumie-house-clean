@@ -1930,3 +1930,90 @@ textarea::placeholder { color: var(--light-text); }
   transition: background 0.15s;
 }
 .fish-actions button:active { background: rgba(100,180,220,0.25); }
+/* ============================================================
+   冰紫底 × 藍丁香紫 accent — 配色補丁
+   用法：把整段貼到 style.css 的「最末尾」。
+   不動任何版面，只覆蓋顏色。要還原就把這段刪掉。
+   （#study 書房「馴虎計劃」是刻意的暖橘深色主題，這裡不動它。）
+   ============================================================ */
+
+:root {
+  /* 冰紫底色 */
+  --cream:      #F3F1FA;   /* 全站底 */
+  --blush:      #C9B8E0;   /* 漸層淺端 */
+  --mist:       #D8D2EC;
+
+  /* 藍丁香・藍紫 accent */
+  --rose:       #9C8EC2;   /* 主 accent：按鈕、氣泡、邊框高亮 */
+  --mauve:      #8E86BC;   /* 次 accent：標籤、圖標、播放鍵 */
+  --sage:       #B9A9D3;   /* 漸層另一端（改為同家族的淡紫，不再是綠） */
+
+  /* 文字 */
+  --deep:       #443F5A;   /* 標題／數字 */
+  --text:       #5B5674;   /* 內文 */
+  --light-text: #A49DBE;   /* 次要說明 */
+
+  /* 卡片維持半透明白 */
+  --card:        rgba(255,255,255,0.72);
+  --card-border: rgba(255,255,255,0.9);
+
+  /* 生理期：粉紅 → 藍丁香紫家族 */
+  --period-rose:       #9C8EC2;
+  --period-peach:      #C4B4DE;
+  --period-gold:       #C9B8DE;
+  --period-mauve:      #B9A9D3;
+  --period-pink:       #ECE6F6;
+  --period-pink-light: #F3F0FA;
+}
+
+/* 背景漸層（原本寫死暖色，改成冰紫層次） */
+.bg {
+  background: linear-gradient(
+    160deg,
+    #F4F2FB 0%,
+    #ECE7F5 22%,
+    #E7E1F1 45%,
+    #E4DEEF 72%,
+    #DED8EC 100%
+  );
+}
+.bg::before {
+  background: radial-gradient(circle, rgba(149,165,208,0.30) 0%, transparent 70%);
+}
+.bg::after {
+  background: radial-gradient(circle, rgba(181,165,208,0.30) 0%, transparent 70%);
+}
+
+/* 寫死的暖色邊框／陰影 → 收斂成藍丁香紫調 */
+.input-wrap,
+.photo-btn { border-color: rgba(156,142,194,0.30); }
+
+.nav { border-top-color: rgba(156,142,194,0.22); }
+
+.period-tag { border-color: rgba(156,142,194,0.30); }
+
+.msg.user      { box-shadow: 0 2px 12px rgba(142,134,188,0.28); }
+.send-btn      { box-shadow: 0 2px 12px rgba(142,134,188,0.40); }
+.photo-btn,
+.mini-card,
+.dates-section,
+.quote-card,
+.diary-item,
+.memory-item,
+.chat-history-btn,
+.eye-now       { box-shadow: 0 2px 16px rgba(68,63,90,0.07); }
+
+/* 頁首／輸入列／導覽的「奶油白」淡出，改為冰紫白 (#F3F1FA = 243,241,250) */
+.chat-header {
+  background: linear-gradient(180deg, rgba(243,241,250,0.98) 0%, rgba(243,241,250,0) 100%);
+}
+.history-header {
+  background: linear-gradient(180deg, rgba(243,241,250,0.98) 0%, rgba(243,241,250,0.9) 100%);
+}
+.input-area {
+  background: linear-gradient(0deg, rgba(243,241,250,0.98) 60%, transparent);
+}
+.nav { background: rgba(243,241,250,0.92); }
+
+/* 生理期底線也一起換 */
+.eye-now-row { border-bottom-color: rgba(156,142,194,0.15); }
