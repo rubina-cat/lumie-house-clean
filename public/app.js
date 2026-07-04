@@ -1003,15 +1003,18 @@ function _todayTWN() {
 }
 let _goalsCache = [];
 
-// 生長階段：連續天數越高長得越好；斷了但有歷史＝蔫掉、全新＝種子
-function _plantStage(g) {
+// 生長階段 1-7：連續天數越高長得越好；斷了但有歷史＝蔫掉(7)、全新＝空盆(1)
+function _plantStageNum(g) {
   const s = g.streak || 0;
-  if (s >= 30) return '🌳';
-  if (s >= 14) return '🌸';
-  if (s >= 7) return '🌿';
-  if (s >= 3) return '🪴';
-  if (s >= 1) return '🌱';
-  return g.total > 0 ? '🥀' : '🫘';
+  if (s >= 30) return 6;
+  if (s >= 14) return 5;
+  if (s >= 7) return 4;
+  if (s >= 3) return 3;
+  if (s >= 1) return 2;
+  return g.total > 0 ? 7 : 1;
+}
+function _plantImg(g, cls) {
+  return `<img class="${cls}" src="/garden/plant-${_plantStageNum(g)}.png" alt="">`;
 }
 
 async function loadGoals() {
@@ -1030,7 +1033,7 @@ async function loadGoals() {
         <button class="goal-check" onclick="toggleGoalCheck(${g.id})">${g.checked ? '✓' : ''}</button>
         <span class="goal-icon">${g.icon || '🌱'}</span>
         <div class="goal-info"><div class="goal-title">${escHtml(g.title)}</div></div>
-        <span class="goal-plant">${_plantStage(g)}</span>
+        ${_plantImg(g, 'goal-plant')}
         ${streak}
         <button class="date-del-btn" onclick="deleteGoal(${g.id})">×</button>
       </div>`;
@@ -1101,10 +1104,9 @@ function renderGarden() {
     return;
   }
   box.innerHTML = _goalsCache.map(g => {
-    const size = 24 + Math.min(g.streak || 0, 30) * 0.9;
+    const h = 68 + Math.min(g.streak || 0, 30) * 1.5;
     return `<div class="garden-pot${g.checked ? ' watered' : ''}" onclick="waterPlant(${g.id})" data-goal="${g.id}">
-      <div class="garden-plant" style="font-size:${size}px">${_plantStage(g)}</div>
-      <div class="garden-pot-body"></div>
+      <img class="garden-plant-img" style="height:${h}px" src="/garden/plant-${_plantStageNum(g)}.png" alt="">
       <div class="garden-pot-name">${escHtml(g.title)}</div>
       <div class="garden-pot-streak">${g.checked ? '今天澆過了 ✓' : (g.streak > 0 ? `🔥 ${g.streak} 天` : '等你澆水')}</div>
     </div>`;
