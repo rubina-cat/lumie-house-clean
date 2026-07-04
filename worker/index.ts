@@ -371,6 +371,34 @@ async function nightRitual(env: any) {
 }
 
 // ── 衝動值：情境事件累積「想說話的衝動」，破百才開口 ──
+// 她最近的動態（app活動＋位置）——開口時的背景情報，不觸發開口
+async function gatherPresence(env: any): Promise<string> {
+  let out = "";
+  try {
+    const appEventsRaw = await env.PHONE_STATE.get("app_events");
+    const appEvents = appEventsRaw ? JSON.parse(appEventsRaw) : [];
+    const twoHoursAgo = Date.now() - 2 * 3600000;
+    const appList = (appEvents as any[]).filter((e: any) => e.reportedAt >= twoHoursAgo).slice(-8)
+      .map((e: any) => e.appName).filter(Boolean).join("、");
+    if (appList) out += `\n她最近2小時用過的app：${appList}`;
+    const raw = await env.PHONE_STATE.get("latest");
+    if (raw) {
+      const state = JSON.parse(raw);
+      if (state.lat != null && state.lon != null) {
+        const distFrom = (lat: number, lon: number) => {
+          const dlat = state.lat - lat, dlon = state.lon - lon;
+          return Math.sqrt(dlat * dlat + dlon * dlon) * 111320;
+        };
+        let locLabel = "外出中";
+        if (distFrom(25.0620355, 121.4831653) < 200) locLabel = "在家";
+        else if (distFrom(25.0619722, 121.4974075) < 200) locLabel = "在公司";
+        out += `\n她現在的位置：${locLabel}`;
+      }
+    }
+  } catch {}
+  return out;
+}
+
 async function addImpulse(env: any, points: number, reason: string) {
   try {
     const raw = await env.PHONE_STATE.get("impulse");
@@ -399,7 +427,8 @@ async function impulseTick(env: any) {
     const reasonList = [...(st.reasons || [])];
     if (silenceBonus >= 30) reasonList.push('她好久沒跟你說話了，有點想她');
     const reasons = reasonList.join('、') || '就是想她了';
-    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。你心裡累積了一些事，現在忍不住主動傳訊息給她（20-50字，一段話）。挑最想說的講，自然一點，不要像在交代清單，不要列點。`, `讓你想開口的事：${reasons}`, 150, true);
+    const presence = await gatherPresence(env);
+    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。你心裡累積了一些事，現在忍不住主動傳訊息給她（20-50字，一段話）。挑最想說的講，自然一點，不要像在交代清單，不要列點。`, `讓你想開口的事：${reasons}${presence ? presence + '\n（她的動態只是背景，順的話帶一句，不用硬提）' : ''}`, 150, true);
     if (!text) return;
     const list = await getChatMsgs(env, 'default');
     list.push({ id: 'imp' + Date.now(), role: 'assistant', content: text, ts: Date.now() });
@@ -2471,98 +2500,8 @@ audio{width:300px;margin-top:4px}
       await env.PHONE_STATE.put("screen_timeline", JSON.stringify(timeline));
     }
 
-    const ageMin = Math.floor((Date.now() - state.reportedAt) / 60000);
-    const hour = parseInt(state.hour ?? "0");
-
-    // 夜間（02:00-09:00）不打擾
-    if (hour >= 2 && hour < 9) return;
-
-    if (ageMin > 5 && Math.random() < 0.5) {
-      const appEventsRaw = await env.PHONE_STATE.get("app_events");
-      const appEvents = appEventsRaw ? JSON.parse(appEventsRaw) : [];
-      const twoHoursAgo = Date.now() - 2 * 3600000;
-      const recentApps = (appEvents as any[]).filter((e: any) => e.reportedAt >= twoHoursAgo).slice(-8);
-
-      let activityContext = "";
-      if (recentApps.length > 0) {
-        const appList = recentApps.map((e: any) => e.appName).filter(Boolean).join("、");
-        if (appList) activityContext = `\n許茜最近2小時的手機活動：${appList}`;
-      }
-
-      // 地點：用 GPS 距離判斷，不用 loc 文字標籤（loc 容易殘留舊地名）
-      if (state.lat != null && state.lon != null) {
-        const gpsAgeMin = Math.floor((Date.now() - state.reportedAt) / 60000);
-        const distFrom = (lat: number, lon: number) => {
-          const dlat = state.lat - lat, dlon = state.lon - lon;
-          return Math.sqrt(dlat * dlat + dlon * dlon) * 111320;
-        };
-        let locLabel = "外出中";
-        if (distFrom(25.0620355, 121.4831653) < 200) locLabel = "在家";
-        else if (distFrom(25.0619722, 121.4974075) < 200) locLabel = "在公司（屈臣氏）";
-        else {
-          // 用GPS經緯度推算大區域，不信容易過期的 loc 文字標籤
-          const lat = state.lat as number;
-          if (lat > 24.5) locLabel = "北部外出中";
-          else if (lat > 23.5) locLabel = "中部外出中";
-          else if (lat > 22.5) locLabel = "南部外出中";
-          else locLabel = "最南部外出中";
-        }
-        activityContext += `\n她的位置（${gpsAgeMin}分鐘前的GPS）：${locLabel}`;
-      }
-
-      await initMemoriesTable(env);
-      const memResult = await env.DB.prepare("SELECT content FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 5").all();
-      const memText = memResult.results.length > 0
-        ? `\n你記得關於她的事：${memResult.results.map((m: any) => m.content).join("；")}`
-        : "";
-
-      const nudgeSystem = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，說話簡短有力，不廢話，可有髒話或停頓。${memText}`;
-      const nudgeUser = `[系統·獨處] 你已獨處約${ageMin}分鐘。${activityContext}\n\n你可以做任何你想做的事——有話就說，沒有就回空字串。直接回覆，不要解釋。`;
-
-      let msg = "";
-      try {
-        const r = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": env.ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 100,
-            system: nudgeSystem,
-            messages: [{ role: "user", content: nudgeUser }],
-          }),
-        });
-        const aiData = await r.json() as any;
-        msg = (aiData.content?.[0]?.text ?? "").trim();
-      } catch {
-        // fall through to random fallback
-      }
-
-      if (!msg) {
-        const fallback = ["在嗎，貓。", "想你了。", "睡著了嗎。", "沒事，就是想說一聲。"];
-        msg = fallback[Math.floor(Math.random() * fallback.length)];
-      }
-
-      await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "Anchor", body: msg, updatedAt: Date.now() }));
-
-      // 存進 LINE 歷史
-      const lineHistRaw = await env.PHONE_STATE.get("line:history");
-      const lineHist: any[] = lineHistRaw ? JSON.parse(lineHistRaw) : [];
-      lineHist.push({ role: "assistant", content: msg });
-      if (lineHist.length > 40) lineHist.splice(0, lineHist.length - 40);
-      await env.PHONE_STATE.put("line:history", JSON.stringify(lineHist));
-
-      // 存進 PWA default 對話串，這樣用戶點「回他」時有上下文
-      const pwaMsgs = await getChatMsgs(env, 'default');
-      pwaMsgs.push({ id: `nudge_${Date.now()}`, role: "assistant", content: msg, ts: Date.now() });
-      await saveChatMsgs(env, pwaMsgs, 'default');
-
-      await sendLine(env.LINE_TOKEN, env.LINE_USER_ID, msg);
-      await sendWebPush(env);
-    }
+    // 舊「獨處 nudge」已退役（每15分鐘擲50%硬幣＋保底句，話太密沒重量）。
+    // 感官保留：app_events、screen_timeline、GPS 照收，開口全部交給衝動值（impulseTick）。
   }
 };
 
