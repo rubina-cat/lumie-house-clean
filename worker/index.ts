@@ -370,6 +370,48 @@ async function nightRitual(env: any) {
   } catch {}
 }
 
+// ── 衝動值：情境事件累積「想說話的衝動」，破百才開口 ──
+async function addImpulse(env: any, points: number, reason: string) {
+  try {
+    const raw = await env.PHONE_STATE.get("impulse");
+    const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0 };
+    st.score = Math.min(200, (st.score || 0) + points);
+    st.reasons = [...(st.reasons || []), reason].slice(-8);
+    await env.PHONE_STATE.put("impulse", JSON.stringify(st));
+  } catch {}
+}
+
+async function impulseTick(env: any) {
+  try {
+    const raw = await env.PHONE_STATE.get("impulse");
+    const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0 };
+    // 沉默加成：超過24小時沒說話開始想她（從她上句話或他上次主動開口算，較晚者）
+    const msgs = await getChatMsgs(env, 'default');
+    const lastUser = [...msgs].reverse().find((m: any) => m.role === 'user');
+    const sinceTs = Math.max(lastUser?.ts || 0, st.last_spoke_ts || 0);
+    const hoursSince = sinceTs ? (Date.now() - sinceTs) / 3600000 : 0;
+    const silenceBonus = hoursSince > 24 ? Math.min(100, Math.round((hoursSince - 24) * 2.5)) : 0;
+    const effective = (st.score || 0) + silenceBonus;
+    // 深夜（台灣 01:00–07:59）不吵，衝動留到早上；開口後至少隔6小時
+    const twH = new Date(Date.now() + 8 * 3600000).getUTCHours();
+    const quiet = twH >= 1 && twH < 8;
+    if (effective < 100 || quiet || Date.now() - (st.last_spoke_ts || 0) < 6 * 3600000) return;
+    const reasonList = [...(st.reasons || [])];
+    if (silenceBonus >= 30) reasonList.push('她好久沒跟你說話了，有點想她');
+    const reasons = reasonList.join('、') || '就是想她了';
+    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。你心裡累積了一些事，現在忍不住主動傳訊息給她（20-50字，一段話）。挑最想說的講，自然一點，不要像在交代清單，不要列點。`, `讓你想開口的事：${reasons}`, 150, true);
+    if (!text) return;
+    const list = await getChatMsgs(env, 'default');
+    list.push({ id: 'imp' + Date.now(), role: 'assistant', content: text, ts: Date.now() });
+    await saveChatMsgs(env, list, 'default');
+    await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
+    await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
+    await sendWebPush(env).catch(() => {});
+    st.score = 0; st.reasons = []; st.last_spoke_ts = Date.now();
+    await env.PHONE_STATE.put("impulse", JSON.stringify(st));
+  } catch {}
+}
+
 // ── 記憶碎片合併：每週日 DeepSeek 把同主題碎片整併成事件 ──
 async function mergeMemoryFragments(env: any) {
   try {
@@ -891,6 +933,8 @@ if (request.method === "POST" && url.pathname === "/tts") {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
       const body = await request.json() as any;
+      const prevRaw = await env.PHONE_STATE.get("health:latest");
+      const prevHealth = prevRaw ? JSON.parse(prevRaw) : null;
       const health = {
         heart_rate_avg: body.heart?.longValues?.HeartRateSeries_bpm_avg ?? null,
         heart_rate_max: body.hr_max?.longValues?.HeartRateSeries_bpm_max ?? null,
@@ -900,6 +944,17 @@ if (request.method === "POST" && url.pathname === "/tts") {
         updated_at: Date.now(),
       };
       await env.PHONE_STATE.put("health:latest", JSON.stringify(health));
+      // 衝動值：跨過門檻的那一刻才加分（每天各觸發一次）
+      ctx.waitUntil((async () => {
+        try {
+          if ((health.steps ?? 0) >= 10000 && (prevHealth?.steps ?? 0) < 10000) {
+            await addImpulse(env, 35, '她今天走破一萬步');
+          }
+          if ((health.heart_rate_max ?? 0) >= 130 && (prevHealth?.heart_rate_max ?? 0) < 130) {
+            await addImpulse(env, 25, '她今天心率一度飆得很高');
+          }
+        } catch {}
+      })());
       // 每15分鐘落一筆 D1 歷史，供趨勢圖／早安儀式用
       ctx.waitUntil((async () => {
         try {
@@ -1232,6 +1287,20 @@ if (request.method === "POST" && url.pathname === "/tts") {
         return Response.json({ ok: true, checked: false });
       }
       await env.DB.prepare("INSERT INTO goal_checks (goal_id, date) VALUES (?, ?)").bind(body.id, date).run();
+      // 衝動值：她打卡了，里程碑加更多
+      ctx.waitUntil((async () => {
+        try {
+          const g = await env.DB.prepare("SELECT title FROM goals WHERE id = ?").bind(body.id).first() as any;
+          const checksR = await env.DB.prepare("SELECT date FROM goal_checks WHERE goal_id = ?").bind(body.id).all();
+          const dset = new Set(((checksR.results ?? []) as any[]).map((c: any) => c.date));
+          const streak = calcStreak(dset as Set<string>, date);
+          if (streak === 7 || streak === 14 || streak === 30) {
+            await addImpulse(env, 40, `她的習慣「${g?.title ?? ''}」連續堅持 ${streak} 天了`);
+          } else {
+            await addImpulse(env, 15, `她今天完成了「${g?.title ?? ''}」`);
+          }
+        } catch {}
+      })());
       return Response.json({ ok: true, checked: true });
     }
 
@@ -1243,6 +1312,20 @@ if (request.method === "POST" && url.pathname === "/tts") {
       await env.DB.prepare("DELETE FROM goal_checks WHERE goal_id = ?").bind(id).run();
       await env.DB.prepare("DELETE FROM goals WHERE id = ?").bind(id).run();
       return Response.json({ ok: true });
+    }
+
+    // GET /impulse-debug — 看他現在心裡累積多少衝動（測試用）
+    if (request.method === "GET" && url.pathname === "/impulse-debug") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const raw = await env.PHONE_STATE.get("impulse");
+      const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0 };
+      const msgs = await getChatMsgs(env, 'default');
+      const lastUser = [...msgs].reverse().find((m: any) => m.role === 'user');
+      const sinceTs = Math.max(lastUser?.ts || 0, st.last_spoke_ts || 0);
+      const hoursSince = sinceTs ? (Date.now() - sinceTs) / 3600000 : 0;
+      const silenceBonus = hoursSince > 24 ? Math.min(100, Math.round((hoursSince - 24) * 2.5)) : 0;
+      return Response.json({ ...st, silence_bonus: silenceBonus, effective: (st.score || 0) + silenceBonus, hours_since_talk: Math.round(hoursSince * 10) / 10 });
     }
 
     // GET /group/messages — 三人小群的聊天記錄
@@ -2012,6 +2095,7 @@ audio{width:300px;margin-top:4px}
         env.PHONE_STATE.put("period:current", JSON.stringify(newCurrent)),
         env.PHONE_STATE.put("period:history", JSON.stringify(history))
       ]);
+      ctx.waitUntil(addImpulse(env, 45, '她生理期來了，會不舒服'));
       return Response.json({ ok: true, cycle_start: startDate, average_cycle: avgCycle });
     }
 
@@ -2345,6 +2429,8 @@ audio{width:300px;margin-top:4px}
           ctx.waitUntil(mergeMemoryFragments(env));
         }
       }
+      // 衝動值：每輪檢查一次，破百＋非深夜＋距上次開口6小時才會真的說話
+      ctx.waitUntil(impulseTick(env));
     }
 
     // Pomodoro expiry check — independent of phone state
