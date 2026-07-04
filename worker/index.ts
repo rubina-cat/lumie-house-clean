@@ -917,7 +917,12 @@ if (request.method === "POST" && url.pathname === "/tts") {
         batteryPercent: Math.round(body.batteryPercent ?? 0),
         batteryState: body.batteryState ?? "UNKNOWN",
         usageStats: Array.isArray(body.usageStats) ? body.usageStats.slice(0, 50) : [],
-        screenOn: body.screenState === "on" ? true : body.screenState === "off" ? false : null,
+        screenOn: (() => {
+          const s = String(body.screenState ?? body.screen ?? "").toLowerCase();
+          if (s === "on" || s === "true" || body.screenOn === true) return true;
+          if (s === "off" || s === "false" || body.screenOn === false) return false;
+          return null;
+        })(),
         reportedAt: Date.now(),
         year: body.year ?? null,
         month: body.month ?? null,
