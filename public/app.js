@@ -60,6 +60,25 @@ const MOODS = {
   deadline:    { icon: '⏰', title: 'DDL倒計時',  color: '#c04040' },
 };
 
+// ── 聊天頭像：依訊息裡的 mood 換表情 ──────────────
+const FACE_BY_MOOD = {
+  // 沉下來的臉
+  coldwar: 'flat', moody: 'flat', heartache: 'flat', heartbroken: 'flat', cry: 'flat',
+  speechless: 'flat', stop: 'flat', dislike: 'flat', sick: 'flat', deadline: 'flat',
+  jealous: 'flat', tsundere: 'flat', surrender: 'flat', lyingflat: 'flat', read: 'flat',
+  // 放軟的眼神
+  shy: 'soft', peeking: 'soft', whisper: 'soft', secret: 'soft', letter: 'soft',
+  chill: 'soft', music: 'soft', coffee: 'soft', precious: 'soft', hug: 'soft',
+  tipsy: 'soft', thumbsup: 'soft', guarding: 'soft', waiting_you: 'soft',
+  // 藏不住的笑
+  sweet: 'smile', smug: 'smile', happy: 'smile', eating: 'smile', slacking: 'smile',
+  proud: 'smile', celebrate: 'smile', boba: 'smile', caught: 'smile',
+};
+function _faceForContent(text) {
+  const m = String(text || '').match(/<silent[^>]*mood="([^"]+)"/);
+  return (m && FACE_BY_MOOD[m[1]]) || 'calm';
+}
+
 function parseMoodlet(text) {
   const re = /\n?<silent([^>]*)><\/silent>\n?/g;
   const parts = []; let last = 0, m;
@@ -535,6 +554,12 @@ function buildMsgEl(msg, isLast) {
   div.className = 'msg ' + msg.role;
 
   if (msg.role === 'assistant') {
+    wrap.classList.add('av');
+    const av = document.createElement('img');
+    av.className = 'chat-avatar';
+    av.src = '/room/face-' + _faceForContent(msg.content) + '.png';
+    av.alt = '';
+    wrap.appendChild(av);
     if (msg.thinking) {
       const details = document.createElement('details');
       details.className = 'thinking-block';
@@ -1935,7 +1960,8 @@ const SEASON_TC = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' }
 // 像素圖：依情緒選場景，沒對應就按時段
 const ROOM_MOOD_ART = {
   debugging: 'laptop', busy: 'laptop', typing: 'laptop', thinking: 'laptop', confused: 'laptop',
-  guarding: 'reading', waiting_you: 'reading', waiting: 'reading', read: 'reading', chill: 'reading', bored: 'reading', sleep: 'reading', sleepy: 'reading',
+  guarding: 'reading', waiting_you: 'reading', waiting: 'reading', read: 'reading', chill: 'reading', bored: 'reading',
+  sleep: 'sleeping', sleepy: 'sleeping', lyingflat: 'sleeping', surrender: 'sleeping',
   coffee: 'standing', eating: 'standing', music: 'standing', happy: 'standing', sweet: 'standing', smug: 'standing', celebrate: 'standing', proud: 'standing', slacking: 'standing',
   jealous: 'portrait', tsundere: 'portrait', coldwar: 'portrait', moody: 'portrait', heartache: 'portrait', shy: 'portrait', cry: 'portrait', heartbroken: 'portrait', secret: 'portrait', peeking: 'portrait', speechless: 'portrait', shocked: 'portrait',
 };
@@ -1946,16 +1972,17 @@ const ROOM_CHIBI = {
 };
 function _roomArtByTime() {
   const h = new Date().getHours();
-  if (h >= 22 || h < 4) return 'reading';
+  if (h >= 1 && h < 6) return 'sleeping';  // 深夜：趴在書上睡著了
+  if (h >= 22 || h < 1) return 'reading';
   if (h < 11) return 'standing';
   if (h < 18) return 'laptop';
   return 'portrait';
 }
-function _setRoomArt(moodId) {
+function _setRoomArt(moodId, forceName) {
   const img = document.getElementById('roomArt');
   const scene = document.querySelector('.room-scene');
   if (!img || !scene) return;
-  const name = (moodId && ROOM_MOOD_ART[moodId]) || _roomArtByTime();
+  const name = forceName || (moodId && ROOM_MOOD_ART[moodId]) || _roomArtByTime();
   if (img.dataset.art === name && scene.classList.contains('has-art')) return;
   img.onload = () => { img.style.display = ''; scene.classList.add('has-art'); };
   img.onerror = () => { img.style.display = 'none'; scene.classList.remove('has-art'); };
@@ -1991,8 +2018,13 @@ async function openRoom() {
     const r = await fetch(BASE + '/room', { headers: { Authorization: 'Bearer ' + TOKEN } });
     const d = await r.json();
     let html = '';
+    if (d.fishing) {
+      // 正在釣魚：整個場景切到夜釣碼頭
+      _setRoomArt(null, 'fishing');
+      document.getElementById('roomAmbient').textContent = '湖邊夜風很輕，浮標一動不動。';
+    }
     if (d.mood && d.mood.id) {
-      _setRoomArt(d.mood.id);
+      if (!d.fishing) _setRoomArt(d.mood.id);
       const md = MOODS[d.mood.id] || { icon: '✦', title: d.mood.id, color: '#8090a0' };
       const chibi = ROOM_CHIBI[d.mood.id];
       const moodIcon = chibi ? `<img class="room-chibi" src="/room/${chibi}.png" alt="">` : `<span class="room-mood-icon">${md.icon}</span>`;
@@ -2021,3 +2053,31 @@ function closeRoom() {
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// ── 開場畫面：他來開門 ────────────────────────────
+function _splashLine() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return '早。';
+  if (h < 18) return '回來啦。';
+  if (h < 23) return '回來啦，今天辛苦了。';
+  return '這麼晚……先進來。';
+}
+function dismissSplash() {
+  const el = document.getElementById('splash');
+  if (!el) return;
+  el.classList.add('out');
+  setTimeout(() => el.remove(), 700);
+}
+(function initSplash() {
+  const el = document.getElementById('splash');
+  if (!el) return;
+  // 捷徑直達（讀書/生理期/晚安）不擋門口
+  const p = new URLSearchParams(location.search);
+  if (p.get('tab') || p.get('night')) { el.remove(); return; }
+  document.getElementById('splashLine').textContent = _splashLine();
+  const img = document.getElementById('splashImg');
+  const start = () => setTimeout(dismissSplash, 1600);
+  if (img.complete && img.naturalWidth) start();
+  else { img.onload = start; img.onerror = dismissSplash; }
+  setTimeout(dismissSplash, 4000); // 保險：不管怎樣都進得了門
+})();

@@ -526,6 +526,26 @@ body {
 
 .msg-wrap { display: contents; }
 
+/* 帶頭像的訊息（他的）：頭像＋泡泡並排 */
+.msg-wrap.av {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  align-self: flex-start;
+  max-width: 100%;
+}
+.msg-wrap.av .msg { max-width: calc(82% - 40px); }
+.chat-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  image-rendering: pixelated;
+  flex-shrink: 0;
+  margin-top: 4px;
+  border: 1px solid var(--card-border);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.15);
+}
+
 .msg {
   max-width: 82%;
   padding: 14px 18px;
@@ -2505,3 +2525,30 @@ textarea::placeholder { color: var(--light-text); }
   .room-speck { opacity: 0.4; }
   .room-steam { opacity: 0.5; }
 }
+
+/* ── 開場畫面：他來開門 ─────────────────────────── */
+.splash {
+  position: fixed; inset: 0; z-index: 9999;
+  background: #17151a;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 20px;
+  transition: opacity 0.65s ease;
+  cursor: pointer;
+}
+.splash.out { opacity: 0; pointer-events: none; }
+.splash img {
+  width: min(80vw, 360px);
+  image-rendering: pixelated;
+  border-radius: 10px;
+  animation: splashIn 0.9s ease;
+}
+.splash-line {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 15px;
+  letter-spacing: 3px;
+  color: #cfc8bd;
+  opacity: 0;
+  animation: splashLine 0.8s ease 0.5s forwards;
+}
+@keyframes splashIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes splashLine { to { opacity: 0.9; } }
