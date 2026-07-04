@@ -2779,3 +2779,61 @@ textarea::placeholder { color: var(--light-text); }
 @media (prefers-reduced-motion: reduce) {
   .garden-drop, .garden-pot.wiggle { animation: none; }
 }
+
+/* ══ 房間主題（深夜暖木）＋ 主題切換鈕 ══════════════ */
+#home { position: relative; }
+.theme-btn {
+  position: absolute;
+  top: 16px; right: 16px;
+  z-index: 5;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+:root[data-theme="room"] {
+  /* 深夜的房間：暖木、燈籠光、紙張 */
+  --cream:      #1b171c;
+  --blush:      #9a6b4a;   /* 氣泡漸層另一端：暖木 */
+  --mist:       #2a2430;
+  --rose:       #c98a5b;   /* 主 accent：燈籠橘 */
+  --mauve:      #b98267;   /* 次 accent：陶土 */
+  --sage:       #7a8a6e;
+  --deep:       #f2e8da;   /* 標題／數字：紙白 */
+  --text:       #d9cec2;
+  --light-text: #a08f80;
+  --card:        rgba(46,38,40,0.85);
+  --card-border: rgba(255,235,210,0.10);
+  --period-rose:       #c98a5b;
+  --period-peach:      #b98267;
+  --period-gold:       #d9a96b;
+  --period-mauve:      #a08267;
+  --period-pink:       #3a3034;
+  --period-pink-light: #2e2628;
+}
+[data-theme="room"] .bg {
+  background: linear-gradient(160deg, #241d22 0%, #1f1a1e 40%, #191518 100%);
+}
+[data-theme="room"] .bg::before {
+  background: radial-gradient(circle, rgba(217,154,91,0.16) 0%, transparent 70%);
+}
+[data-theme="room"] .nav {
+  background: rgba(27,22,26,0.94);
+  border-top-color: rgba(201,138,91,0.18);
+}
+[data-theme="room"] .msg.user {
+  color: #241a12;
+  box-shadow: 0 2px 12px rgba(201,138,91,0.25);
+}
+[data-theme="room"] .send-btn { box-shadow: 0 2px 12px rgba(201,138,91,0.35); }
+[data-theme="room"] .thinking-content { background: rgba(255,255,255,0.04); border-left-color: rgba(255,235,210,0.2); }
+[data-theme="room"] .sidebar { background: #221c20; }
+[data-theme="room"] #groupOverlay { background: #1b171c; }
+[data-theme="room"] .history-msg.user { color: #241a12; }
+[data-theme="room"] input, [data-theme="room"] textarea, [data-theme="room"] select {
+  color: var(--text);
+}

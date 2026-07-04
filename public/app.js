@@ -2291,3 +2291,25 @@ function dismissSplash() {
   else { img.onload = start; img.onerror = dismissSplash; }
   setTimeout(dismissSplash, 4000); // 保險：不管怎樣都進得了門
 })();
+
+// ── 主題：自動（入夜變房間）／房間／冰紫 ──────────
+const THEME_MODES = ['auto', 'room', 'ice'];
+function _applyTheme() {
+  const mode = localStorage.getItem('theme_mode') || 'auto';
+  const h = new Date().getHours();
+  const room = mode === 'room' || (mode === 'auto' && (h >= 18 || h < 7));
+  document.documentElement.dataset.theme = room ? 'room' : 'ice';
+  const btn = document.getElementById('themeBtn');
+  if (btn) {
+    btn.textContent = mode === 'auto' ? '🌗' : (mode === 'room' ? '🌙' : '❄️');
+    btn.title = mode === 'auto' ? '主題：自動（入夜變房間）' : (mode === 'room' ? '主題：房間' : '主題：冰紫');
+  }
+}
+function cycleTheme() {
+  const cur = localStorage.getItem('theme_mode') || 'auto';
+  const next = THEME_MODES[(THEME_MODES.indexOf(cur) + 1) % THEME_MODES.length];
+  localStorage.setItem('theme_mode', next);
+  _applyTheme();
+}
+_applyTheme();
+setInterval(_applyTheme, 60000); // auto 模式跨過日夜界線時自己換
