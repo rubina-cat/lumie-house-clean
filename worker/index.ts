@@ -1991,7 +1991,8 @@ audio{width:300px;margin-top:4px}
     if (request.method === "GET" && url.pathname === "/night") {
       const h = { "Access-Control-Allow-Origin": "*" };
       const raw = await env.PHONE_STATE.get("anchor_quote");
-      let result: any = { text: "晚安。我在。" };
+      // 23:00 晚安儀式（或他今晚衝動說的話）會蓋掉這句等待語
+      let result: any = { text: "他還在想今晚要說什麼……23:00 之後再來。" };
       if (raw) {
         const q = JSON.parse(raw);
         const now = Date.now();

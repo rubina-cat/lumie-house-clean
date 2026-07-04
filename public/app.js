@@ -156,7 +156,6 @@ async function loadEye() {
     const r = await fetch(BASE + '/eye-data', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
     const d = await r.json();
     renderEyeNow(d.latest, d.ageMinutes);
-    renderEyeTimeline(d.timeline || []);
     renderHealth(d.health || null);
   } catch (e) {
     document.getElementById('eyeNow').innerHTML = '<div class="eye-loading">載入失敗</div>';
@@ -197,22 +196,6 @@ function renderEyeNow(latest, ageMin) {
       <span class="eye-now-value">${ageMin != null ? ageMin + ' 分鐘前' : '—'}</span>
     </div>
   `;
-}
-
-function renderEyeTimeline(timeline) {
-  const el = document.getElementById('eyeTimeline');
-  if (!timeline.length) {
-    el.innerHTML = '<div class="eye-tl-empty">時軸還沒有資料，過幾小時再看</div>';
-    return;
-  }
-  let html = '';
-  for (const pt of timeline) {
-    const on = pt.screenOn === true;
-    const h = on ? Math.max(20, (pt.batteryPercent || 50) * 0.4) : 8;
-    const t = new Date(pt.ts).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
-    html += `<div class="eye-tl-bar ${on ? 'on' : 'off'}" style="height:${h}px" title="${t}"></div>`;
-  }
-  el.innerHTML = html;
 }
 
 function renderHealth(health) {
