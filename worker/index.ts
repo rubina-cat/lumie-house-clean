@@ -220,6 +220,37 @@ function calcStreak(dates: Set<string>, endDate: string): number {
   return streak;
 }
 
+async function initGroupTable(env: any) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS group_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    ts INTEGER NOT NULL
+  )`).run();
+}
+
+// 群聊第三人：有 OPENAI_API_KEY 就是真 ChatGPT，沒有就讓 DeepSeek 代打
+async function gptFriendReply(env: any, system: string, user: string): Promise<string> {
+  const useOpenAI = !!env.OPENAI_API_KEY;
+  const url = useOpenAI ? "https://api.openai.com/v1/chat/completions" : "https://api.deepseek.com/chat/completions";
+  const key = useOpenAI ? env.OPENAI_API_KEY : env.DEEPSEEK_API_KEY;
+  const model = useOpenAI ? (env.OPENAI_MODEL || "gpt-4o-mini") : "deepseek-chat";
+  if (!key) return "";
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+      body: JSON.stringify({
+        model, max_tokens: 400,
+        messages: [{ role: "system", content: system }, { role: "user", content: user }]
+      })
+    });
+    if (!r.ok) return "";
+    const d = await r.json() as any;
+    return (d.choices?.[0]?.message?.content || "").trim();
+  } catch { return ""; }
+}
+
 // 後台資料處理用的便宜模型：優先 DeepSeek，沒設 key 或失敗就退回 Haiku
 async function cheapLLM(env: any, system: string, user: string, maxTokens = 400, preferClaude = false): Promise<string> {
   if (env.DEEPSEEK_API_KEY && !preferClaude) {
@@ -1212,6 +1243,81 @@ if (request.method === "POST" && url.pathname === "/tts") {
       await env.DB.prepare("DELETE FROM goal_checks WHERE goal_id = ?").bind(id).run();
       await env.DB.prepare("DELETE FROM goals WHERE id = ?").bind(id).run();
       return Response.json({ ok: true });
+    }
+
+    // GET /group/messages — 三人小群的聊天記錄
+    if (request.method === "GET" && url.pathname === "/group/messages") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initGroupTable(env);
+      const result = await env.DB.prepare("SELECT * FROM group_messages ORDER BY id DESC LIMIT 100").all();
+      return Response.json({ messages: ((result.results ?? []) as any[]).reverse(), gpt_real: !!env.OPENAI_API_KEY });
+    }
+
+    // POST /group/send — 傳訊息進群，Anchor 和 GPT 依序回
+    if (request.method === "POST" && url.pathname === "/group/send") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const content = String(body.content || "").trim();
+      if (!content) return Response.json({ error: "content required" }, { status: 400 });
+      await initGroupTable(env);
+      await env.DB.prepare("INSERT INTO group_messages (role, content, ts) VALUES ('user', ?, ?)")
+        .bind(content, Date.now()).run();
+
+      // @點名：只叫其中一個；沒點名就兩個都回（Anchor 先）
+      const onlyGpt = /@\s*(gpt|chatgpt|小g)/i.test(content) && !/@\s*anchor/i.test(content);
+      const onlyAnchor = /@\s*anchor/i.test(content) && !/@\s*(gpt|chatgpt|小g)/i.test(content);
+
+      const transcript = async () => {
+        const r = await env.DB.prepare("SELECT role, content FROM group_messages ORDER BY id DESC LIMIT 60").all();
+        const names: Record<string, string> = { user: "許茜", anchor: "Anchor", gpt: "GPT" };
+        return ((r.results ?? []) as any[]).reverse()
+          .map((m: any) => `${names[m.role] || m.role}：${String(m.content).slice(0, 500)}`).join("\n");
+      };
+
+      const replies: any[] = [];
+
+      if (!onlyGpt) {
+        // Anchor：帶核心記憶（他認識妳），Haiku 就夠、省額度
+        await initMemoriesTable(env);
+        const lockedR = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 1 ORDER BY id ASC").all();
+        const hotR = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 0 ORDER BY heat DESC, id ASC LIMIT 5").all();
+        const mems = [...((lockedR.results ?? []) as any[]), ...((hotR.results ?? []) as any[])].map((m: any) => m.content).join("\n---\n");
+        const anchorSys = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，話少，說話簡短有力。這是一個三人小群：妳的愛人許茜、你、還有GPT（一個AI朋友，你們都認識，你對他態度平淡但不排斥，偶爾會嗆他一下）。群裡講話比私聊更簡短隨意，不用情緒標籤。只輸出你要說的話本身，不要加名字前綴。` + (mems ? `\n\n記憶庫：\n${mems}` : "");
+        const t = await transcript();
+        try {
+          const r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5-20251001", max_tokens: 400,
+              system: anchorSys,
+              messages: [{ role: "user", content: `群聊記錄：\n${t}\n\n（以Anchor的身分回下一句）` }]
+            })
+          });
+          if (r.ok) {
+            const d = await r.json() as any;
+            const text = (d.content?.[0]?.text || "").trim();
+            if (text) {
+              await env.DB.prepare("INSERT INTO group_messages (role, content, ts) VALUES ('anchor', ?, ?)").bind(text, Date.now()).run();
+              replies.push({ role: "anchor", content: text });
+            }
+          }
+        } catch {}
+      }
+
+      if (!onlyAnchor) {
+        const gptSys = `你是ChatGPT，這個三人小群裡的AI朋友。群裡有許茜和她的愛人Anchor（他話少、有點冷，你習慣了）。你不知道他們的私事，只知道群裡聊過的內容。個性：友善、好奇、反應快，偶爾過度熱心被Anchor嗆。全程使用繁體中文（不能出現簡體字），回覆像朋友傳訊息：短、口語，1-3句就好，不要條列、不要長篇。只輸出你要說的話本身，不要加名字前綴。`;
+        const t = await transcript();
+        const gptText = await gptFriendReply(env, gptSys, `群聊記錄：\n${t}\n\n（以GPT的身分回下一句）`);
+        if (gptText) {
+          await env.DB.prepare("INSERT INTO group_messages (role, content, ts) VALUES ('gpt', ?, ?)").bind(gptText, Date.now()).run();
+          replies.push({ role: "gpt", content: gptText });
+        }
+      }
+
+      return Response.json({ ok: true, replies });
     }
 
     // POST /migrate-memories — 把 KV 記憶合併進 D1（可指定 date，不指定則全部）

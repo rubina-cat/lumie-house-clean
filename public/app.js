@@ -2118,6 +2118,74 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ── 三人小群 👥 ──────────────────────────────────
+let _groupSending = false;
+
+function openGroup() {
+  document.getElementById('groupOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  loadGroupMsgs();
+}
+function closeGroup() {
+  document.getElementById('groupOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+function _groupBubble(m) {
+  if (m.role === 'user') return `<div class="gmsg me"><div class="gbubble">${escHtml(m.content)}</div></div>`;
+  const isAnchor = m.role === 'anchor';
+  const name = isAnchor ? 'Anchor' : 'GPT';
+  const avatar = isAnchor
+    ? '<img class="chat-avatar" src="/room/face-calm.png" alt="">'
+    : '<span class="gpt-avatar">✳️</span>';
+  return `<div class="gmsg">
+    ${avatar}
+    <div class="gmsg-body"><div class="gmsg-name${isAnchor ? '' : ' gpt'}">${name}</div><div class="gbubble ${m.role}">${escHtml(m.content)}</div></div>
+  </div>`;
+}
+async function loadGroupMsgs() {
+  const box = document.getElementById('groupMsgs');
+  try {
+    const r = await fetch(BASE + '/group/messages', { headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    document.getElementById('groupSub').textContent = d.gpt_real ? '' : '（GPT 目前由 DeepSeek 代班）';
+    const msgs = d.messages || [];
+    box.innerHTML = msgs.length
+      ? msgs.map(_groupBubble).join('')
+      : '<div class="dates-empty">群裡還很安靜，說第一句話吧。</div>';
+    box.scrollTop = box.scrollHeight;
+  } catch { box.innerHTML = '<div class="dates-empty">載入失敗</div>'; }
+}
+async function sendGroup() {
+  if (_groupSending) return;
+  const input = document.getElementById('groupInput');
+  const text = input.value.trim();
+  if (!text) return;
+  _groupSending = true;
+  input.value = '';
+  const box = document.getElementById('groupMsgs');
+  box.insertAdjacentHTML('beforeend', _groupBubble({ role: 'user', content: text }));
+  box.insertAdjacentHTML('beforeend', '<div class="gmsg typing" id="groupTyping"><div class="gbubble anchor">…</div></div>');
+  box.scrollTop = box.scrollHeight;
+  document.getElementById('groupSendBtn').disabled = true;
+  try {
+    await fetch(BASE + '/group/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ content: text })
+    });
+  } catch {}
+  _groupSending = false;
+  document.getElementById('groupSendBtn').disabled = false;
+  loadGroupMsgs();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const gi = document.getElementById('groupInput');
+  if (gi) gi.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendGroup(); }
+  });
+});
+
 // ── 開場畫面：他來開門 ────────────────────────────
 function _splashLine() {
   const h = new Date().getHours();
