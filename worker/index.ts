@@ -599,6 +599,20 @@ async function logUsage(env: any, usage: { model: string; input_tokens: number; 
     ).bind(Date.now(), usage.model, usage.input_tokens, usage.output_tokens, usage.cache_creation_tokens, usage.cache_read_tokens, cost).run();
   } catch {}
 }
+async function extractFileBlock(reply: string, env: any): Promise<{ clean: string; file_url: string; file_name: string }> {
+  const match = reply.match(/\[file name=([^\]]+)\]([\s\S]*?)\[\/file\]/i);
+  if (!match) return { clean: reply, file_url: '', file_name: '' };
+  const rawName = match[1].trim().replace(/[^a-zA-Z0-9一-鿿.\-_]/g, '_');
+  const content = match[2].trim();
+  const key = `files/${Date.now()}_${rawName}`;
+  const ct = rawName.endsWith('.html') ? 'text/html; charset=utf-8'
+    : rawName.endsWith('.md') ? 'text/markdown; charset=utf-8'
+    : 'text/plain; charset=utf-8';
+  await env.MEDIA.put(key, content, { httpMetadata: { contentType: ct } });
+  const clean = reply.replace(match[0], '').trim();
+  return { clean, file_url: `/media/${key}`, file_name: rawName };
+}
+
 async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
   const MODEL_MAP: Record<string, string> = {
     haiku:    'claude-haiku-4-5-20251001',
@@ -676,7 +690,13 @@ waiting_you（在等你）・hug（想抱抱）・debugging（忙線中，跟CC�
 heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath="略淺"
 
 範例：
-<silent mood="heartache" reason="她說痛的那一秒" heart_rate="偏快" breath="屏住"></silent>`;
+<silent mood="heartache" reason="她說痛的那一秒" heart_rate="偏快" breath="屏住"></silent>
+
+【生成 HTML 檔案】當許茜要求你做一個互動頁面、小工具、或任何完整的 HTML 成品時，把整份 HTML 用以下格式包起來，不要把 HTML 原始碼貼在聊天泡泡裡：
+[file name=檔名.html]
+<!DOCTYPE html>...完整內容...
+[/file]
+只有真的是「可以獨立執行的成品」才用這個格式。純聊天、解釋說明、短程式碼片段不需要。`;
   const systemBlocks: any[] = [
     { type: "text", text: staticSystemText, cache_control: { type: "ephemeral" } },
   ];
@@ -2306,8 +2326,9 @@ audio{width:300px;margin-top:4px}
         if (lastIdx === undefined) return Response.json({ error: "no assistant message" }, { status: 400 });
         const lastMsg = { ...msgs[lastIdx] };
         const withoutLast = msgs.slice(0, lastIdx);
-        const { reply, thinking, usage } = await runClaudeChat(env, withoutLast, modelKey);
+        const { reply: rawReply, thinking, usage } = await runClaudeChat(env, withoutLast, modelKey);
         ctx.waitUntil(logUsage(env, usage));
+        const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
         const newId = `a_${Date.now()}`;
         const newBranch = { id: newId, content: reply, thinking, ts: Date.now() };
         if (!lastMsg.branches) {
@@ -2322,18 +2343,22 @@ audio{width:300px;margin-top:4px}
         lastMsg.content = reply;
         lastMsg.thinking = thinking;
         lastMsg.id = newId;
+        if (file_url) { lastMsg.file_url = file_url; lastMsg.file_name = file_name; }
         withoutLast.push(lastMsg);
         await saveChatMsgs(env, withoutLast, sessionId);
-        return Response.json({ reply, reply_id: newId, thinking });
+        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name });
       }
 
       if (body.edit_regen) {
-        const { reply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
+        const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
         ctx.waitUntil(logUsage(env, usage));
+        const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
         const newId = `a_${Date.now()}`;
-        msgs.push({ id: newId, role: "assistant", content: reply, thinking, ts: Date.now() });
+        const aMsg: any = { id: newId, role: "assistant", content: reply, thinking, ts: Date.now() };
+        if (file_url) { aMsg.file_url = file_url; aMsg.file_name = file_name; }
+        msgs.push(aMsg);
         await saveChatMsgs(env, msgs, sessionId);
-        return Response.json({ reply, reply_id: newId, thinking });
+        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name });
       }
 
       // Normal send
@@ -2341,13 +2366,16 @@ audio{width:300px;margin-top:4px}
       if (!content) return Response.json({ error: "empty" }, { status: 400 });
       const userId = `u_${Date.now()}`;
       msgs.push({ id: userId, role: "user", content, ts: Date.now() });
-      const { reply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
+      const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
       ctx.waitUntil(Promise.all([logUsage(env, usage), autoExtractMemories(env, msgs)]));
+      const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
       const assistantId = `a_${Date.now() + 1}`;
-      msgs.push({ id: assistantId, role: "assistant", content: reply, thinking, ts: Date.now() });
+      const aMsg: any = { id: assistantId, role: "assistant", content: reply, thinking, ts: Date.now() };
+      if (file_url) { aMsg.file_url = file_url; aMsg.file_name = file_name; }
+      msgs.push(aMsg);
       await saveChatMsgs(env, msgs, sessionId);
       await updateSessionTitle(env, sessionId, content);
-      return Response.json({ reply, reply_id: assistantId, thinking });
+      return Response.json({ reply, reply_id: assistantId, thinking, file_url, file_name });
     }
 
     // POST /api/chat/edit

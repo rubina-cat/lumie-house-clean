@@ -2930,3 +2930,49 @@ textarea::placeholder { color: var(--light-text); }
 [data-theme="room"] .input-area {
   background: linear-gradient(0deg, rgba(27,22,26,0.98) 60%, transparent);
 }
+
+/* ── 檔案卡片 📄 ── */
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-top: 6px;
+  max-width: 280px;
+}
+.file-card-icon { font-size: 20px; flex-shrink: 0; }
+.file-card-name { font-size: 13px; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-card-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── 檔案預覽 overlay ── */
+#filePreviewOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+.file-preview-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--card);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  gap: 8px;
+}

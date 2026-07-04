@@ -511,6 +511,15 @@
     </div>
   </div>
 
+  <!-- 檔案預覽 📄 -->
+  <div class="overlay" id="filePreviewOverlay" style="display:none">
+    <div class="file-preview-header">
+      <span id="filePreviewName"></span>
+      <button class="overlay-back" onclick="closeFilePreview()" style="position:static;margin-left:auto">✕</button>
+    </div>
+    <iframe id="filePreviewFrame" sandbox="allow-scripts" style="width:100%;flex:1;border:none;background:#fff"></iframe>
+  </div>
+
   <!-- 釣魚 🎣 -->
   <div class="page" id="fishing">
     <div class="fish-wrap">

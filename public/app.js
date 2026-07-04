@@ -558,10 +558,18 @@ function buildMsgEl(msg, isLast) {
       details.innerHTML = `<summary>💭 思考過程</summary><div class="thinking-content">${escHtml(msg.thinking)}</div>`;
       div.appendChild(details);
     }
-    const ct = document.createElement('div');
-    ct.className = 'msg-content';
-    ct.innerHTML = parseMoodlet(msg.content);
-    div.appendChild(ct);
+    if (msg.content) {
+      const ct = document.createElement('div');
+      ct.className = 'msg-content';
+      ct.innerHTML = parseMoodlet(msg.content);
+      div.appendChild(ct);
+    }
+    if (msg.file_url) {
+      const card = document.createElement('div');
+      card.className = 'file-card';
+      card.innerHTML = `<span class="file-card-icon">📄</span><span class="file-card-name">${escHtml(msg.file_name || '檔案')}</span><button class="file-card-btn" onclick="openFilePreview('${escHtml(msg.file_url)}','${escHtml(msg.file_name || '檔案')}')">開啟預覽</button>`;
+      div.appendChild(card);
+    }
 
     if (msg.branches && msg.branches.length > 1) {
       const nav = document.createElement('div');
@@ -2352,3 +2360,16 @@ function cycleTheme() {
 }
 _applyTheme();
 setInterval(_applyTheme, 60000); // auto 模式跨過日夜界線時自己換
+
+// ── 檔案預覽 📄 ──────────────────────────────────
+function openFilePreview(url, name) {
+  document.getElementById('filePreviewName').textContent = name || '檔案';
+  document.getElementById('filePreviewFrame').src = url;
+  document.getElementById('filePreviewOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+}
+function closeFilePreview() {
+  document.getElementById('filePreviewOverlay').style.display = 'none';
+  document.getElementById('filePreviewFrame').src = '';
+  document.querySelector('.nav').style.display = '';
+}
