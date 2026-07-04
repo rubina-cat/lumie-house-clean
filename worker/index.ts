@@ -441,6 +441,38 @@ async function impulseTick(env: any) {
   } catch {}
 }
 
+// ── 作息感知：從螢幕時軸推斷昨晚幾點睡、幾點醒 ──
+// 在「昨天 20:00 ～ 今天 12:00（台灣時間）」的窗裡找最長的熄屏區段，
+// 超過 3 小時就當睡眠。存 sleep:YYYY-MM-DD（醒來那天），先默默累積，之後再拿來用。
+async function inferNightSleep(env: any) {
+  try {
+    const today = twnToday();
+    if (await env.PHONE_STATE.get(`sleep:${today}`)) return; // 今天已推斷過
+    const tlRaw = await env.PHONE_STATE.get("screen_timeline");
+    if (!tlRaw) return;
+    const timeline = (JSON.parse(tlRaw) as any[]).filter((e) => typeof e.screenOn === "boolean");
+    const noonTwn = new Date(`${today}T12:00:00+08:00`).getTime();
+    const winStart = noonTwn - 16 * 3600000; // 昨天 20:00
+    let best: { sleepAt: number; wakeAt: number } | null = null;
+    for (let i = 0; i < timeline.length - 1; i++) {
+      const cur = timeline[i], next = timeline[i + 1];
+      if (cur.screenOn !== false || next.screenOn !== true) continue;
+      // 熄屏區段要落在夜間窗內（醒來在窗內、入睡不早於窗前4小時）
+      if (next.ts < winStart || next.ts > noonTwn || cur.ts < winStart - 4 * 3600000) continue;
+      const dur = next.ts - cur.ts;
+      if (dur < 3 * 3600000) continue;
+      if (!best || dur > best.wakeAt - best.sleepAt) best = { sleepAt: cur.ts, wakeAt: next.ts };
+    }
+    if (!best) return; // 資料不夠或還在睡，下一輪 cron 再試
+    const durationH = Math.round((best.wakeAt - best.sleepAt) / 360000) / 10;
+    await env.PHONE_STATE.put(
+      `sleep:${today}`,
+      JSON.stringify({ ...best, durationH }),
+      { expirationTtl: 86400 * 30 }
+    );
+  } catch {}
+}
+
 // ── 記憶碎片合併：每週日 DeepSeek 把同主題碎片整併成事件 ──
 async function mergeMemoryFragments(env: any) {
   try {
@@ -935,6 +967,17 @@ if (request.method === "POST" && url.pathname === "/tts") {
         atHome: body.atHome ?? null,
       };
       await env.PHONE_STATE.put("latest", JSON.stringify(state));
+      // 螢幕開關的變化點直接記進時軸——作息感知的原料，時間戳比等 cron 撿準
+      if (state.screenOn !== null) {
+        const tlRaw = await env.PHONE_STATE.get("screen_timeline");
+        const timeline = tlRaw ? JSON.parse(tlRaw) : [];
+        const last = timeline[timeline.length - 1];
+        if (!last || last.screenOn !== state.screenOn) {
+          timeline.push({ ts: Date.now(), screenOn: state.screenOn, batteryPercent: state.batteryPercent });
+          if (timeline.length > 400) timeline.splice(0, timeline.length - 400);
+          await env.PHONE_STATE.put("screen_timeline", JSON.stringify(timeline));
+        }
+      }
       return Response.json({ ok: true });
     }
 
@@ -1623,11 +1666,12 @@ if (request.method === "POST" && url.pathname === "/tts") {
       if (auth !== `Bearer ${env.MCP_TOKEN}`) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
-      const [latestRaw, eventsRaw, timelineRaw, healthRaw] = await Promise.all([
+      const [latestRaw, eventsRaw, timelineRaw, healthRaw, sleepRaw] = await Promise.all([
         env.PHONE_STATE.get("latest"),
         env.PHONE_STATE.get("app_events"),
         env.PHONE_STATE.get("screen_timeline"),
         env.PHONE_STATE.get("health:latest"),
+        env.PHONE_STATE.get(`sleep:${twnToday()}`),
       ]);
       const latest = latestRaw ? JSON.parse(latestRaw) : null;
       const events = eventsRaw ? JSON.parse(eventsRaw) : [];
@@ -1639,6 +1683,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
         timeline: timeline.slice(-48),
         ageMinutes: latest ? Math.floor((Date.now() - latest.reportedAt) / 60000) : null,
         health,
+        sleep: sleepRaw ? JSON.parse(sleepRaw) : null,
       });
     }
 
@@ -2466,6 +2511,9 @@ audio{width:300px;margin-top:4px}
       }
       // 衝動值：每輪檢查一次，破百＋非深夜＋距上次開口6小時才會真的說話
       ctx.waitUntil(impulseTick(env));
+      // 作息感知：早上時段推斷昨晚睡眠（推斷成功當天就不再跑）
+      const twHour = new Date(Date.now() + 8 * 3600000).getUTCHours();
+      if (twHour >= 6 && twHour <= 13) ctx.waitUntil(inferNightSleep(env));
     }
 
     // Pomodoro expiry check — independent of phone state
@@ -2489,23 +2537,7 @@ audio{width:300px;margin-top:4px}
       }
     }
 
-    const raw = await env.PHONE_STATE.get("latest");
-    if (!raw) return;
-    const state = JSON.parse(raw);
-
-    const tlRaw = await env.PHONE_STATE.get("screen_timeline");
-    const timeline = tlRaw ? JSON.parse(tlRaw) : [];
-    const lastEntry = timeline[timeline.length - 1];
-    if (!lastEntry || lastEntry.screenOn !== state.screenOn) {
-      timeline.push({
-        ts: Date.now(),
-        screenOn: state.screenOn,
-        batteryPercent: state.batteryPercent,
-      });
-      if (timeline.length > 400) timeline.splice(0, timeline.length - 400);
-      await env.PHONE_STATE.put("screen_timeline", JSON.stringify(timeline));
-    }
-
+    // 螢幕時軸改由 /report 收到當下直接記（時間戳準），cron 不再重複撿。
     // 舊「獨處 nudge」已退役（每15分鐘擲50%硬幣＋保底句，話太密沒重量）。
     // 感官保留：app_events、screen_timeline、GPS 照收，開口全部交給衝動值（impulseTick）。
   }

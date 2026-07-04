@@ -155,19 +155,23 @@ async function loadEye() {
     document.getElementById('eyeNow').innerHTML = '<div class="eye-loading">載入中…</div>';
     const r = await fetch(BASE + '/eye-data', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
     const d = await r.json();
-    renderEyeNow(d.latest, d.ageMinutes);
+    renderEyeNow(d.latest, d.ageMinutes, d.sleep || null);
     renderHealth(d.health || null);
   } catch (e) {
     document.getElementById('eyeNow').innerHTML = '<div class="eye-loading">載入失敗</div>';
   }
 }
 
-function renderEyeNow(latest, ageMin) {
+function renderEyeNow(latest, ageMin, sleep) {
   const el = document.getElementById('eyeNow');
   if (!latest) {
     el.innerHTML = '<div class="eye-loading">還沒有資料</div>';
     return;
   }
+  const fmtTwn = ts => {
+    const d = new Date(ts + 8 * 3600000);
+    return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+  };
   const time = (latest.hour != null && latest.minute != null)
     ? String(latest.hour).padStart(2,'0') + ':' + String(latest.minute).padStart(2,'0')
     : '—';
@@ -195,6 +199,10 @@ function renderEyeNow(latest, ageMin) {
       <span class="eye-now-label">上報</span>
       <span class="eye-now-value">${ageMin != null ? ageMin + ' 分鐘前' : '—'}</span>
     </div>
+    ${sleep ? `<div class="eye-now-row">
+      <span class="eye-now-label">昨晚</span>
+      <span class="eye-now-value">${fmtTwn(sleep.sleepAt)} 睡・${fmtTwn(sleep.wakeAt)} 醒（${sleep.durationH} 小時）</span>
+    </div>` : ''}
   `;
 }
 
