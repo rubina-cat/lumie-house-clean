@@ -1434,6 +1434,15 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return Response.json({ messages: ((result.results ?? []) as any[]).reverse(), gpt_real: !!env.OPENAI_API_KEY });
     }
 
+    // POST /group/clear — 清空三人小群的聊天記錄
+    if (request.method === "POST" && url.pathname === "/group/clear") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initGroupTable(env);
+      await env.DB.prepare("DELETE FROM group_messages").run();
+      return Response.json({ ok: true });
+    }
+
     // POST /group/send — 傳訊息進群，Anchor 和 GPT 依序回
     if (request.method === "POST" && url.pathname === "/group/send") {
       const auth = request.headers.get("Authorization");
@@ -2291,6 +2300,16 @@ audio{width:300px;margin-top:4px}
         env.PHONE_STATE.put("chat:sessions", JSON.stringify(sessions.filter((s: any) => s.id !== sessionId)), { expirationTtl: 86400 * 365 }),
         env.PHONE_STATE.delete(`chat:messages:${sessionId}`)
       ]);
+      return Response.json({ ok: true });
+    }
+
+    // POST /api/chat/clear — 清空某個對話的訊息（session 本身留著，記憶庫不動）
+    if (request.method === "POST" && url.pathname === "/api/chat/clear") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const sessionId = body.session_id || 'default';
+      await saveChatMsgs(env, [], sessionId);
       return Response.json({ ok: true });
     }
 

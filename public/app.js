@@ -489,7 +489,9 @@ async function loadSessions() {
     list.innerHTML = sessions.map(s => `
       <div class="sidebar-session ${s.id === currentSession ? 'active' : ''}" onclick="switchSession('${s.id}')">
         <div class="sidebar-session-title">${escHtml(s.title)}</div>
-        ${s.id !== 'default' ? `<button class="sidebar-del-btn" onclick="event.stopPropagation();deleteSession('${s.id}')">×</button>` : ''}
+        ${s.id !== 'default'
+          ? `<button class="sidebar-del-btn" onclick="event.stopPropagation();deleteSession('${s.id}')">×</button>`
+          : `<button class="sidebar-del-btn" title="清空對話" onclick="event.stopPropagation();clearDefaultSession()">🧹</button>`}
       </div>
     `).join('');
   } catch {}
@@ -519,6 +521,22 @@ async function switchSession(id) {
   chatMsgs = await _fetchChatMsgs();
   renderAllMsgs();
 }
+async function clearDefaultSession() {
+  if (!confirm('清空跟 Anchor 的對話？\n（他的記憶庫不會消失，只是這串對話重新開始，不能復原）')) return;
+  await fetch(BASE + '/api/chat/clear', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+    body: JSON.stringify({ session_id: 'default' }),
+  });
+  try { localStorage.removeItem(CHAT_SNAP_KEY); } catch {}
+  if (currentSession === 'default') {
+    chatMsgs = [];
+    renderAllMsgs();
+    addMsg('assistant', '在。');
+  }
+  closeSidebar();
+}
+
 async function deleteSession(id) {
   if (!confirm('刪除這個對話？')) return;
   await fetch(BASE + '/api/chat/sessions/' + id, {
@@ -2368,4 +2386,17 @@ function closeFilePreview() {
   document.getElementById('filePreviewOverlay').style.display = 'none';
   document.getElementById('filePreviewFrame').src = '';
   document.querySelector('.nav').style.display = '';
+}
+
+// ── 清空群聊 🧹 ──────────────────────────────────
+async function clearGroup() {
+  if (_groupSending) return;
+  if (!confirm('清空三個人的房間？\n（聊天記錄會全部消失，不能復原）')) return;
+  try {
+    await fetch(BASE + '/group/clear', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN },
+    });
+    loadGroupMsgs();
+  } catch {}
 }
