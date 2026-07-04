@@ -346,6 +346,7 @@ function formatDayLabel(d) {
 document.addEventListener('DOMContentLoaded', () => {
   fetchQuote();
   loadDates();
+  loadGoals();
   loadHealthSnapshot();
   const _h = new Date().getHours();
   if (_h >= 22 || _h < 4) document.getElementById('nightCard').style.display = '';
@@ -993,6 +994,69 @@ async function deleteDate(id) {
   if (!confirm('確定刪除？')) return;
   await fetch(BASE + '/dates/' + id, { method: 'DELETE', headers: { Authorization: `Bearer ${TOKEN}` } });
   loadDates();
+}
+
+// ── 一起養的習慣 🌱 ──────────────────────────────
+function _todayTWN() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+async function loadGoals() {
+  const list = document.getElementById('goalsList');
+  if (!list) return;
+  try {
+    const r = await fetch(BASE + '/goals?date=' + _todayTWN(), { headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const goals = d.goals || [];
+    if (!goals.length) { list.innerHTML = '<div class="dates-empty">還沒有一起養的習慣，＋一個？</div>'; return; }
+    list.innerHTML = goals.map(g => {
+      const streak = g.streak > 1 ? `<span class="goal-streak">🔥 ${g.streak} 天</span>` : (g.total > 0 ? `<span class="goal-streak dim">共 ${g.total} 次</span>` : '');
+      return `<div class="goal-item${g.checked ? ' done' : ''}">
+        <button class="goal-check" onclick="toggleGoalCheck(${g.id})">${g.checked ? '✓' : ''}</button>
+        <span class="goal-icon">${g.icon || '🌱'}</span>
+        <div class="goal-info"><div class="goal-title">${escHtml(g.title)}</div></div>
+        ${streak}
+        <button class="date-del-btn" onclick="deleteGoal(${g.id})">×</button>
+      </div>`;
+    }).join('');
+  } catch { list.innerHTML = '<div class="dates-empty">載入失敗</div>'; }
+}
+async function toggleGoalCheck(id) {
+  try {
+    await fetch(BASE + '/goals/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ id, date: _todayTWN() })
+    });
+  } catch {}
+  loadGoals();
+}
+function openAddGoal() {
+  document.getElementById('addGoalTitle').value = '';
+  document.getElementById('addGoalIcon').value = '🌱';
+  document.getElementById('addGoalOverlay').style.display = 'flex';
+}
+function closeAddGoal() { document.getElementById('addGoalOverlay').style.display = 'none'; }
+async function submitAddGoal() {
+  const title = document.getElementById('addGoalTitle').value.trim();
+  const icon = document.getElementById('addGoalIcon').value.trim() || '🌱';
+  if (!title) { alert('先寫一下要養什麼習慣'); return; }
+  try {
+    const r = await fetch(BASE + '/goals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ title, icon })
+    });
+    if (!r.ok) throw new Error();
+    closeAddGoal();
+    loadGoals();
+  } catch { alert('新增失敗，請重試'); }
+}
+async function deleteGoal(id) {
+  if (!confirm('不養了嗎？打卡記錄也會一起刪掉。')) return;
+  await fetch(BASE + '/goals/' + id, { method: 'DELETE', headers: { Authorization: `Bearer ${TOKEN}` } });
+  loadGoals();
 }
 
 // ── 生理期追蹤 ─────────────────────────────────────

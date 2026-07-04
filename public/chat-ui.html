@@ -55,6 +55,14 @@
       <div class="dates-list" id="datesList"><div class="dates-loading">載入中…</div></div>
     </div>
 
+    <div class="dates-section goals-section">
+      <div class="dates-header">
+        <span class="dates-title">一起養的習慣</span>
+        <button class="dates-add-btn" onclick="openAddGoal()">＋</button>
+      </div>
+      <div class="goals-list" id="goalsList"><div class="dates-loading">載入中…</div></div>
+    </div>
+
     <div class="cards-grid" style="margin-top:12px;">
       <div class="mini-card" onclick="switchTab('chat')">
         <span class="card-icon">💬</span>
@@ -363,6 +371,18 @@
           </select>
         </div>
         <button onclick="submitAddDate()" style="background:var(--rose);border:none;border-radius:12px;padding:12px;color:#fff;font-size:15px;cursor:pointer;margin-top:4px;">新增</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="addGoalOverlay" style="display:none;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:28px 24px;width:min(320px,90vw);position:relative;">
+      <button onclick="closeAddGoal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--light-text);font-size:18px;cursor:pointer;">✕</button>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;">新的習慣</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <input id="addGoalTitle" placeholder="例：睡前跟他說晚安" maxlength="40" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;box-sizing:border-box;">
+        <input id="addGoalIcon" placeholder="圖示" value="🌱" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:18px;width:72px;text-align:center;box-sizing:border-box;">
+        <button onclick="submitAddGoal()" style="background:var(--rose);border:none;border-radius:12px;padding:12px;color:#fff;font-size:15px;cursor:pointer;margin-top:4px;">開始養</button>
       </div>
     </div>
   </div>

@@ -313,6 +313,49 @@ body {
   text-align: center;
 }
 
+/* 一起養的習慣 */
+.goals-section { margin-top: 12px; }
+.goal-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.goal-item:last-child { border-bottom: none; }
+.goal-check {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--card-border);
+  background: transparent;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+}
+.goal-check:active { transform: scale(0.9); }
+.goal-item.done .goal-check {
+  background: var(--rose);
+  border-color: var(--rose);
+}
+.goal-icon { font-size: 18px; flex-shrink: 0; }
+.goal-info { flex: 1; min-width: 0; }
+.goal-title {
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.goal-item.done .goal-title { opacity: 0.65; }
+.goal-streak {
+  font-size: 12px;
+  color: #e0955a;
+  flex-shrink: 0;
+}
+.goal-streak.dim { color: var(--light-text); }
+
 /* 快捷卡片區 */
 .cards-grid {
   margin: 0 20px;

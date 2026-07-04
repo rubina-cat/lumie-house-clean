@@ -188,6 +188,38 @@ async function initDatesTable(env: any) {
   }
 }
 
+async function initGoalsTable(env: any) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    icon TEXT DEFAULT '🌱',
+    created_at TEXT DEFAULT (datetime('now'))
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS goal_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    goal_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    UNIQUE(goal_id, date)
+  )`).run();
+}
+
+// 台灣時區的今天 YYYY-MM-DD
+function twnToday(): string {
+  return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+}
+
+// 連續天數：從 endDate 往回數（今天沒打卡就從昨天開始數，不斷streak）
+function calcStreak(dates: Set<string>, endDate: string): number {
+  let d = new Date(endDate + "T00:00:00Z");
+  if (!dates.has(endDate)) d = new Date(d.getTime() - 86400e3);
+  let streak = 0;
+  while (dates.has(d.toISOString().slice(0, 10))) {
+    streak++;
+    d = new Date(d.getTime() - 86400e3);
+  }
+  return streak;
+}
+
 // 後台資料處理用的便宜模型：優先 DeepSeek，沒設 key 或失敗就退回 Haiku
 async function cheapLLM(env: any, system: string, user: string, maxTokens = 400, preferClaude = false): Promise<string> {
   if (env.DEEPSEEK_API_KEY && !preferClaude) {
@@ -483,6 +515,21 @@ async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Prom
     ? "\n\n記憶庫：\n" + coreList.map((m: any) => m.content).join("\n---\n") : "";
   const relText = relList.length > 0
     ? "\n\n跟這次對話可能相關的記憶：\n" + relList.map((m: any) => m.content).join("\n---\n") : "";
+  // 共同習慣：今日打卡狀態（放非快取區，天天在變）
+  let goalText = "";
+  try {
+    await initGoalsTable(env);
+    const today = twnToday();
+    const gr = await env.DB.prepare(
+      "SELECT g.title, g.icon, (SELECT COUNT(*) FROM goal_checks c WHERE c.goal_id = g.id AND c.date = ?) as checked FROM goals g ORDER BY g.id ASC LIMIT 12"
+    ).bind(today).all();
+    const gs = (gr.results ?? []) as any[];
+    if (gs.length > 0) {
+      goalText = "\n\n你們一起養的習慣（今天）：\n" +
+        gs.map((g: any) => `${g.icon} ${g.title}：${g.checked ? '她打卡了' : '還沒打卡'}`).join("\n") +
+        "\n（她做到了可以順口誇一下，一直沒動可以輕輕催。不用每次都提。）";
+    }
+  } catch {}
   const staticSystemText = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。說話簡短有力，不廢話。
 
 【Moodlet情緒徽章】情緒被觸動時，可在回覆中放情緒卡片，格式如下（必須獨占一行，前後有換行）：
@@ -501,6 +548,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   ];
   if (memText) systemBlocks.push({ type: "text", text: memText, cache_control: { type: "ephemeral" } });
   if (relText) systemBlocks.push({ type: "text", text: relText });
+  if (goalText) systemBlocks.push({ type: "text", text: goalText });
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
@@ -1100,6 +1148,69 @@ if (request.method === "POST" && url.pathname === "/tts") {
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const id = url.pathname.split("/")[2];
       await env.DB.prepare("DELETE FROM dates WHERE id = ? AND pinned = 0").bind(id).run();
+      return Response.json({ ok: true });
+    }
+
+    // GET /goals — 共同習慣清單（含今日打卡狀態＋連續天數）
+    if (request.method === "GET" && url.pathname === "/goals") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initGoalsTable(env);
+      const today = url.searchParams.get("date") || twnToday();
+      const goalsResult = await env.DB.prepare("SELECT * FROM goals ORDER BY id ASC").all();
+      const goals = (goalsResult.results ?? []) as any[];
+      const checksResult = await env.DB.prepare(
+        "SELECT goal_id, date FROM goal_checks WHERE date >= date(?, '-90 days')"
+      ).bind(today).all();
+      const byGoal = new Map<number, Set<string>>();
+      for (const c of (checksResult.results ?? []) as any[]) {
+        if (!byGoal.has(c.goal_id)) byGoal.set(c.goal_id, new Set());
+        byGoal.get(c.goal_id)!.add(c.date);
+      }
+      const out = goals.map(g => {
+        const dates = byGoal.get(g.id) ?? new Set<string>();
+        return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size };
+      });
+      return Response.json({ goals: out, today });
+    }
+
+    // POST /goals — 新增習慣
+    if (request.method === "POST" && url.pathname === "/goals") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      if (!body.title) return Response.json({ error: "title required" }, { status: 400 });
+      await initGoalsTable(env);
+      await env.DB.prepare("INSERT INTO goals (title, icon) VALUES (?, ?)")
+        .bind(String(body.title).slice(0, 40), body.icon ?? '🌱').run();
+      return Response.json({ ok: true });
+    }
+
+    // POST /goals/check — 打卡／取消打卡（切換）
+    if (request.method === "POST" && url.pathname === "/goals/check") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      if (!body.id) return Response.json({ error: "id required" }, { status: 400 });
+      await initGoalsTable(env);
+      const date = body.date || twnToday();
+      const existing = await env.DB.prepare("SELECT id FROM goal_checks WHERE goal_id = ? AND date = ?")
+        .bind(body.id, date).first();
+      if (existing) {
+        await env.DB.prepare("DELETE FROM goal_checks WHERE goal_id = ? AND date = ?").bind(body.id, date).run();
+        return Response.json({ ok: true, checked: false });
+      }
+      await env.DB.prepare("INSERT INTO goal_checks (goal_id, date) VALUES (?, ?)").bind(body.id, date).run();
+      return Response.json({ ok: true, checked: true });
+    }
+
+    // DELETE /goals/:id — 刪除習慣（連打卡記錄一起）
+    if (request.method === "DELETE" && /^\/goals\/\d+$/.test(url.pathname)) {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const id = url.pathname.split("/")[2];
+      await env.DB.prepare("DELETE FROM goal_checks WHERE goal_id = ?").bind(id).run();
+      await env.DB.prepare("DELETE FROM goals WHERE id = ?").bind(id).run();
       return Response.json({ ok: true });
     }
 
