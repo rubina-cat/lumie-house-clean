@@ -2264,6 +2264,54 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── 屋內大廳 🏠 ──────────────────────────────────
+// 家具熱區：座標為圖片百分比 (x, y, w, h)
+const HOUSE_SPOTS = [
+  { label: '書桌',   x: 8,    y: 42, w: 26,   h: 40, go: () => { closeHouse(); switchTab('chat'); } },
+  { label: '書架',   x: 32.5, y: 24, w: 10.5, h: 54, go: () => { closeHouse(); switchTab('memory'); } },
+  { label: '窗',     x: 43,   y: 10, w: 25,   h: 46, go: () => { closeHouse(); openHealthTrend(); } },
+  { label: '沙發',   x: 51,   y: 53, w: 27,   h: 32, go: () => { closeHouse(); switchTab('diary'); } },
+  { label: '留言板', x: 70.5, y: 29, w: 8,    h: 22, go: () => { closeHouse(); switchTab('home'); setTimeout(() => document.querySelector('.dates-section')?.scrollIntoView({ behavior: 'smooth' }), 200); } },
+  { label: '陽台',   x: 79.5, y: 16, w: 13.5, h: 60, go: () => { closeHouse(); openGarden(); } },
+];
+function _houseAmbient() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return '早晨的光鋪在地板上。';
+  if (h < 18) return '午後很靜，塵埃在光裡飄。';
+  if (h < 22) return '燈亮著，屋裡很暖。';
+  return '夜深了，只剩檯燈還醒著。';
+}
+let _houseSpotsBuilt = false;
+function openHouse() {
+  const ov = document.getElementById('houseOverlay');
+  ov.style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  document.getElementById('houseAmbient').textContent = _houseAmbient();
+  const night = document.documentElement.dataset.theme === 'room';
+  document.getElementById('houseImg').src = night ? '/house/night.webp' : '/house/day.webp';
+  if (!_houseSpotsBuilt) {
+    const stage = document.getElementById('houseStage');
+    for (const s of HOUSE_SPOTS) {
+      const b = document.createElement('button');
+      b.className = 'house-spot';
+      b.style.cssText = `left:${s.x}%;top:${s.y}%;width:${s.w}%;height:${s.h}%`;
+      b.innerHTML = `<span class="house-dot"></span><span class="house-label">${s.label}</span>`;
+      b.onclick = s.go;
+      stage.appendChild(b);
+    }
+    _houseSpotsBuilt = true;
+  }
+  // 從房間中央開始走
+  requestAnimationFrame(() => {
+    const sc = document.getElementById('houseScroll');
+    sc.scrollLeft = (sc.scrollWidth - sc.clientWidth) / 2;
+  });
+}
+function closeHouse() {
+  document.getElementById('houseOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+
 // ── 開場畫面：他來開門 ────────────────────────────
 function _splashLine() {
   const h = new Date().getHours();

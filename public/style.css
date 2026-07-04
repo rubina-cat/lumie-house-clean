@@ -2837,3 +2837,87 @@ textarea::placeholder { color: var(--light-text); }
 [data-theme="room"] input, [data-theme="room"] textarea, [data-theme="room"] select {
   color: var(--text);
 }
+
+/* ── 屋內大廳 🏠 ─────────────────────────────────── */
+#houseOverlay {
+  background: var(--cream);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.house-ambient {
+  text-align: center;
+  font-size: 13px;
+  letter-spacing: 2px;
+  font-family: 'Noto Serif TC', serif;
+  color: var(--light-text);
+  padding: 64px 20px 10px;
+}
+.house-scroll {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  display: flex;
+  align-items: center;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.house-scroll::-webkit-scrollbar { display: none; }
+.house-stage {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.house-img {
+  height: min(72vh, 560px);
+  width: auto;
+  display: block;
+  image-rendering: pixelated;
+  border-radius: 8px;
+}
+.house-spot {
+  position: absolute;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.house-dot {
+  position: absolute;
+  left: 50%; top: 58%;
+  width: 10px; height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: rgba(255, 220, 160, 0.9);
+  box-shadow: 0 0 10px 3px rgba(255, 200, 120, 0.45);
+  animation: houseDotPulse 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes houseDotPulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.35); opacity: 0.5; }
+}
+.house-label {
+  position: absolute;
+  left: 50%; top: 58%;
+  transform: translate(-50%, 14px);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: rgba(255, 240, 215, 0.95);
+  background: rgba(20, 16, 18, 0.65);
+  padding: 2px 8px;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.house-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--light-text);
+  padding: 10px 0 18px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .house-dot { animation: none; }
+}

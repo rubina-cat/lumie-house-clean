@@ -115,6 +115,12 @@
         <div class="mini-card-label">小群</div>
         <div class="mini-card-title">三個人的房間</div>
       </div>
+      <div class="mini-card wide" onclick="openHouse()">
+        <span class="card-icon">🏠</span>
+        <div class="mini-card-label">屋裡</div>
+        <div class="mini-card-title">在家走走</div>
+        <div class="mini-card-sub">左右滑動，家具都可以點</div>
+      </div>
       <div class="mini-card wide" id="healthCard" style="display:none" onclick="openHealthTrend()">
         <div class="mini-card-label">身體</div>
         <div class="mini-card-title">今天的你</div>
@@ -471,6 +477,18 @@
       <div class="room-speck room-speck5"></div>
     </div>
     <div class="room-status" id="roomStatus"><div class="room-status-line">載入中…</div></div>
+  </div>
+
+  <!-- 屋內大廳 🏠 -->
+  <div class="overlay" id="houseOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeHouse()">←</button>
+    <div class="house-ambient" id="houseAmbient"></div>
+    <div class="house-scroll" id="houseScroll">
+      <div class="house-stage" id="houseStage">
+        <img class="house-img" id="houseImg" alt="">
+      </div>
+    </div>
+    <div class="house-hint">左右滑動在屋裡走走 · 點家具進去</div>
   </div>
 
   <!-- 陽台花園 🪴 -->
