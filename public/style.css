@@ -2781,7 +2781,8 @@ textarea::placeholder { color: var(--light-text); }
 }
 
 /* ══ 房間主題（深夜暖木）＋ 主題切換鈕 ══════════════ */
-#home { position: relative; }
+/* #home 本身是 .page（position:absolute），不能改它的 position——會打斷頁面捲動。
+   主題鈕直接以 .page 為定位錨。 */
 .theme-btn {
   position: absolute;
   top: 16px; right: 16px;
@@ -2920,4 +2921,12 @@ textarea::placeholder { color: var(--light-text); }
 }
 @media (prefers-reduced-motion: reduce) {
   .house-dot { animation: none; }
+}
+
+/* ── 修正：聊天頁底部留白要蓋過兩排輸入區＋nav ───── */
+#chat.page { padding-bottom: 220px; }
+
+/* ── 修正：房間主題下輸入區的漸層底 ─────────────── */
+[data-theme="room"] .input-area {
+  background: linear-gradient(0deg, rgba(27,22,26,0.98) 60%, transparent);
 }
