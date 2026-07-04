@@ -58,7 +58,10 @@
     <div class="dates-section goals-section">
       <div class="dates-header">
         <span class="dates-title">一起養的習慣</span>
-        <button class="dates-add-btn" onclick="openAddGoal()">＋</button>
+        <span style="display:flex;gap:8px;">
+          <button class="dates-add-btn" onclick="openGarden()" title="去陽台看看">🪴</button>
+          <button class="dates-add-btn" onclick="openAddGoal()">＋</button>
+        </span>
       </div>
       <div class="goals-list" id="goalsList"><div class="dates-loading">載入中…</div></div>
     </div>
@@ -467,6 +470,16 @@
       <div class="room-speck room-speck5"></div>
     </div>
     <div class="room-status" id="roomStatus"><div class="room-status-line">載入中…</div></div>
+  </div>
+
+  <!-- 陽台花園 🪴 -->
+  <div class="overlay" id="gardenOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeGarden()">←</button>
+    <div class="garden-wrap">
+      <div class="garden-ambient" id="gardenAmbient"></div>
+      <div class="garden-pots" id="gardenPots"><div class="dates-loading">載入中…</div></div>
+      <div class="garden-hint">點盆栽就是澆水打卡 · 連續越多天長得越好</div>
+    </div>
   </div>
 
   <!-- 三人小群 👥 -->

@@ -1001,6 +1001,19 @@ function _todayTWN() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+let _goalsCache = [];
+
+// 生長階段：連續天數越高長得越好；斷了但有歷史＝蔫掉、全新＝種子
+function _plantStage(g) {
+  const s = g.streak || 0;
+  if (s >= 30) return '🌳';
+  if (s >= 14) return '🌸';
+  if (s >= 7) return '🌿';
+  if (s >= 3) return '🪴';
+  if (s >= 1) return '🌱';
+  return g.total > 0 ? '🥀' : '🫘';
+}
+
 async function loadGoals() {
   const list = document.getElementById('goalsList');
   if (!list) return;
@@ -1009,6 +1022,7 @@ async function loadGoals() {
     if (!r.ok) throw new Error();
     const d = await r.json();
     const goals = d.goals || [];
+    _goalsCache = goals;
     if (!goals.length) { list.innerHTML = '<div class="dates-empty">還沒有一起養的習慣，＋一個？</div>'; return; }
     list.innerHTML = goals.map(g => {
       const streak = g.streak > 1 ? `<span class="goal-streak">🔥 ${g.streak} 天</span>` : (g.total > 0 ? `<span class="goal-streak dim">共 ${g.total} 次</span>` : '');
@@ -1016,10 +1030,12 @@ async function loadGoals() {
         <button class="goal-check" onclick="toggleGoalCheck(${g.id})">${g.checked ? '✓' : ''}</button>
         <span class="goal-icon">${g.icon || '🌱'}</span>
         <div class="goal-info"><div class="goal-title">${escHtml(g.title)}</div></div>
+        <span class="goal-plant">${_plantStage(g)}</span>
         ${streak}
         <button class="date-del-btn" onclick="deleteGoal(${g.id})">×</button>
       </div>`;
     }).join('');
+    if (document.getElementById('gardenOverlay').style.display !== 'none') renderGarden();
   } catch { list.innerHTML = '<div class="dates-empty">載入失敗</div>'; }
 }
 async function toggleGoalCheck(id) {
@@ -1057,6 +1073,66 @@ async function deleteGoal(id) {
   if (!confirm('不養了嗎？打卡記錄也會一起刪掉。')) return;
   await fetch(BASE + '/goals/' + id, { method: 'DELETE', headers: { Authorization: `Bearer ${TOKEN}` } });
   loadGoals();
+}
+
+// ── 陽台花園 🪴 ──────────────────────────────────
+function _gardenAmbient() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return '早上的陽台，土還有點濕。';
+  if (h < 18) return '午後的光落在葉子上。';
+  if (h < 22) return '傍晚了，植物們都安靜下來。';
+  return '夜裡的陽台，只有風。';
+}
+function openGarden() {
+  document.getElementById('gardenOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  document.getElementById('gardenAmbient').textContent = _gardenAmbient();
+  renderGarden();
+  if (!_goalsCache.length) loadGoals();
+}
+function closeGarden() {
+  document.getElementById('gardenOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+function renderGarden() {
+  const box = document.getElementById('gardenPots');
+  if (!_goalsCache.length) {
+    box.innerHTML = '<div class="dates-empty" style="color:rgba(255,255,255,0.55)">陽台還空著，先去＋一個習慣。</div>';
+    return;
+  }
+  box.innerHTML = _goalsCache.map(g => {
+    const size = 24 + Math.min(g.streak || 0, 30) * 0.9;
+    return `<div class="garden-pot${g.checked ? ' watered' : ''}" onclick="waterPlant(${g.id})" data-goal="${g.id}">
+      <div class="garden-plant" style="font-size:${size}px">${_plantStage(g)}</div>
+      <div class="garden-pot-body"></div>
+      <div class="garden-pot-name">${escHtml(g.title)}</div>
+      <div class="garden-pot-streak">${g.checked ? '今天澆過了 ✓' : (g.streak > 0 ? `🔥 ${g.streak} 天` : '等你澆水')}</div>
+    </div>`;
+  }).join('');
+}
+async function waterPlant(id) {
+  const g = _goalsCache.find(x => x.id === id);
+  if (!g) return;
+  const pot = document.querySelector(`.garden-pot[data-goal="${id}"]`);
+  if (g.checked) {
+    // 今天澆過了：搖一下就好，不取消（取消要回清單按圓圈）
+    if (pot) { pot.classList.remove('wiggle'); void pot.offsetWidth; pot.classList.add('wiggle'); }
+    return;
+  }
+  if (pot) {
+    const drop = document.createElement('div');
+    drop.className = 'garden-drop';
+    drop.textContent = '💧';
+    pot.appendChild(drop);
+  }
+  try {
+    await fetch(BASE + '/goals/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ id, date: _todayTWN() })
+    });
+  } catch {}
+  await loadGoals();
 }
 
 // ── 生理期追蹤 ─────────────────────────────────────
