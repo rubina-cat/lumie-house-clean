@@ -2191,10 +2191,6 @@ function closeRoom() {
   document.querySelector('.nav').style.display = '';
 }
 
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
 // ── 三人小群 👥 ──────────────────────────────────
 let _groupSending = false;
 
