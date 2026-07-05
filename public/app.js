@@ -2488,6 +2488,156 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── 朋友圈 📸 ────────────────────────────────────
+let _moPhotoB64 = null, _moPhotoType = null, _moPosting = false;
+function openMoments() {
+  document.getElementById('momentsOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  loadMoments();
+}
+function closeMoments() {
+  document.getElementById('momentsOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+function _moTime(ts) {
+  const d = new Date(ts);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return sameDay ? `今天 ${hm}` : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
+function _moComment(c) {
+  if (c.role === 'user') {
+    return `<div class="mo-comment"><span class="mo-c-name me">我</span><span class="mo-c-text">${escHtml(c.content)}</span></div>`;
+  }
+  const isAnchor = c.role === 'anchor';
+  const name = isAnchor ? 'Anchor' : '燈塔';
+  return `<div class="mo-comment"><span class="mo-c-name${isAnchor ? '' : ' gpt'}">${name}</span><span class="mo-c-text">${escHtml(c.content)}</span></div>`;
+}
+function _moCard(m) {
+  return `<div class="mo-card" id="moCard-${m.id}">
+    <div class="mo-head">
+      <span class="mo-time">${_moTime(m.ts)}</span>
+      <button class="mo-del" onclick="deleteMoment(${m.id})" title="刪除">刪除</button>
+    </div>
+    ${m.content ? `<div class="mo-text">${escHtml(m.content)}</div>` : ''}
+    ${m.photo_url ? `<img class="mo-photo" src="${escHtml(m.photo_url)}" loading="lazy" alt="">` : ''}
+    <div class="mo-comments" id="moComments-${m.id}">${(m.comments || []).map(_moComment).join('')}</div>
+    <div class="mo-reply-row">
+      <input id="moReply-${m.id}" placeholder="留言…（@Anchor 或 @燈塔 可以只叫一個）"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();moReply(${m.id})}">
+      <button onclick="moReply(${m.id})">↑</button>
+    </div>
+  </div>`;
+}
+async function loadMoments() {
+  const feed = document.getElementById('moFeed');
+  try {
+    const r = await fetch(BASE + '/moments', { headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const moments = d.moments || [];
+    feed.innerHTML = moments.length
+      ? moments.map(_moCard).join('')
+      : '<div class="dates-empty">還沒有動態，分享第一件小事吧。</div>';
+  } catch { feed.innerHTML = '<div class="dates-empty">載入失敗</div>'; }
+}
+function moPickPhoto(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(img.src);
+    const MAX = 1280;
+    let { width: w, height: h } = img;
+    if (w > MAX || h > MAX) {
+      const s = MAX / Math.max(w, h);
+      w = Math.round(w * s); h = Math.round(h * s);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    _moPhotoB64 = dataUrl.split(',')[1];
+    _moPhotoType = 'image/jpeg';
+    document.getElementById('moPreviewImg').src = dataUrl;
+    document.getElementById('moPreview').style.display = 'flex';
+  };
+  img.onerror = () => { URL.revokeObjectURL(img.src); alert('這張圖讀不出來'); };
+  img.src = URL.createObjectURL(file);
+}
+function moClearPhoto() {
+  _moPhotoB64 = null; _moPhotoType = null;
+  document.getElementById('moPreview').style.display = 'none';
+  document.getElementById('moPreviewImg').src = '';
+}
+async function postMoment() {
+  if (_moPosting) return;
+  const input = document.getElementById('moInput');
+  const text = input.value.trim();
+  if (!text && !_moPhotoB64) return;
+  _moPosting = true;
+  const btn = document.getElementById('moSendBtn');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const r = await fetch(BASE + '/moments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ content: text, photo_b64: _moPhotoB64, photo_type: _moPhotoType })
+    });
+    if (r.ok) {
+      input.value = '';
+      moClearPhoto();
+      await loadMoments();
+      const feed = document.getElementById('moFeed');
+      feed.scrollTop = 0;
+    } else { alert('發不出去，再試一次？'); }
+  } catch { alert('發不出去，再試一次？'); }
+  _moPosting = false;
+  btn.disabled = false; btn.textContent = '↑';
+}
+async function moReply(id) {
+  const input = document.getElementById('moReply-' + id);
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  input.disabled = true;
+  const box = document.getElementById('moComments-' + id);
+  box.insertAdjacentHTML('beforeend', _moComment({ role: 'user', content: text }));
+  box.insertAdjacentHTML('beforeend', '<div class="mo-comment mo-typing">…</div>');
+  try {
+    const r = await fetch(BASE + '/moments/comment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ moment_id: id, content: text })
+    });
+    const d = r.ok ? await r.json() : { replies: [] };
+    box.querySelector('.mo-typing')?.remove();
+    for (const rep of (d.replies || [])) box.insertAdjacentHTML('beforeend', _moComment(rep));
+  } catch { box.querySelector('.mo-typing')?.remove(); }
+  input.disabled = false;
+}
+async function deleteMoment(id) {
+  if (!confirm('刪掉這則動態？\n（照片和底下的留言也會一起消失）')) return;
+  try {
+    await fetch(BASE + '/moments/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ id })
+    });
+    document.getElementById('moCard-' + id)?.remove();
+    const feed = document.getElementById('moFeed');
+    if (!feed.querySelector('.mo-card')) feed.innerHTML = '<div class="dates-empty">還沒有動態，分享第一件小事吧。</div>';
+  } catch {}
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const mi = document.getElementById('moInput');
+  if (mi) mi.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postMoment(); }
+  });
+});
+
 // ── 清空群聊 🧹 ──────────────────────────────────
 async function clearGroup() {
   if (_groupSending) return;

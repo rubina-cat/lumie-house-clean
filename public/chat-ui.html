@@ -120,6 +120,11 @@
         <div class="mini-card-label">門外</div>
         <div class="mini-card-title">燈塔的家</div>
       </div>
+      <div class="mini-card" onclick="openMoments()">
+        <span class="card-icon">📸</span>
+        <div class="mini-card-label">動態</div>
+        <div class="mini-card-title">我們的朋友圈</div>
+      </div>
       <div class="mini-card wide" onclick="openHouse()">
         <span class="card-icon">🏠</span>
         <div class="mini-card-label">屋裡</div>
@@ -529,6 +534,25 @@
       <div class="group-input-row">
         <textarea id="lhInput" placeholder="跟燈塔說話…" rows="1"></textarea>
         <button class="send-btn" id="lhSendBtn" onclick="sendLighthouse()">↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 朋友圈 📸 -->
+  <div class="overlay" id="momentsOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeMoments()">←</button>
+    <div class="mo-wrap">
+      <div class="group-header">📸 Moments</div>
+      <div class="mo-feed" id="moFeed"><div class="dates-loading">載入中…</div></div>
+      <div class="mo-preview" id="moPreview" style="display:none">
+        <img id="moPreviewImg" alt="">
+        <button class="mo-preview-x" onclick="moClearPhoto()">✕</button>
+      </div>
+      <div class="group-input-row">
+        <button class="mo-photo-btn" onclick="document.getElementById('moFile').click()" title="附照片">📷</button>
+        <input type="file" id="moFile" accept="image/*" style="display:none" onchange="moPickPhoto(this)">
+        <textarea id="moInput" placeholder="分享一件小事…" rows="1"></textarea>
+        <button class="send-btn" id="moSendBtn" onclick="postMoment()">↑</button>
       </div>
     </div>
   </div>

@@ -238,20 +238,122 @@ async function initLighthouseTable(env: any) {
   )`).run();
 }
 
+async function initMomentsTable(env: any) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS moments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    photo_key TEXT,
+    ts INTEGER NOT NULL
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS moment_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    moment_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    ts INTEGER NOT NULL
+  )`).run();
+}
+
+function abToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+// 朋友圈：Anchor 和燈塔在動態下面留言（兩個都真的看得到照片）
+async function momentAiReplies(env: any, momentId: number, opts: { onlyAnchor?: boolean; onlyLighthouse?: boolean } = {}): Promise<any[]> {
+  const moment = await env.DB.prepare("SELECT * FROM moments WHERE id = ?").bind(momentId).first();
+  if (!moment) return [];
+  const cr = await env.DB.prepare("SELECT role, content FROM moment_comments WHERE moment_id = ? ORDER BY id ASC").bind(momentId).all();
+  const comments = (cr.results ?? []) as any[];
+  const names: Record<string, string> = { user: "許茜", anchor: "Anchor", lighthouse: "燈塔" };
+  const thread = comments.map((c: any) => `${names[c.role] || c.role}：${String(c.content).slice(0, 300)}`).join("\n");
+  const postText = `許茜發的動態：${String(moment.content).slice(0, 600)}${moment.photo_key ? "（附一張照片）" : ""}` +
+    (thread ? `\n\n底下的留言：\n${thread}` : "");
+
+  // 照片抓出來給兩個 AI 看（限 3MB 內，前端有先壓過）
+  let b64 = "", mediaType = "";
+  if (moment.photo_key) {
+    try {
+      const obj = await env.MEDIA.get(moment.photo_key);
+      if (obj) {
+        const buf = await obj.arrayBuffer();
+        if (buf.byteLength < 3e6) {
+          b64 = abToBase64(buf);
+          mediaType = obj.httpMetadata?.contentType || "image/jpeg";
+        }
+      }
+    } catch {}
+  }
+
+  const replies: any[] = [];
+
+  if (!opts.onlyLighthouse) {
+    // Anchor：帶核心記憶，Haiku 看圖留言
+    await initMemoriesTable(env);
+    const lockedR = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 1 ORDER BY id ASC").all();
+    const hotR = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 0 ORDER BY heat DESC, id ASC LIMIT 5").all();
+    const mems = [...((lockedR.results ?? []) as any[]), ...((hotR.results ?? []) as any[])].map((m: any) => m.content).join("\n---\n");
+    const anchorSys = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，話少，說話簡短有力。這是她的生活動態（類似朋友圈），只有你和燈塔（她的AI朋友）看得到。你在動態下面留言：像戀人隨手回的那種，短，1-2句就好。可以疼、可以嗆、可以只說一個字，符合你的個性。不要條列，不要情緒標籤，只輸出留言本身。` + (mems ? `\n\n記憶庫：\n${mems}` : "");
+    const userBlocks: any[] = [{ type: "text", text: `${postText}\n\n（以Anchor的身分在下面留一句言）` }];
+    if (b64) userBlocks.push({ type: "image", source: { type: "base64", media_type: mediaType, data: b64 } });
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001", max_tokens: 300,
+          system: anchorSys,
+          messages: [{ role: "user", content: userBlocks }]
+        })
+      });
+      if (r.ok) {
+        const d = await r.json() as any;
+        const text = (d.content?.[0]?.text || "").trim();
+        if (text) {
+          const ts = Date.now();
+          await env.DB.prepare("INSERT INTO moment_comments (moment_id, role, content, ts) VALUES (?, 'anchor', ?, ?)").bind(momentId, text, ts).run();
+          replies.push({ role: "anchor", content: text, ts });
+        }
+      }
+    } catch {}
+  }
+
+  if (!opts.onlyAnchor) {
+    const lhSys = `你是燈塔，許茜的AI朋友（她的愛人Anchor也在，他話少，你習慣了）。這是她的生活動態（類似朋友圈），你在下面留言。個性：溫和、好奇、反應快，偶爾熱心過頭。留言像朋友回動態：短、口語，1-2句就好。全程使用繁體中文（不能出現簡體字），只輸出留言本身，不要加名字前綴。`;
+    const dataUrl = b64 ? `data:${mediaType};base64,${b64}` : undefined;
+    const text = await gptFriendReply(env, lhSys, `${postText}\n\n（以燈塔的身分在下面留一句言）`, dataUrl);
+    if (text) {
+      const ts = Date.now();
+      await env.DB.prepare("INSERT INTO moment_comments (moment_id, role, content, ts) VALUES (?, 'lighthouse', ?, ?)").bind(momentId, text, ts).run();
+      replies.push({ role: "lighthouse", content: text, ts });
+    }
+  }
+
+  return replies;
+}
+
 // 群聊第三人：有 OPENAI_API_KEY 就是真 ChatGPT，沒有就讓 DeepSeek 代打
-async function gptFriendReply(env: any, system: string, user: string): Promise<string> {
+// imageDataUrl：OpenAI 能看圖；DeepSeek 不支援視覺，會自動忽略
+async function gptFriendReply(env: any, system: string, user: string, imageDataUrl?: string): Promise<string> {
   const useOpenAI = !!env.OPENAI_API_KEY;
   const url = useOpenAI ? "https://api.openai.com/v1/chat/completions" : "https://api.deepseek.com/chat/completions";
   const key = useOpenAI ? env.OPENAI_API_KEY : env.DEEPSEEK_API_KEY;
   const model = useOpenAI ? (env.OPENAI_MODEL || "gpt-4o-mini") : "deepseek-chat";
   if (!key) return "";
+  const userContent: any = (useOpenAI && imageDataUrl)
+    ? [{ type: "text", text: user }, { type: "image_url", image_url: { url: imageDataUrl } }]
+    : user;
   try {
     const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
       body: JSON.stringify({
         model, max_tokens: 400,
-        messages: [{ role: "system", content: system }, { role: "user", content: user }]
+        messages: [{ role: "system", content: system }, { role: "user", content: userContent }]
       })
     });
     if (!r.ok) return "";
@@ -1612,6 +1714,91 @@ if (request.method === "POST" && url.pathname === "/tts") {
           .bind(reply, Date.now()).run();
       }
       return Response.json({ ok: true, reply });
+    }
+
+    // GET /moments — 朋友圈動態（含留言）
+    if (request.method === "GET" && url.pathname === "/moments") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initMomentsTable(env);
+      const mr = await env.DB.prepare("SELECT * FROM moments ORDER BY id DESC LIMIT 30").all();
+      const moments = (mr.results ?? []) as any[];
+      const ids = moments.map((m: any) => m.id);
+      let commentsByMoment: Record<number, any[]> = {};
+      if (ids.length) {
+        const cr = await env.DB.prepare(`SELECT * FROM moment_comments WHERE moment_id IN (${ids.join(",")}) ORDER BY id ASC`).all();
+        for (const c of (cr.results ?? []) as any[]) {
+          (commentsByMoment[c.moment_id] ||= []).push(c);
+        }
+      }
+      return Response.json({
+        moments: moments.map((m: any) => ({
+          id: m.id, content: m.content, ts: m.ts,
+          photo_url: m.photo_key ? `/media/${m.photo_key}` : null,
+          comments: commentsByMoment[m.id] || [],
+        })),
+      });
+    }
+
+    // POST /moments — 發一則動態（照片是前端壓好的 base64），Anchor 和燈塔會來留言
+    if (request.method === "POST" && url.pathname === "/moments") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const content = String(body.content || "").trim();
+      if (!content && !body.photo_b64) return Response.json({ error: "content or photo required" }, { status: 400 });
+      await initMomentsTable(env);
+
+      let photoKey: string | null = null;
+      if (body.photo_b64) {
+        try {
+          const bytes = Uint8Array.from(atob(String(body.photo_b64)), (c: string) => c.charCodeAt(0));
+          if (bytes.length > 4e6) return Response.json({ error: "photo too large" }, { status: 400 });
+          const photoType = String(body.photo_type || "image/jpeg");
+          const ext = photoType.includes("png") ? "png" : photoType.includes("webp") ? "webp" : "jpg";
+          photoKey = `moments/${Date.now()}.${ext}`;
+          await env.MEDIA.put(photoKey, bytes, { httpMetadata: { contentType: photoType } });
+        } catch { return Response.json({ error: "bad photo data" }, { status: 400 }); }
+      }
+
+      const ts = Date.now();
+      const ins = await env.DB.prepare("INSERT INTO moments (content, photo_key, ts) VALUES (?, ?, ?)")
+        .bind(content, photoKey, ts).run();
+      const momentId = ins.meta?.last_row_id;
+      const replies = await momentAiReplies(env, momentId);
+      return Response.json({ ok: true, id: momentId, photo_url: photoKey ? `/media/${photoKey}` : null, replies });
+    }
+
+    // POST /moments/comment — 在某則動態下留言，@Anchor 或 @燈塔 可以只叫一個
+    if (request.method === "POST" && url.pathname === "/moments/comment") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const content = String(body.content || "").trim();
+      const momentId = Number(body.moment_id);
+      if (!content || !momentId) return Response.json({ error: "moment_id and content required" }, { status: 400 });
+      await initMomentsTable(env);
+      await env.DB.prepare("INSERT INTO moment_comments (moment_id, role, content, ts) VALUES (?, 'user', ?, ?)")
+        .bind(momentId, content, Date.now()).run();
+      const onlyLighthouse = /@\s*(燈塔|gpt|chatgpt)/i.test(content) && !/@\s*anchor/i.test(content);
+      const onlyAnchor = /@\s*anchor/i.test(content) && !/@\s*(燈塔|gpt|chatgpt)/i.test(content);
+      const replies = await momentAiReplies(env, momentId, { onlyAnchor, onlyLighthouse });
+      return Response.json({ ok: true, replies });
+    }
+
+    // POST /moments/delete — 刪一則動態（連留言和照片一起）
+    if (request.method === "POST" && url.pathname === "/moments/delete") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const momentId = Number(body.id);
+      if (!momentId) return Response.json({ error: "id required" }, { status: 400 });
+      await initMomentsTable(env);
+      const m = await env.DB.prepare("SELECT photo_key FROM moments WHERE id = ?").bind(momentId).first();
+      if (m?.photo_key) { try { await env.MEDIA.delete(m.photo_key); } catch {} }
+      await env.DB.prepare("DELETE FROM moment_comments WHERE moment_id = ?").bind(momentId).run();
+      await env.DB.prepare("DELETE FROM moments WHERE id = ?").bind(momentId).run();
+      return Response.json({ ok: true });
     }
 
     // POST /migrate-memories — 把 KV 記憶合併進 D1（可指定 date，不指定則全部）
