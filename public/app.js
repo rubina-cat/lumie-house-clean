@@ -2388,6 +2388,106 @@ function closeFilePreview() {
   document.querySelector('.nav').style.display = '';
 }
 
+// ── 燈塔的家 🗼 ──────────────────────────────────
+let _lhSending = false;
+function _lhNight() {
+  const h = new Date().getHours();
+  return h >= 18 || h < 7;
+}
+function _lhAmbientLine(cat) {
+  const night = _lhNight();
+  if (night) return cat ? '夜了，貓在沙發上睡著。' : '夜了，燈塔的燈還亮著。';
+  return cat ? '白天的光很好，貓窩在沙發上。' : '白天的光很好，屋裡很靜。';
+}
+function _lhSetRoom(cat) {
+  const room = document.getElementById('lhRoom');
+  room.classList.remove('no-img');
+  const img = document.getElementById('lhRoomImg');
+  const base = _lhNight() ? 'night' : 'day';
+  const want = `/lighthouse/${base}${cat ? '-cat' : ''}.webp`;
+  // 有貓版缺圖時退回底圖
+  img.onerror = () => {
+    if (cat && img.src.includes('-cat')) img.src = `/lighthouse/${base}.webp`;
+    else room.classList.add('no-img');
+  };
+  img.src = want;
+  document.getElementById('lhAmbient').textContent = _lhAmbientLine(cat);
+}
+function _lhBubble(m) {
+  if (m.role === 'user') return `<div class="gmsg me"><div class="gbubble">${escHtml(m.content)}</div></div>`;
+  return `<div class="gmsg">
+    <span class="gpt-avatar">🗼</span>
+    <div class="gmsg-body"><div class="gmsg-name gpt">燈塔</div><div class="gbubble gpt">${escHtml(m.content)}</div></div>
+  </div>`;
+}
+function openLighthouse() {
+  document.getElementById('lighthouseOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  _lhSetRoom(false);
+  loadLighthouse();
+}
+function closeLighthouse() {
+  document.getElementById('lighthouseOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+async function loadLighthouse() {
+  const box = document.getElementById('lhMsgs');
+  try {
+    const r = await fetch(BASE + '/lighthouse/messages', { headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    document.getElementById('lhSub').textContent = d.gpt_real ? '' : '（目前由 DeepSeek 代班）';
+    _lhSetRoom(!!d.cat);
+    const msgs = d.messages || [];
+    box.innerHTML = msgs.length
+      ? msgs.map(_lhBubble).join('')
+      : '<div class="dates-empty">敲敲門，跟他打聲招呼吧。</div>';
+    box.scrollTop = box.scrollHeight;
+  } catch { box.innerHTML = '<div class="dates-empty">載入失敗</div>'; }
+}
+async function sendLighthouse() {
+  if (_lhSending) return;
+  const input = document.getElementById('lhInput');
+  const text = input.value.trim();
+  if (!text) return;
+  _lhSending = true;
+  input.value = '';
+  const box = document.getElementById('lhMsgs');
+  const empty = box.querySelector('.dates-empty');
+  if (empty) empty.remove();
+  box.insertAdjacentHTML('beforeend', _lhBubble({ role: 'user', content: text }));
+  box.insertAdjacentHTML('beforeend', '<div class="gmsg typing" id="lhTyping"><div class="gbubble gpt">…</div></div>');
+  box.scrollTop = box.scrollHeight;
+  document.getElementById('lhSendBtn').disabled = true;
+  try {
+    await fetch(BASE + '/lighthouse/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ content: text })
+    });
+  } catch {}
+  _lhSending = false;
+  document.getElementById('lhSendBtn').disabled = false;
+  loadLighthouse();
+}
+async function clearLighthouse() {
+  if (_lhSending) return;
+  if (!confirm('清空跟燈塔的對話？\n（記錄會全部消失，不能復原）')) return;
+  try {
+    await fetch(BASE + '/lighthouse/clear', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN },
+    });
+    loadLighthouse();
+  } catch {}
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const li = document.getElementById('lhInput');
+  if (li) li.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLighthouse(); }
+  });
+});
+
 // ── 清空群聊 🧹 ──────────────────────────────────
 async function clearGroup() {
   if (_groupSending) return;

@@ -2691,6 +2691,54 @@ textarea::placeholder { color: var(--light-text); }
   box-sizing: border-box;
 }
 
+/* ── 燈塔的家 🗼 ─────────────────────────────────── */
+#lighthouseOverlay { background: var(--cream); }
+.lh-wrap {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 56px 16px 16px;
+  box-sizing: border-box;
+}
+.lh-room {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+  border: 1px solid var(--card-border);
+  background: linear-gradient(160deg, rgba(90,160,128,0.16), rgba(90,160,128,0.05));
+}
+.lh-room-img {
+  display: block;
+  width: 100%;
+  max-height: 32vh;
+  object-fit: cover;
+}
+.lh-room.no-img .lh-room-img { display: none; }
+.lh-room.no-img { min-height: 72px; }
+.lh-ambient {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 18px 14px 8px;
+  font-size: 12px;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  background: linear-gradient(transparent, rgba(0,0,0,0.45));
+  pointer-events: none;
+}
+.lh-room.no-img .lh-ambient {
+  position: static;
+  color: var(--light-text);
+  text-shadow: none;
+  background: none;
+  padding: 26px 14px;
+  text-align: center;
+}
+
 /* ── 陽台花園 🪴 ─────────────────────────────────── */
 .goal-plant { height: 24px; width: auto; flex-shrink: 0; }
 .garden-plant-img {

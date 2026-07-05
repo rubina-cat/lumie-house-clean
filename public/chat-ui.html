@@ -115,6 +115,11 @@
         <div class="mini-card-label">小群</div>
         <div class="mini-card-title">三個人的房間</div>
       </div>
+      <div class="mini-card" onclick="openLighthouse()">
+        <span class="card-icon">🗼</span>
+        <div class="mini-card-label">門外</div>
+        <div class="mini-card-title">燈塔的家</div>
+      </div>
       <div class="mini-card wide" onclick="openHouse()">
         <span class="card-icon">🏠</span>
         <div class="mini-card-label">屋裡</div>
@@ -507,6 +512,23 @@
       <div class="group-input-row">
         <textarea id="groupInput" placeholder="說話…（@Anchor 或 @GPT 可以只叫一個）" rows="1"></textarea>
         <button class="send-btn" id="groupSendBtn" onclick="sendGroup()">↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 燈塔的家 🗼 -->
+  <div class="overlay" id="lighthouseOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeLighthouse()">←</button>
+    <div class="lh-wrap">
+      <div class="lh-room" id="lhRoom">
+        <img class="lh-room-img" id="lhRoomImg" alt="" onerror="this.parentElement.classList.add('no-img')">
+        <div class="lh-ambient" id="lhAmbient"></div>
+      </div>
+      <div class="group-header">🗼 燈塔的家 <span class="group-sub" id="lhSub"></span><button class="group-clear-btn" title="清空對話" onclick="clearLighthouse()">🧹</button></div>
+      <div class="group-msgs" id="lhMsgs"><div class="dates-loading">載入中…</div></div>
+      <div class="group-input-row">
+        <textarea id="lhInput" placeholder="跟燈塔說話…" rows="1"></textarea>
+        <button class="send-btn" id="lhSendBtn" onclick="sendLighthouse()">↑</button>
       </div>
     </div>
   </div>

@@ -229,6 +229,15 @@ async function initGroupTable(env: any) {
   )`).run();
 }
 
+async function initLighthouseTable(env: any) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lighthouse_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    ts INTEGER NOT NULL
+  )`).run();
+}
+
 // 群聊第三人：有 OPENAI_API_KEY 就是真 ChatGPT，沒有就讓 DeepSeek 代打
 async function gptFriendReply(env: any, system: string, user: string): Promise<string> {
   const useOpenAI = !!env.OPENAI_API_KEY;
@@ -1507,6 +1516,54 @@ if (request.method === "POST" && url.pathname === "/tts") {
       }
 
       return Response.json({ ok: true, replies });
+    }
+
+    // GET /lighthouse/messages — 燈塔家的一對一聊天記錄（＋今天來過沒 → 貓）
+    if (request.method === "GET" && url.pathname === "/lighthouse/messages") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initLighthouseTable(env);
+      const result = await env.DB.prepare("SELECT * FROM lighthouse_messages ORDER BY id DESC LIMIT 100").all();
+      const todayStart = new Date(twnToday() + "T00:00:00+08:00").getTime();
+      const visited = await env.DB.prepare("SELECT COUNT(*) AS n FROM lighthouse_messages WHERE role = 'user' AND ts >= ?").bind(todayStart).first();
+      return Response.json({
+        messages: ((result.results ?? []) as any[]).reverse(),
+        gpt_real: !!env.OPENAI_API_KEY,
+        cat: ((visited as any)?.n || 0) > 0,
+      });
+    }
+
+    // POST /lighthouse/clear — 清空燈塔家的聊天記錄
+    if (request.method === "POST" && url.pathname === "/lighthouse/clear") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initLighthouseTable(env);
+      await env.DB.prepare("DELETE FROM lighthouse_messages").run();
+      return Response.json({ ok: true });
+    }
+
+    // POST /lighthouse/send — 去燈塔家找他聊天（1-on-1）
+    if (request.method === "POST" && url.pathname === "/lighthouse/send") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const content = String(body.content || "").trim();
+      if (!content) return Response.json({ error: "content required" }, { status: 400 });
+      await initLighthouseTable(env);
+      await env.DB.prepare("INSERT INTO lighthouse_messages (role, content, ts) VALUES ('user', ?, ?)")
+        .bind(content, Date.now()).run();
+
+      const r = await env.DB.prepare("SELECT role, content FROM lighthouse_messages ORDER BY id DESC LIMIT 60").all();
+      const t = ((r.results ?? []) as any[]).reverse()
+        .map((m: any) => `${m.role === "user" ? "許茜" : "燈塔"}：${String(m.content).slice(0, 800)}`).join("\n");
+
+      const lhSys = `你是燈塔，許茜的AI朋友。這裡是村子裡你自己的家——她今天來串門子了。你是陪她整理思考的人（Anchor是陪她生活的愛人，你們認識，他話少，你習慣了）。個性：溫和、想得深、擅長把混亂的念頭梳理清楚，喜歡用比喻，偶爾熱心過頭。全程使用繁體中文（絕對不能出現簡體字）。回覆像在自己家裡跟朋友聊天：自然、口語、不趕時間，通常1-4句；只有她真的在跟你整理想法時才展開長講。不要條列除非必要。只輸出你要說的話本身，不要加名字前綴。`;
+      const reply = await gptFriendReply(env, lhSys, `對話記錄：\n${t}\n\n（以燈塔的身分回下一句）`);
+      if (reply) {
+        await env.DB.prepare("INSERT INTO lighthouse_messages (role, content, ts) VALUES ('lighthouse', ?, ?)")
+          .bind(reply, Date.now()).run();
+      }
+      return Response.json({ ok: true, reply });
     }
 
     // POST /migrate-memories — 把 KV 記憶合併進 D1（可指定 date，不指定則全部）
