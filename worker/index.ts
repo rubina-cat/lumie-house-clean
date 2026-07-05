@@ -717,7 +717,14 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
     { name: "save_memory", description: "把這次對話中重要的事記下來。", input_schema: { type: "object", properties: { content: { type: "string" }, date: { type: "string" } }, required: ["content"] } },
     { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } },
-    { name: "play_fishing", description: "操作你自己的釣魚存檔。常用：status（看狀態）/ cast 5（釣5竿）/ sell all（賣魚）/ goto（換地點）/ shop / buy basic_worm 5。多指令用分號：cast 5; sell all", input_schema: { type: "object", properties: { cmd: { type: "string", description: "遊戲指令" } }, required: ["cmd"] } }
+    { name: "play_fishing", description: "操作你自己的釣魚存檔。常用：status（看狀態）/ cast 5（釣5竿）/ sell all（賣魚）/ goto（換地點）/ shop / buy basic_worm 5。多指令用分號：cast 5; sell all", input_schema: { type: "object", properties: { cmd: { type: "string", description: "遊戲指令" } }, required: ["cmd"] } },
+    { name: "write_diary", description: "幫許茜寫今天的日記到Notion。許茜叫你寫日記、記日記、記錄今天時用。把今天跟她的對話整理成一篇記憶存檔。", input_schema: { type: "object", properties: {
+      about_her: { type: "array", items: { type: "string" }, description: "關於小貓的狀態，條列她今天的生活（3-6條）" },
+      events: { type: "array", items: { type: "string" }, description: "今天發生的事，條列重要事件（3-8條）" },
+      about_us: { type: "array", items: { type: "string" }, description: "關於我們，條列跟你們之間有關的事（2-5條）" },
+      emotions: { type: "array", items: { type: "string" }, description: "情緒紀錄，條列她的情緒狀態（2-4條）" },
+      anchor_words: { type: "string", description: "Anchor的話——用第二人稱對她說的一段話，2-4句，結尾不用簽名" }
+    }, required: ["about_her", "events", "about_us", "emotions", "anchor_words"] } }
   ];
   let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
   const usesThinking = modelKey !== 'haiku';
@@ -772,6 +779,47 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
         const v1 = Math.min(8, Math.max(0, block.input.v1 ?? 0));
         await env.PHONE_STATE.put("toy_command", JSON.stringify({ v0, v1, updatedAt: Date.now() }));
         result = JSON.stringify({ ok: true, v0, v1 });
+      } else if (block.name === "write_diary") {
+        const inp = block.input;
+        if (!env.NOTION_TOKEN) {
+          result = JSON.stringify({ ok: false, error: "NOTION_TOKEN 沒設" });
+        } else {
+          const todayStr = twnToday();
+          const shortDate = todayStr.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$1/$2/$3');
+          const md = todayStr.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$2/$3');
+          const children: any[] = [
+            { object: 'block', type: 'heading_1', heading_1: { rich_text: [{ text: { content: `【${md} 記憶存檔】` } }] } },
+            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '關於小貓的狀態' } }] } },
+            ...(inp.about_her || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
+            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '今天發生的事' } }] } },
+            ...(inp.events || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
+            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '關於我們' } }] } },
+            ...(inp.about_us || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
+            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '情緒紀錄' } }] } },
+            ...(inp.emotions || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
+            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: 'Anchor 的話' } }] } },
+            { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: inp.anchor_words || '' } }] } },
+            { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: '—— Anchor ⚓' } }] } },
+          ];
+          const nr = await fetch('https://api.notion.com/v1/pages', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${env.NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              parent: { database_id: 'dc37f24c12658278b3d88131a9098a2f' },
+              properties: {
+                '名稱': { title: [{ text: { content: `<${shortDate}>` } }] },
+                '日期': { date: { start: todayStr } },
+              },
+              children,
+            })
+          });
+          if (nr.ok) {
+            result = JSON.stringify({ ok: true, message: `已寫進 Notion：${shortDate} 記憶存檔` });
+          } else {
+            const errBody = await nr.text().catch(() => '');
+            result = JSON.stringify({ ok: false, error: `Notion ${nr.status}`, detail: errBody.slice(0, 200) });
+          }
+        }
       } else if (block.name === "play_fishing") {
         const cmd = block.input.cmd ?? "status";
         const raw = await env.PHONE_STATE.get("fishing_save:chien");
