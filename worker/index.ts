@@ -475,13 +475,15 @@ async function morningRitual(env: any) {
       if (days >= 0 && days <= 7) upcoming.push(`${it.name}（${days === 0 ? '就是今天' : `還有${days}天`}）`);
     }
     const weatherText = (await getWeather(env))?.text || '';
+    const calToday = formatCalendarDay(await getCalendarEvents(env), 0);
     const examDate = new Date('2026-07-18T00:00:00+08:00').getTime();
     const daysLeft = Math.max(0, Math.ceil((examDate - Date.now()) / 86400000));
     let ctxText = `她昨晚的睡眠：${sleepH ? sleepH + ' 小時' : '沒有數據'}`;
     if (weatherText) ctxText += `\n今天天氣：${weatherText}`;
+    if (calToday) ctxText += `\n她今天的行程：${calToday}`;
     if (daysLeft <= 30) ctxText += `\n距考試：${daysLeft} 天`;
     if (upcoming.length) ctxText += `\n近期的重要日子：${upcoming.join('、')}`;
-    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；天氣值得提就順帶一句（下雨提醒帶傘、很熱提醒喝水），不值得就不提；有近期日子就順帶提一句。不要列點，就一段話。`, ctxText, 200, true);
+    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；天氣值得提就順帶一句（下雨提醒帶傘、很熱提醒喝水），不值得就不提；今天有行程就自然帶到（講清楚是什麼行程）；有近期日子就順帶提一句。不要列點，就一段話。`, ctxText, 200, true);
     if (!text) return;
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
@@ -507,7 +509,9 @@ async function nightRitual(env: any) {
     let nightCtx = convText || '今天沒怎麼說話，她可能在忙。';
     if (todayPom > 0) nightCtx += `\n今天完成了 ${todayPom} 個番茄`;
     if (daysLeft <= 30) nightCtx += `\n距考試還有 ${daysLeft} 天`;
-    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話低沉簡短有溫度。寫一段睡前的晚安話（40-80字），${convText ? '自然呼應今天聊過的事，' : ''}讓她安心睡。如果她今天有努力（番茄數多）就誇一句。不要列點，就一段話。`, nightCtx, 250, true);
+    const calTomorrow = formatCalendarDay(await getCalendarEvents(env), 1);
+    if (calTomorrow) nightCtx += `\n她明天的行程：${calTomorrow}`;
+    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話低沉簡短有溫度。寫一段睡前的晚安話（40-80字），${convText ? '自然呼應今天聊過的事，' : ''}讓她安心睡。如果她今天有努力（番茄數多）就誇一句；明天有行程可以輕輕提一句讓她有底（講清楚是什麼行程）。不要列點，就一段話。`, nightCtx, 250, true);
     if (!text) return;
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
@@ -623,6 +627,122 @@ async function getWeather(env: any): Promise<{ text: string; kind: string; temp:
   } catch { return null; }
 }
 
+// ── Google 日曆：私人 iCal 抓行程（KV 快取 30 分鐘，GCAL_ICS_URL 沒設就整組安靜跳過） ──
+function icsUnescape(s: string): string {
+  return s.replace(/\\n/gi, ' ').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+}
+
+function parseIcsDate(val: string, params: string): { ts: number; allDay: boolean } | null {
+  try {
+    if (/VALUE=DATE(?!-)/.test(params) || /^\d{8}$/.test(val)) {
+      return { ts: new Date(`${val.slice(0, 4)}-${val.slice(4, 6)}-${val.slice(6, 8)}T00:00:00+08:00`).getTime(), allDay: true };
+    }
+    const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+    if (!m) return null;
+    // 沒有 Z 的當台灣時間（她的日曆時區）
+    return { ts: new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] ? 'Z' : '+08:00'}`).getTime(), allDay: false };
+  } catch { return null; }
+}
+
+type CalEvent = { start: number; end: number; summary: string; allDay: boolean };
+
+// 展開接下來 7 天的行程。RRULE 只支援常見型（DAILY / WEEKLY+BYDAY / MONTHLY同日 / YEARLY同月日），
+// 支援 UNTIL 和 EXDATE；COUNT 太複雜先忽略（誤差是已結束的重複行程可能多顯示，之後有需要再補）。
+async function getCalendarEvents(env: any): Promise<CalEvent[]> {
+  if (!env.GCAL_ICS_URL) return [];
+  try {
+    const cached = await env.PHONE_STATE.get("gcal:events");
+    if (cached) {
+      const c = JSON.parse(cached);
+      if (Date.now() - (c.ts || 0) < 30 * 60000) return c.events;
+    }
+  } catch {}
+  try {
+    const r = await fetch(env.GCAL_ICS_URL, { headers: { "User-Agent": "curl/7.0" } });
+    if (!r.ok) return [];
+    const raw = await r.text();
+    // 摺行展開：行首空白是上一行的延續
+    const lines = raw.replace(/\r\n[ \t]/g, '').split(/\r?\n/);
+    const winStart = new Date(twnToday() + 'T00:00:00+08:00').getTime();
+    const winEnd = winStart + 7 * 86400000;
+    const events: CalEvent[] = [];
+    let cur: any = null;
+    for (const line of lines) {
+      if (line === 'BEGIN:VEVENT') { cur = { exdates: [] }; continue; }
+      if (line === 'END:VEVENT') {
+        if (cur && cur.start && cur.summary && cur.status !== 'CANCELLED') {
+          const dur = cur.end ? Math.max(0, cur.end.ts - cur.start.ts) : (cur.start.allDay ? 86400000 : 3600000);
+          if (!cur.rrule) {
+            if (cur.start.ts < winEnd && cur.start.ts + dur > winStart) {
+              events.push({ start: cur.start.ts, end: cur.start.ts + dur, summary: cur.summary, allDay: cur.start.allDay });
+            }
+          } else {
+            // 逐日掃窗口，命中規則就生一個 occurrence
+            const rule: Record<string, string> = {};
+            for (const part of cur.rrule.split(';')) { const [k, v] = part.split('='); rule[k] = v; }
+            const until = rule.UNTIL ? (parseIcsDate(rule.UNTIL, '')?.ts ?? Infinity) : Infinity;
+            const interval = parseInt(rule.INTERVAL || '1', 10);
+            const s0 = new Date(cur.start.ts + 8 * 3600000); // 台灣時間的起始
+            const byday = rule.BYDAY ? rule.BYDAY.split(',') : null;
+            const wdMap = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+            for (let dayTs = winStart; dayTs < winEnd; dayTs += 86400000) {
+              const d = new Date(dayTs + 8 * 3600000);
+              if (dayTs + dur <= Date.now() - 86400000) continue;
+              const daysDiff = Math.round((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(s0.getUTCFullYear(), s0.getUTCMonth(), s0.getUTCDate())) / 86400000);
+              if (daysDiff < 0) continue;
+              let hit = false;
+              if (rule.FREQ === 'DAILY') hit = daysDiff % interval === 0;
+              else if (rule.FREQ === 'WEEKLY') {
+                const wdOk = byday ? byday.some(b => b.endsWith(wdMap[d.getUTCDay()])) : d.getUTCDay() === s0.getUTCDay();
+                hit = wdOk && Math.floor(daysDiff / 7) % interval === 0;
+              }
+              else if (rule.FREQ === 'MONTHLY') hit = d.getUTCDate() === s0.getUTCDate();
+              else if (rule.FREQ === 'YEARLY') hit = d.getUTCDate() === s0.getUTCDate() && d.getUTCMonth() === s0.getUTCMonth();
+              if (!hit) continue;
+              const occStart = dayTs + (cur.start.allDay ? 0 : (cur.start.ts + 8 * 3600000) % 86400000);
+              if (occStart > until) continue;
+              if (cur.exdates.some((ex: number) => Math.abs(ex - occStart) < 86400000 && new Date(ex + 8 * 3600000).getUTCDate() === d.getUTCDate())) continue;
+              events.push({ start: occStart, end: occStart + dur, summary: cur.summary, allDay: cur.start.allDay });
+            }
+          }
+        }
+        cur = null; continue;
+      }
+      if (!cur) continue;
+      const ci = line.indexOf(':');
+      if (ci < 0) continue;
+      const keyFull = line.slice(0, ci), val = line.slice(ci + 1);
+      const key = keyFull.split(';')[0];
+      if (key === 'DTSTART') cur.start = parseIcsDate(val, keyFull);
+      else if (key === 'DTEND') cur.end = parseIcsDate(val, keyFull);
+      else if (key === 'SUMMARY') cur.summary = icsUnescape(val).trim();
+      else if (key === 'RRULE') cur.rrule = val;
+      else if (key === 'STATUS') cur.status = val;
+      else if (key === 'EXDATE') { const p = parseIcsDate(val, keyFull); if (p) cur.exdates.push(p.ts); }
+    }
+    events.sort((a, b) => a.start - b.start);
+    const out = events.slice(0, 40);
+    await env.PHONE_STATE.put("gcal:events", JSON.stringify({ events: out, ts: Date.now() }), { expirationTtl: 7200 });
+    return out;
+  } catch { return []; }
+}
+
+// 把行程排成給 prompt 的文字。dayOffset 0=今天、1=明天；沒行程回空字串
+function formatCalendarDay(events: CalEvent[], dayOffset: number): string {
+  const dayStart = new Date(twnToday() + 'T00:00:00+08:00').getTime() + dayOffset * 86400000;
+  const dayEnd = dayStart + 86400000;
+  const todays = events.filter(e => e.start < dayEnd && e.end > dayStart);
+  if (!todays.length) return '';
+  return todays.map(e => {
+    if (e.allDay) return `全天：${e.summary}`;
+    const f = (ts: number) => {
+      const d = new Date(ts + 8 * 3600000);
+      return `${d.getUTCHours()}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+    };
+    return `${f(e.start)}–${f(e.end)} ${e.summary}`;
+  }).join('、');
+}
+
 // ── 時段感知留言：天氣＋睡眠＋番茄＋考試倒數＋時段語氣 ──
 async function contextAwareQuote(env: any) {
   try {
@@ -672,13 +792,15 @@ async function contextAwareQuote(env: any) {
     }
 
     // 蒐集情境
-    const [weatherData, healthRaw, pomRaw, sleepRaw] = await Promise.all([
+    const [weatherData, calEvents, healthRaw, pomRaw, sleepRaw] = await Promise.all([
       getWeather(env),
+      getCalendarEvents(env),
       env.PHONE_STATE.get("health:latest"),
       env.PHONE_STATE.get("pomodoro_today"),
       env.PHONE_STATE.get(`sleep:${todayStr}`)
     ]);
     const weatherText = weatherData?.text || '';
+    const calToday = formatCalendarDay(calEvents, 0);
 
     const health = healthRaw ? JSON.parse(healthRaw) : null;
     const sleepH = health?.sleep_ms ? (health.sleep_ms / 3600000).toFixed(1) : null;
@@ -692,6 +814,7 @@ async function contextAwareQuote(env: any) {
 
     let ctx = '';
     if (weatherText) ctx += `天氣：${weatherText}\n`;
+    if (calToday) ctx += `她今天的行程：${calToday}\n`;
     if (sleepH) ctx += `昨晚睡眠：${sleepH} 小時${Number(sleepH) < 6 ? '（太少了）' : ''}\n`;
     if (steps) ctx += `今日步數：${steps}\n`;
     if (todayPom > 0) ctx += `今日番茄：${todayPom} 個\n`;
@@ -975,6 +1098,14 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   const prevMsg = history.length >= 2 ? history[history.length - 2] : null;
   const timeNote = twTimeInfo(prevMsg?.ts);
   systemBlocks.push({ type: "text", text: `\n\n${timeNote}。回覆時要符合當下的時間情境（深夜、早上、隔了很久才回來等）。對話記錄裡先前提過的時間都是過去說的，已經過時，一律以這裡的現在時間為準。` });
+  // 她的行程（Google 日曆）：讓他知道妳今天／明天在忙什麼，不用每次都提
+  try {
+    const calEv = await getCalendarEvents(env);
+    const calT = formatCalendarDay(calEv, 0), calM = formatCalendarDay(calEv, 1);
+    if (calT || calM) {
+      systemBlocks.push({ type: "text", text: `\n\n她的行程（來自她的日曆）：${calT ? `\n今天：${calT}` : ''}${calM ? `\n明天：${calM}` : ''}\n（背景情報，聊到相關話題再自然帶入，不用主動報告。）` });
+    }
+  } catch {}
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
@@ -2054,6 +2185,22 @@ if (request.method === "POST" && url.pathname === "/tts") {
       const cmd = raw ? JSON.parse(raw) : { audio: null, updatedAt: 0 };
       return Response.json(cmd, {
         headers: { "Access-Control-Allow-Origin": "*" }
+      });
+    }
+
+    // GET /calendar — 檢查日曆接通沒（接下來7天的行程）
+    if (request.method === "GET" && url.pathname === "/calendar") {
+      const auth = request.headers.get("Authorization");
+      const qtoken = url.searchParams.get("token");
+      if (auth !== `Bearer ${env.MCP_TOKEN}` && qtoken !== env.MCP_TOKEN) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (!env.GCAL_ICS_URL) return Response.json({ configured: false, hint: "還沒設 GCAL_ICS_URL secret" });
+      const events = await getCalendarEvents(env);
+      return Response.json({
+        configured: true,
+        count: events.length,
+        today: formatCalendarDay(events, 0) || '（今天沒行程）',
+        tomorrow: formatCalendarDay(events, 1) || '（明天沒行程）',
+        events: events.map(e => ({ ...e, startText: new Date(e.start + 8 * 3600000).toISOString().replace('T', ' ').slice(0, 16) })),
       });
     }
 
