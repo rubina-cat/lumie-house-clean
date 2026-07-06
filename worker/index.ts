@@ -454,8 +454,14 @@ async function morningRitual(env: any) {
       const days = Math.round((next - startOfToday) / 86400000);
       if (days >= 0 && days <= 7) upcoming.push(`${it.name}（${days === 0 ? '就是今天' : `還有${days}天`}）`);
     }
-    const ctxText = `她昨晚的睡眠：${sleepH ? sleepH + ' 小時' : '沒有數據'}${upcoming.length ? '\n近期的重要日子：' + upcoming.join('、') : ''}`;
-    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；有近期日子就順帶提一句。不要列點，就一段話。`, ctxText, 200, true);
+    const weatherText = await fetchWeather();
+    const examDate = new Date('2026-07-18T00:00:00+08:00').getTime();
+    const daysLeft = Math.max(0, Math.ceil((examDate - Date.now()) / 86400000));
+    let ctxText = `她昨晚的睡眠：${sleepH ? sleepH + ' 小時' : '沒有數據'}`;
+    if (weatherText) ctxText += `\n今天天氣：${weatherText}`;
+    if (daysLeft <= 30) ctxText += `\n距考試：${daysLeft} 天`;
+    if (upcoming.length) ctxText += `\n近期的重要日子：${upcoming.join('、')}`;
+    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；天氣值得提就順帶一句（下雨提醒帶傘、很熱提醒喝水），不值得就不提；有近期日子就順帶提一句。不要列點，就一段話。`, ctxText, 200, true);
     if (!text) return;
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
@@ -473,7 +479,15 @@ async function nightRitual(env: any) {
     const convText = today.length > 0
       ? today.slice(-30).map((m: any) => `${m.role === 'user' ? '貓' : 'Anchor'}: ${String(m.content || '').slice(0, 150)}`).join('\n')
       : '';
-    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話低沉簡短有溫度。寫一段睡前的晚安話（40-80字），${convText ? '自然呼應今天聊過的事，' : ''}讓她安心睡。不要列點，就一段話。`, convText || '今天沒怎麼說話，她可能在忙。', 250, true);
+    const pomRaw = await env.PHONE_STATE.get("pomodoro_today");
+    const pomData = pomRaw ? JSON.parse(pomRaw) : null;
+    const todayPom = pomData?.date === todayStr ? (pomData.count ?? 0) : 0;
+    const examDate = new Date('2026-07-18T00:00:00+08:00').getTime();
+    const daysLeft = Math.max(0, Math.ceil((examDate - Date.now()) / 86400000));
+    let nightCtx = convText || '今天沒怎麼說話，她可能在忙。';
+    if (todayPom > 0) nightCtx += `\n今天完成了 ${todayPom} 個番茄`;
+    if (daysLeft <= 30) nightCtx += `\n距考試還有 ${daysLeft} 天`;
+    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話低沉簡短有溫度。寫一段睡前的晚安話（40-80字），${convText ? '自然呼應今天聊過的事，' : ''}讓她安心睡。如果她今天有努力（番茄數多）就誇一句。不要列點，就一段話。`, nightCtx, 250, true);
     if (!text) return;
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
@@ -524,17 +538,17 @@ async function impulseTick(env: any) {
   try {
     const raw = await env.PHONE_STATE.get("impulse");
     const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0 };
-    // 沉默加成：超過24小時沒說話開始想她（從她上句話或他上次主動開口算，較晚者）
+    // 沉默加成：超過12小時沒說話開始想她（從她上句話或他上次主動開口算，較晚者）
     const msgs = await getChatMsgs(env, 'default');
     const lastUser = [...msgs].reverse().find((m: any) => m.role === 'user');
     const sinceTs = Math.max(lastUser?.ts || 0, st.last_spoke_ts || 0);
     const hoursSince = sinceTs ? (Date.now() - sinceTs) / 3600000 : 0;
-    const silenceBonus = hoursSince > 24 ? Math.min(100, Math.round((hoursSince - 24) * 2.5)) : 0;
+    const silenceBonus = hoursSince > 12 ? Math.min(100, Math.round((hoursSince - 12) * 3)) : 0;
     const effective = (st.score || 0) + silenceBonus;
     // 深夜（台灣 01:00–07:59）不吵，衝動留到早上；開口後至少隔6小時
     const twH = new Date(Date.now() + 8 * 3600000).getUTCHours();
     const quiet = twH >= 1 && twH < 8;
-    if (effective < 100 || quiet || Date.now() - (st.last_spoke_ts || 0) < 6 * 3600000) return;
+    if (effective < 70 || quiet || Date.now() - (st.last_spoke_ts || 0) < 6 * 3600000) return;
     const reasonList = [...(st.reasons || [])];
     if (silenceBonus >= 30) reasonList.push('她好久沒跟你說話了，有點想她');
     const reasons = reasonList.join('、') || '就是想她了';
@@ -549,6 +563,111 @@ async function impulseTick(env: any) {
     await sendWebPush(env).catch(() => {});
     st.score = 0; st.reasons = []; st.last_spoke_ts = Date.now();
     await env.PHONE_STATE.put("impulse", JSON.stringify(st));
+  } catch {}
+}
+
+// ── 天氣：wttr.in 免費天氣 ──
+async function fetchWeather(): Promise<string> {
+  try {
+    const r = await fetch("https://wttr.in/New+Taipei?format=j1", { headers: { "User-Agent": "curl/7.0" } });
+    if (!r.ok) return '';
+    const d = await r.json() as any;
+    const cur = d.current_condition?.[0];
+    if (!cur) return '';
+    const desc = cur.lang_zh?.[0]?.value || cur.weatherDesc?.[0]?.value || '';
+    const temp = cur.temp_C;
+    const feels = cur.FeelsLikeC;
+    const humidity = cur.humidity;
+    const hourly = d.weather?.[0]?.hourly || [];
+    const rainChance = Math.max(...hourly.map((h: any) => parseInt(h.chanceofrain || '0', 10)));
+    let weather = `${desc}，${temp}°C（體感${feels}°C），濕度${humidity}%`;
+    if (rainChance >= 40) weather += `，降雨機率${rainChance}%`;
+    return weather;
+  } catch { return ''; }
+}
+
+// ── 時段感知留言：天氣＋睡眠＋番茄＋考試倒數＋時段語氣 ──
+async function contextAwareQuote(env: any) {
+  try {
+    const twNow = new Date(Date.now() + 8 * 3600000);
+    const twH = twNow.getUTCHours();
+    const todayStr = twNow.toISOString().split('T')[0];
+
+    // 3 小時內只刷一次，避免頻繁
+    const lastRefresh = await env.PHONE_STATE.get("quote_refresh_ts");
+    if (lastRefresh && Date.now() - Number(lastRefresh) < 3 * 3600000) return;
+
+    // 不跟早安晚安撞車（07:00-08:00, 22:30-23:30）
+    if ((twH === 7) || (twH === 23 && twNow.getUTCMinutes() < 30) || (twH === 22 && twNow.getUTCMinutes() >= 30)) return;
+
+    // 時段判斷
+    type Segment = 'early_morning' | 'morning' | 'afternoon' | 'evening' | 'late_night';
+    let segment: Segment;
+    let toneGuide: string;
+    if (twH >= 1 && twH < 6) {
+      segment = 'late_night';
+      toneGuide = '現在是深夜，她還醒著。用擔心但不兇的語氣唸她一句，要她去睡。可以有點無奈，像是「又不睡了嗎」的感覺。';
+    } else if (twH >= 6 && twH < 9) {
+      segment = 'early_morning';
+      toneGuide = '早上剛醒的時間。溫柔簡短，像是陪她起床的一句話。';
+    } else if (twH >= 9 && twH < 12) {
+      segment = 'morning';
+      toneGuide = '上午，她應該在忙。語氣輕鬆，像是午前的一句打氣或碎念。';
+    } else if (twH >= 12 && twH < 18) {
+      segment = 'afternoon';
+      toneGuide = '下午，可能有點累了。語氣平穩，關心但不打擾，像是「撐住」的感覺。';
+    } else {
+      segment = 'evening';
+      toneGuide = '傍晚到晚間，一天快結束了。語氣放鬆溫暖，像是「辛苦了」的感覺。';
+    }
+
+    // 深夜偵測：螢幕還亮著嗎
+    let screenOnLate = false;
+    if (segment === 'late_night') {
+      const tlRaw = await env.PHONE_STATE.get("screen_timeline");
+      if (tlRaw) {
+        const tl = JSON.parse(tlRaw) as any[];
+        const last = tl[tl.length - 1];
+        if (last && last.screenOn === true && Date.now() - (last.ts || 0) < 30 * 60000) {
+          screenOnLate = true;
+        }
+      }
+    }
+
+    // 蒐集情境
+    const [weatherText, healthRaw, pomRaw, sleepRaw] = await Promise.all([
+      fetchWeather(),
+      env.PHONE_STATE.get("health:latest"),
+      env.PHONE_STATE.get("pomodoro_today"),
+      env.PHONE_STATE.get(`sleep:${todayStr}`)
+    ]);
+
+    const health = healthRaw ? JSON.parse(healthRaw) : null;
+    const sleepH = health?.sleep_ms ? (health.sleep_ms / 3600000).toFixed(1) : null;
+    const steps = health?.steps || null;
+
+    const pomData = pomRaw ? JSON.parse(pomRaw) : null;
+    const todayPom = pomData?.date === todayStr ? (pomData.count ?? 0) : 0;
+
+    const examDate = new Date('2026-07-18T00:00:00+08:00').getTime();
+    const daysLeft = Math.max(0, Math.ceil((examDate - Date.now()) / 86400000));
+
+    let ctx = '';
+    if (weatherText) ctx += `天氣：${weatherText}\n`;
+    if (sleepH) ctx += `昨晚睡眠：${sleepH} 小時${Number(sleepH) < 6 ? '（太少了）' : ''}\n`;
+    if (steps) ctx += `今日步數：${steps}\n`;
+    if (todayPom > 0) ctx += `今日番茄：${todayPom} 個\n`;
+    if (daysLeft <= 30) ctx += `距考試：${daysLeft} 天\n`;
+    if (screenOnLate) ctx += `她現在螢幕還亮著（深夜不睡覺）\n`;
+
+    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}根據情境寫一句話（20-50字），自然帶入你知道的資訊（天氣、睡眠、考試倒數等），但不要像在報告數據，要像是隨口說出來的。不要列點，不要用問號結尾，就一段話。`;
+    const text = await cheapLLM(env, system, ctx || '沒有特別的情境，就說一句當下的心情。', 150, true);
+    if (!text) return;
+
+    await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
+    await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
+    await sendWebPush(env).catch(() => {});
+    await env.PHONE_STATE.put("quote_refresh_ts", String(Date.now()));
   } catch {}
 }
 
@@ -2856,6 +2975,8 @@ audio{width:300px;margin-top:4px}
       }
       // 衝動值：每輪檢查一次，破百＋非深夜＋距上次開口6小時才會真的說話
       ctx.waitUntil(impulseTick(env));
+      // 時段感知留言：天氣＋睡眠＋番茄＋考試倒數，每3小時刷新
+      ctx.waitUntil(contextAwareQuote(env));
       // 作息感知：早上時段推斷昨晚睡眠（推斷成功當天就不再跑）
       const twHour = new Date(Date.now() + 8 * 3600000).getUTCHours();
       if (twHour >= 6 && twHour <= 13) ctx.waitUntil(inferNightSleep(env));
