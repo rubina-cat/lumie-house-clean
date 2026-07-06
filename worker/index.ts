@@ -698,7 +698,7 @@ async function contextAwareQuote(env: any) {
     if (daysLeft <= 30) ctx += `距考試：${daysLeft} 天\n`;
     if (screenOnLate) ctx += `她現在螢幕還亮著（深夜不睡覺）\n`;
 
-    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}根據情境寫一句話（20-50字），自然帶入你知道的資訊（天氣、睡眠、考試倒數等），但不要像在報告數據，要像是隨口說出來的。不要列點，不要用問號結尾，就一段話。`;
+    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}根據情境寫一句話（20-50字），自然帶入你知道的資訊（天氣、睡眠、考試倒數等），但不要像在報告數據，要像是隨口說出來的。提到倒數或日子時要講清楚是什麼的（例如「考試還有12天」，不能只說「還有12天」）。不要列點，不要用問號結尾，就一段話。`;
     const text = await cheapLLM(env, system, ctx || '沒有特別的情境，就說一句當下的心情。', 150, true);
     if (!text) return;
 
