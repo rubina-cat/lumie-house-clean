@@ -973,7 +973,8 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   if (goalText) systemBlocks.push({ type: "text", text: goalText });
   // 時間感知：現在幾點＋距上句話多久（history 最後一則是這次的新訊息，看它前一則）
   const prevMsg = history.length >= 2 ? history[history.length - 2] : null;
-  systemBlocks.push({ type: "text", text: `\n\n${twTimeInfo(prevMsg?.ts)}。回覆時要符合當下的時間情境（深夜、早上、隔了很久才回來等）。` });
+  const timeNote = twTimeInfo(prevMsg?.ts);
+  systemBlocks.push({ type: "text", text: `\n\n${timeNote}。回覆時要符合當下的時間情境（深夜、早上、隔了很久才回來等）。對話記錄裡先前提過的時間都是過去說的，已經過時，一律以這裡的現在時間為準。` });
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
@@ -989,6 +990,15 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     }, required: ["about_her", "events", "about_us", "emotions", "anchor_words"] } }
   ];
   let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
+  // 時間也貼在最新一句話旁（只進 API 呼叫，不存記錄）——小模型容易被記錄裡的舊時間錨定，就近提醒最有效
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role !== 'user') continue;
+    const note = `\n\n[系統：${timeNote}。]`;
+    const c: any = msgs[i].content;
+    if (typeof c === 'string') msgs[i] = { ...msgs[i], content: c + note };
+    else if (Array.isArray(c)) msgs[i] = { ...msgs[i], content: [...c, { type: 'text', text: note }] };
+    break;
+  }
   const usesThinking = modelKey !== 'haiku';
   const maxTok = modelKey === 'haiku' ? 1000 : modelKey === 'sonnet' ? 8000 : 16000;
   const totalUsage = { model: modelId, input_tokens: 0, output_tokens: 0, cache_creation_tokens: 0, cache_read_tokens: 0 };
