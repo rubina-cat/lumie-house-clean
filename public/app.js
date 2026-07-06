@@ -2664,30 +2664,37 @@ async function loadWeather() {
 function applyWeather() {
   document.querySelectorAll('.wx-layer, .wx-dim').forEach(el => el.remove());
   if (_wxKind !== 'rain' && _wxKind !== 'cloudy') return;
-  const hosts = [
+  // 室內場景（大廳、房間、燈塔家）只調暗——雨在窗外，不能下在沙發上 😂
+  const indoor = [
     document.querySelector('.room-scene'),
     document.getElementById('houseStage'),
     document.getElementById('lhRoom'),
-    document.querySelector('.garden-wrap'),
   ].filter(Boolean);
-  for (const host of hosts) {
+  for (const host of indoor) {
     const dim = document.createElement('div');
     dim.className = 'wx-dim ' + _wxKind;
     host.appendChild(dim);
-    if (_wxKind !== 'rain') continue;
-    const layer = document.createElement('div');
-    layer.className = 'wx-layer';
-    const count = host.id === 'houseStage' ? 80 : 28; // 全景圖比較寬，雨要多一點
-    for (let i = 0; i < count; i++) {
-      const d = document.createElement('div');
-      d.className = 'wx-drop';
-      d.style.left = (Math.random() * 100) + '%';
-      d.style.animationDuration = (0.6 + Math.random() * 0.7).toFixed(2) + 's';
-      d.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
-      d.style.opacity = (0.35 + Math.random() * 0.45).toFixed(2);
-      layer.appendChild(d);
+  }
+  // 陽台花園是半戶外，雨絲會飄進來
+  const garden = document.querySelector('.garden-wrap');
+  if (garden) {
+    const dim = document.createElement('div');
+    dim.className = 'wx-dim ' + _wxKind;
+    garden.appendChild(dim);
+    if (_wxKind === 'rain') {
+      const layer = document.createElement('div');
+      layer.className = 'wx-layer';
+      for (let i = 0; i < 28; i++) {
+        const d = document.createElement('div');
+        d.className = 'wx-drop';
+        d.style.left = (Math.random() * 100) + '%';
+        d.style.animationDuration = (0.6 + Math.random() * 0.7).toFixed(2) + 's';
+        d.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
+        d.style.opacity = (0.35 + Math.random() * 0.45).toFixed(2);
+        layer.appendChild(d);
+      }
+      garden.appendChild(layer);
     }
-    host.appendChild(layer);
   }
 }
 loadWeather();
