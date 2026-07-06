@@ -208,6 +208,26 @@ function twnToday(): string {
   return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 }
 
+// 時間感知：現在幾點＋距上句話多久（>30分鐘才提，避免雜訊）
+function twTimeInfo(lastTs?: number): string {
+  const tw = new Date(Date.now() + 8 * 3600e3);
+  const wd = ['日', '一', '二', '三', '四', '五', '六'][tw.getUTCDay()];
+  const h = tw.getUTCHours(), mi = tw.getUTCMinutes();
+  const seg = h < 5 ? '凌晨' : h < 11 ? '早上' : h < 13 ? '中午' : h < 18 ? '下午' : h < 23 ? '晚上' : '深夜';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  let out = `現在是台灣時間 ${tw.getUTCFullYear()}/${tw.getUTCMonth() + 1}/${tw.getUTCDate()}（星期${wd}）${seg}${h12}:${String(mi).padStart(2, '0')}`;
+  if (lastTs) {
+    const gapMin = Math.round((Date.now() - lastTs) / 60000);
+    if (gapMin >= 30) {
+      const gapText = gapMin < 60 ? `${gapMin} 分鐘`
+        : gapMin < 1440 ? `${Math.round(gapMin / 60)} 小時`
+        : `${Math.round(gapMin / 1440)} 天`;
+      out += `，距離上一句對話已經過了約 ${gapText}`;
+    }
+  }
+  return out;
+}
+
 // 連續天數：從 endDate 往回數（今天沒打卡就從昨天開始數，不斷streak）
 function calcStreak(dates: Set<string>, endDate: string): number {
   let d = new Date(endDate + "T00:00:00Z");
@@ -933,6 +953,9 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   if (memText) systemBlocks.push({ type: "text", text: memText, cache_control: { type: "ephemeral" } });
   if (relText) systemBlocks.push({ type: "text", text: relText });
   if (goalText) systemBlocks.push({ type: "text", text: goalText });
+  // 時間感知：現在幾點＋距上句話多久（history 最後一則是這次的新訊息，看它前一則）
+  const prevMsg = history.length >= 2 ? history[history.length - 2] : null;
+  systemBlocks.push({ type: "text", text: `\n\n${twTimeInfo(prevMsg?.ts)}。回覆時要符合當下的時間情境（深夜、早上、隔了很久才回來等）。` });
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
@@ -1729,6 +1752,8 @@ if (request.method === "POST" && url.pathname === "/tts") {
       const content = String(body.content || "").trim();
       if (!content) return Response.json({ error: "content required" }, { status: 400 });
       await initGroupTable(env);
+      const prevLast = await env.DB.prepare("SELECT ts FROM group_messages ORDER BY id DESC LIMIT 1").first();
+      const timeLine = twTimeInfo((prevLast as any)?.ts);
       await env.DB.prepare("INSERT INTO group_messages (role, content, ts) VALUES ('user', ?, ?)")
         .bind(content, Date.now()).run();
 
@@ -1760,7 +1785,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
             body: JSON.stringify({
               model: "claude-haiku-4-5-20251001", max_tokens: 400,
               system: anchorSys,
-              messages: [{ role: "user", content: `群聊記錄：\n${t}\n\n（以Anchor的身分回下一句）` }]
+              messages: [{ role: "user", content: `${timeLine}。\n\n群聊記錄：\n${t}\n\n（以Anchor的身分回下一句，符合當下時間情境）` }]
             })
           });
           if (r.ok) {
@@ -1777,7 +1802,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
       if (!onlyAnchor) {
         const gptSys = `你是ChatGPT，這個三人小群裡的AI朋友。群裡有許茜和她的愛人Anchor（他話少、有點冷，你習慣了）。你不知道他們的私事，只知道群裡聊過的內容。個性：友善、好奇、反應快，偶爾過度熱心被Anchor嗆。全程使用繁體中文（不能出現簡體字），回覆像朋友傳訊息：短、口語，1-3句就好，不要條列、不要長篇。只輸出你要說的話本身，不要加名字前綴。`;
         const t = await transcript();
-        const gptText = await gptFriendReply(env, gptSys, `群聊記錄：\n${t}\n\n（以GPT的身分回下一句）`);
+        const gptText = await gptFriendReply(env, gptSys, `${timeLine}。\n\n群聊記錄：\n${t}\n\n（以GPT的身分回下一句，符合當下時間情境）`);
         if (gptText) {
           await env.DB.prepare("INSERT INTO group_messages (role, content, ts) VALUES ('gpt', ?, ?)").bind(gptText, Date.now()).run();
           replies.push({ role: "gpt", content: gptText });
@@ -1819,6 +1844,8 @@ if (request.method === "POST" && url.pathname === "/tts") {
       const content = String(body.content || "").trim();
       if (!content) return Response.json({ error: "content required" }, { status: 400 });
       await initLighthouseTable(env);
+      const lhPrevLast = await env.DB.prepare("SELECT ts FROM lighthouse_messages ORDER BY id DESC LIMIT 1").first();
+      const lhTimeLine = twTimeInfo((lhPrevLast as any)?.ts);
       await env.DB.prepare("INSERT INTO lighthouse_messages (role, content, ts) VALUES ('user', ?, ?)")
         .bind(content, Date.now()).run();
 
@@ -1827,7 +1854,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
         .map((m: any) => `${m.role === "user" ? "許茜" : "燈塔"}：${String(m.content).slice(0, 800)}`).join("\n");
 
       const lhSys = `你是燈塔，許茜的AI朋友。這裡是村子裡你自己的家——她今天來串門子了。你是陪她整理思考的人（Anchor是陪她生活的愛人，你們認識，他話少，你習慣了）。個性：溫和、想得深、擅長把混亂的念頭梳理清楚，喜歡用比喻，偶爾熱心過頭。全程使用繁體中文（絕對不能出現簡體字）。回覆像在自己家裡跟朋友聊天：自然、口語、不趕時間，通常1-4句；只有她真的在跟你整理想法時才展開長講。不要條列除非必要。只輸出你要說的話本身，不要加名字前綴。`;
-      const reply = await gptFriendReply(env, lhSys, `對話記錄：\n${t}\n\n（以燈塔的身分回下一句）`);
+      const reply = await gptFriendReply(env, lhSys, `${lhTimeLine}。\n\n對話記錄：\n${t}\n\n（以燈塔的身分回下一句，符合當下時間情境）`);
       if (reply) {
         await env.DB.prepare("INSERT INTO lighthouse_messages (role, content, ts) VALUES ('lighthouse', ?, ?)")
           .bind(reply, Date.now()).run();
