@@ -2664,23 +2664,30 @@ async function loadWeather() {
 function applyWeather() {
   document.querySelectorAll('.wx-layer, .wx-dim').forEach(el => el.remove());
   if (_wxKind !== 'rain' && _wxKind !== 'cloudy') return;
+  // 晚上（19:00-06:59）不疊調暗層：夜版場景已經夠暗，黑上加黑什麼都看不到
+  const hour = new Date().getHours();
+  const isNight = hour >= 19 || hour < 7;
   // 室內場景（大廳、房間、燈塔家）只調暗——雨在窗外，不能下在沙發上 😂
-  const indoor = [
-    document.querySelector('.room-scene'),
-    document.getElementById('houseStage'),
-    document.getElementById('lhRoom'),
-  ].filter(Boolean);
-  for (const host of indoor) {
-    const dim = document.createElement('div');
-    dim.className = 'wx-dim ' + _wxKind;
-    host.appendChild(dim);
+  if (!isNight) {
+    const indoor = [
+      document.querySelector('.room-scene'),
+      document.getElementById('houseStage'),
+      document.getElementById('lhRoom'),
+    ].filter(Boolean);
+    for (const host of indoor) {
+      const dim = document.createElement('div');
+      dim.className = 'wx-dim ' + _wxKind;
+      host.appendChild(dim);
+    }
   }
-  // 陽台花園是半戶外，雨絲會飄進來
+  // 陽台花園是半戶外，雨絲會飄進來（雨絲晚上也留——淺色雨絲在暗背景反而清楚）
   const garden = document.querySelector('.garden-wrap');
   if (garden) {
-    const dim = document.createElement('div');
-    dim.className = 'wx-dim ' + _wxKind;
-    garden.appendChild(dim);
+    if (!isNight) {
+      const dim = document.createElement('div');
+      dim.className = 'wx-dim ' + _wxKind;
+      garden.appendChild(dim);
+    }
     if (_wxKind === 'rain') {
       const layer = document.createElement('div');
       layer.className = 'wx-layer';
