@@ -646,25 +646,11 @@ function parseIcsDate(val: string, params: string): { ts: number; allDay: boolea
 
 type CalEvent = { start: number; end: number; summary: string; allDay: boolean };
 
-// 展開接下來 7 天的行程。RRULE 只支援常見型（DAILY / WEEKLY+BYDAY / MONTHLY同日 / YEARLY同月日），
+// 解析一份 ICS，回傳窗口內的行程。RRULE 只支援常見型（DAILY / WEEKLY+BYDAY / MONTHLY同日 / YEARLY同月日），
 // 支援 UNTIL 和 EXDATE；COUNT 太複雜先忽略（誤差是已結束的重複行程可能多顯示，之後有需要再補）。
-async function getCalendarEvents(env: any): Promise<CalEvent[]> {
-  if (!env.GCAL_ICS_URL) return [];
-  try {
-    const cached = await env.PHONE_STATE.get("gcal:events");
-    if (cached) {
-      const c = JSON.parse(cached);
-      if (Date.now() - (c.ts || 0) < 30 * 60000) return c.events;
-    }
-  } catch {}
-  try {
-    const r = await fetch(env.GCAL_ICS_URL, { headers: { "User-Agent": "curl/7.0" } });
-    if (!r.ok) return [];
-    const raw = await r.text();
+function parseIcsEvents(raw: string, winStart: number, winEnd: number): CalEvent[] {
     // 摺行展開：行首空白是上一行的延續
     const lines = raw.replace(/\r\n[ \t]/g, '').split(/\r?\n/);
-    const winStart = new Date(twnToday() + 'T00:00:00+08:00').getTime();
-    const winEnd = winStart + 7 * 86400000;
     const events: CalEvent[] = [];
     let cur: any = null;
     for (const line of lines) {
@@ -720,10 +706,34 @@ async function getCalendarEvents(env: any): Promise<CalEvent[]> {
       else if (key === 'STATUS') cur.status = val;
       else if (key === 'EXDATE') { const p = parseIcsDate(val, keyFull); if (p) cur.exdates.push(p.ts); }
     }
-    events.sort((a, b) => a.start - b.start);
-    const out = events.slice(0, 40);
-    await env.PHONE_STATE.put("gcal:events", JSON.stringify({ events: out, ts: Date.now() }), { expirationTtl: 7200 });
-    return out;
+    return events;
+}
+
+// 抓所有日曆並合併（GCAL_ICS_URL 可放多條私人網址，用逗號/空白/換行隔開——Google 一條網址只對應一本日曆）
+async function getCalendarEvents(env: any): Promise<CalEvent[]> {
+  if (!env.GCAL_ICS_URL) return [];
+  try {
+    const cached = await env.PHONE_STATE.get("gcal:events");
+    if (cached) {
+      const c = JSON.parse(cached);
+      if (Date.now() - (c.ts || 0) < 30 * 60000) return c.events;
+    }
+  } catch {}
+  try {
+    const urls = String(env.GCAL_ICS_URL).split(/[\s,]+/).filter((u: string) => u.startsWith('http'));
+    if (!urls.length) return [];
+    const winStart = new Date(twnToday() + 'T00:00:00+08:00').getTime();
+    const winEnd = winStart + 7 * 86400000;
+    const results = await Promise.all(urls.map(async (u: string) => {
+      try {
+        const r = await fetch(u, { headers: { "User-Agent": "curl/7.0" } });
+        if (!r.ok) return [];
+        return parseIcsEvents(await r.text(), winStart, winEnd);
+      } catch { return []; }
+    }));
+    const events = results.flat().sort((a, b) => a.start - b.start).slice(0, 40);
+    await env.PHONE_STATE.put("gcal:events", JSON.stringify({ events, ts: Date.now() }), { expirationTtl: 7200 });
+    return events;
   } catch { return []; }
 }
 
