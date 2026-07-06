@@ -474,7 +474,7 @@ async function morningRitual(env: any) {
       const days = Math.round((next - startOfToday) / 86400000);
       if (days >= 0 && days <= 7) upcoming.push(`${it.name}（${days === 0 ? '就是今天' : `還有${days}天`}）`);
     }
-    const weatherText = await fetchWeather();
+    const weatherText = (await getWeather(env))?.text || '';
     const examDate = new Date('2026-07-18T00:00:00+08:00').getTime();
     const daysLeft = Math.max(0, Math.ceil((examDate - Date.now()) / 86400000));
     let ctxText = `她昨晚的睡眠：${sleepH ? sleepH + ' 小時' : '沒有數據'}`;
@@ -586,24 +586,41 @@ async function impulseTick(env: any) {
   } catch {}
 }
 
-// ── 天氣：wttr.in 免費天氣 ──
-async function fetchWeather(): Promise<string> {
+// ── 天氣：wttr.in 免費天氣（KV 快取 30 分鐘，留言 prompt 和前端場景共用） ──
+async function getWeather(env: any): Promise<{ text: string; kind: string; temp: number | null; ts: number } | null> {
+  try {
+    const cached = await env.PHONE_STATE.get("weather:latest");
+    if (cached) {
+      const c = JSON.parse(cached);
+      if (Date.now() - (c.ts || 0) < 30 * 60000) return c;
+    }
+  } catch {}
   try {
     const r = await fetch("https://wttr.in/New+Taipei?format=j1", { headers: { "User-Agent": "curl/7.0" } });
-    if (!r.ok) return '';
+    if (!r.ok) return null;
     const d = await r.json() as any;
     const cur = d.current_condition?.[0];
-    if (!cur) return '';
-    const desc = cur.lang_zh?.[0]?.value || cur.weatherDesc?.[0]?.value || '';
+    if (!cur) return null;
+    const descZh = cur.lang_zh?.[0]?.value || '';
+    const descEn = cur.weatherDesc?.[0]?.value || '';
+    const desc = descZh || descEn;
     const temp = cur.temp_C;
     const feels = cur.FeelsLikeC;
     const humidity = cur.humidity;
+    const precip = parseFloat(cur.precipMM || '0');
     const hourly = d.weather?.[0]?.hourly || [];
-    const rainChance = Math.max(...hourly.map((h: any) => parseInt(h.chanceofrain || '0', 10)));
-    let weather = `${desc}，${temp}°C（體感${feels}°C），濕度${humidity}%`;
-    if (rainChance >= 40) weather += `，降雨機率${rainChance}%`;
-    return weather;
-  } catch { return ''; }
+    const rainChance = Math.max(0, ...hourly.map((h: any) => parseInt(h.chanceofrain || '0', 10)));
+    let text = `${desc}，${temp}°C（體感${feels}°C），濕度${humidity}%`;
+    if (rainChance >= 40) text += `，降雨機率${rainChance}%`;
+    // 場景分類：rain（正在下）/ cloudy（陰）/ clear
+    const both = descZh + descEn;
+    let kind = 'clear';
+    if (precip > 0 || /雨|雷|rain|shower|drizzle|thunder|sleet/i.test(both)) kind = 'rain';
+    else if (/陰|霧|多雲|cloud|overcast|fog|mist/i.test(both)) kind = 'cloudy';
+    const out = { text, kind, temp: temp != null ? Number(temp) : null, ts: Date.now() };
+    await env.PHONE_STATE.put("weather:latest", JSON.stringify(out), { expirationTtl: 7200 });
+    return out;
+  } catch { return null; }
 }
 
 // ── 時段感知留言：天氣＋睡眠＋番茄＋考試倒數＋時段語氣 ──
@@ -655,12 +672,13 @@ async function contextAwareQuote(env: any) {
     }
 
     // 蒐集情境
-    const [weatherText, healthRaw, pomRaw, sleepRaw] = await Promise.all([
-      fetchWeather(),
+    const [weatherData, healthRaw, pomRaw, sleepRaw] = await Promise.all([
+      getWeather(env),
       env.PHONE_STATE.get("health:latest"),
       env.PHONE_STATE.get("pomodoro_today"),
       env.PHONE_STATE.get(`sleep:${todayStr}`)
     ]);
+    const weatherText = weatherData?.text || '';
 
     const health = healthRaw ? JSON.parse(healthRaw) : null;
     const sleepH = health?.sleep_ms ? (health.sleep_ms / 3600000).toFixed(1) : null;
@@ -2027,6 +2045,14 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return Response.json(cmd, {
         headers: { "Access-Control-Allow-Origin": "*" }
       });
+    }
+
+    // GET /weather — 前端場景天氣（rain / cloudy / clear）
+    if (request.method === "GET" && url.pathname === "/weather") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const w = await getWeather(env);
+      return Response.json(w || { kind: 'clear', text: '', temp: null }, { headers: { "Access-Control-Allow-Origin": "*" } });
     }
 
     // OPTIONS /mcp/* — CORS preflight for claude.ai

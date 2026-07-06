@@ -3180,3 +3180,32 @@ textarea::placeholder { color: var(--light-text); }
   padding: 2px 6px;
 }
 .group-clear-btn:active { opacity: 1; }
+
+/* ── 天氣場景特效（雨絲＋調暗層，疊在現有背景上） ── */
+.wx-dim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.wx-dim.rain { background: rgba(38, 52, 74, 0.16); }
+.wx-dim.cloudy { background: rgba(70, 80, 100, 0.10); }
+.wx-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 6;
+}
+.wx-drop {
+  position: absolute;
+  top: -14%;
+  width: 1.5px;
+  height: 9%;
+  min-height: 22px;
+  background: linear-gradient(to bottom, transparent, rgba(205, 225, 248, 0.6));
+  border-radius: 2px;
+  animation: wxFall linear infinite;
+}
+@keyframes wxFall { to { transform: translateY(1400%); } }
+.garden-wrap { position: relative; }

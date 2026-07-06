@@ -2650,3 +2650,45 @@ async function clearGroup() {
     loadGroupMsgs();
   } catch {}
 }
+
+// ── 天氣場景特效：下雨/陰天疊在場景背景上 🌧 ──────
+let _wxKind = 'clear';
+async function loadWeather() {
+  try {
+    const r = await fetch(BASE + '/weather', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    if (!r.ok) return;
+    const w = await r.json();
+    if (w && w.kind) { _wxKind = w.kind; applyWeather(); }
+  } catch {}
+}
+function applyWeather() {
+  document.querySelectorAll('.wx-layer, .wx-dim').forEach(el => el.remove());
+  if (_wxKind !== 'rain' && _wxKind !== 'cloudy') return;
+  const hosts = [
+    document.querySelector('.room-scene'),
+    document.getElementById('houseStage'),
+    document.getElementById('lhRoom'),
+    document.querySelector('.garden-wrap'),
+  ].filter(Boolean);
+  for (const host of hosts) {
+    const dim = document.createElement('div');
+    dim.className = 'wx-dim ' + _wxKind;
+    host.appendChild(dim);
+    if (_wxKind !== 'rain') continue;
+    const layer = document.createElement('div');
+    layer.className = 'wx-layer';
+    const count = host.id === 'houseStage' ? 80 : 28; // 全景圖比較寬，雨要多一點
+    for (let i = 0; i < count; i++) {
+      const d = document.createElement('div');
+      d.className = 'wx-drop';
+      d.style.left = (Math.random() * 100) + '%';
+      d.style.animationDuration = (0.6 + Math.random() * 0.7).toFixed(2) + 's';
+      d.style.animationDelay = (Math.random() * 1.5).toFixed(2) + 's';
+      d.style.opacity = (0.35 + Math.random() * 0.45).toFixed(2);
+      layer.appendChild(d);
+    }
+    host.appendChild(layer);
+  }
+}
+loadWeather();
+setInterval(loadWeather, 15 * 60000);
