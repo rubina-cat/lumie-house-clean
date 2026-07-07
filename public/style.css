@@ -559,7 +559,7 @@ body {
 
 .messages {
   flex: 1;
-  padding: 20px 20px 200px;
+  padding: 20px 12px 200px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -577,7 +577,7 @@ body {
   align-self: flex-start;
   max-width: 100%;
 }
-.msg-wrap.av .msg { max-width: calc(82% - 40px); }
+.msg-wrap.av .msg { max-width: calc(94% - 40px); }
 .chat-avatar {
   width: 32px; height: 32px;
   border-radius: 50%;
@@ -590,11 +590,11 @@ body {
 }
 
 .msg {
-  max-width: 82%;
-  padding: 14px 18px;
-  border-radius: 20px;
-  font-size: 15px;
-  line-height: 1.65;
+  max-width: 94%;
+  padding: 16px 20px;
+  border-radius: 22px;
+  font-size: 17px;
+  line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
   animation: fadeUp 0.3s ease;
