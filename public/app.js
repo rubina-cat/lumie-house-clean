@@ -2378,7 +2378,9 @@ setInterval(_applyTheme, 60000); // auto 模式跨過日夜界線時自己換
 // ── 檔案預覽 📄 ──────────────────────────────────
 function openFilePreview(url, name) {
   document.getElementById('filePreviewName').textContent = name || '檔案';
-  document.getElementById('filePreviewFrame').src = url;
+  // 相對路徑用 BASE 補齊，避免 PWA installed context 下解析出錯
+  const fullUrl = /^https?:\/\//i.test(url) ? url : (BASE + url);
+  document.getElementById('filePreviewFrame').src = fullUrl;
   document.getElementById('filePreviewOverlay').style.display = 'flex';
   document.querySelector('.nav').style.display = 'none';
 }
