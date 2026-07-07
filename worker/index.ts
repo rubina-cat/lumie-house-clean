@@ -2518,6 +2518,19 @@ if (request.method === "POST" && url.pathname === "/tts") {
           ];
         } else {
           let text = await upFile.text();
+          // HTML：剝掉樣式/腳本/標籤留正文，不然他讀到的是一堆 CSS
+          if (/\.html?$/i.test(upFile.name)) {
+            text = text
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<br\s*\/?>/gi, '\n')
+              .replace(/<\/(p|div|h[1-6]|li|tr|section|article)>/gi, '\n')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+              .replace(/[ \t]+/g, ' ')
+              .replace(/\n\s*\n\s*\n+/g, '\n\n')
+              .trim();
+          }
           if (text.length > 30000) text = text.slice(0, 30000) + "\n…（後面太長，截斷了）";
           userContent = [
             { type: "text", text: `她傳來一個檔案「${upFile.name}」，內容如下：\n\n${text}\n\n---\n她說：${textMessage}` },
