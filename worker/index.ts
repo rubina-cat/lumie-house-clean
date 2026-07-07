@@ -1019,6 +1019,7 @@ async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Prom
     haiku:    'claude-haiku-4-5-20251001',
     sonnet:   'claude-sonnet-4-6',
     sonnet5:  'claude-sonnet-5',
+    opus46:   'claude-opus-4-6',
     opus:     'claude-opus-4-8',
   };
   const modelId = MODEL_MAP[modelKey] ?? 'claude-haiku-4-5-20251001';
