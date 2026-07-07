@@ -420,26 +420,28 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
-  padding: 52px 24px 20px;
+  padding: max(env(safe-area-inset-top), 8px) 12px 8px;
   background: linear-gradient(180deg, rgba(250, 246, 243, 0.98) 0%, rgba(250, 246, 243, 0) 100%);
   backdrop-filter: blur(8px);
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
+  gap: 4px;
 }
 
 .chat-history-btn {
-  background: var(--card);
-  border: 1px solid var(--card-border);
+  background: transparent;
+  border: none;
   color: var(--mauve);
   font-family: inherit;
-  font-size: 12px;
-  letter-spacing: 0.15em;
-  padding: 8px 16px;
-  border-radius: 14px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  padding: 8px 10px;
+  border-radius: 10px;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(90,62,58,0.06);
+  box-shadow: none;
 }
+.chat-history-btn:hover { background: rgba(0,0,0,0.04); }
 
 .chat-history-btn:active { transform: scale(0.95); }
 
@@ -551,10 +553,11 @@ body {
 
 .chat-title {
   font-family: 'Noto Serif TC', serif;
-  font-size: 22px;
+  font-size: 16px;
   color: var(--deep);
   font-weight: 400;
   letter-spacing: 0.05em;
+  opacity: 0.85;
 }
 
 .messages {
@@ -658,13 +661,16 @@ body {
 }
 
 .msg.assistant {
-  align-self: flex-start;
-  background: var(--card);
-  border: 1px solid var(--card-border);
+  align-self: stretch;
+  background: transparent;
+  border: none;
   color: var(--deep);
-  border-bottom-left-radius: 6px;
-  box-shadow: 0 2px 12px rgba(90,62,58,0.06);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 4px 4px 8px;
+  max-width: 100%;
 }
+.msg-wrap.av .msg.assistant { max-width: calc(100% - 40px); }
 
 .msg.thinking {
   align-self: flex-start;
