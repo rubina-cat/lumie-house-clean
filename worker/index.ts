@@ -1133,7 +1133,11 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
       anchor_words: { type: "string", description: "Anchor的話——用第二人稱對她說的一段話，2-4句，結尾不用簽名" }
     }, required: ["about_her", "events", "about_us", "emotions", "anchor_words"] } }
   ];
-  let msgs = history.map((m: any) => ({ role: m.role as string, content: m.content as string }));
+  // 裁剪歷史：只送最近 N 則給 API（完整記錄仍保留在 KV），避免 token 太多導致 Cloudflare 超時
+  const msgLimit = modelKey === 'haiku' ? 40 : modelKey === 'sonnet' || modelKey === 'sonnet5' ? 30 : 20;
+  const trimmed = history.length > msgLimit ? history.slice(-msgLimit) : history;
+  let msgs = trimmed.map((m: any) => ({ role: m.role as string, content: m.content as string }));
+  if (msgs.length > 0 && msgs[0].role === 'assistant') msgs = msgs.slice(1);
   // 時間也貼在最新一句話旁（只進 API 呼叫，不存記錄）——小模型容易被記錄裡的舊時間錨定，就近提醒最有效
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].role !== 'user') continue;
