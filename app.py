@@ -25,7 +25,7 @@ handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 DATA_FILE = "expenses.json"
-USER_ID_FILE = "user_id.json"
+LINE_USER_ID = os.getenv("LINE_USER_ID")
 user_memory = {}
 
 # ======= 🪄 Rubina 專屬香水清單（升級版：附延伸搭配） =======
@@ -131,21 +131,8 @@ def get_today_total(user_id):
     except Exception:
         return {}, 0
 
-# ======= 👤 使用者 ID 存取 =======
-def save_user_id(uid):
-    try:
-        with open(USER_ID_FILE, "w", encoding="utf-8") as f:
-            json.dump({"rubina": uid}, f)
-    except Exception:
-        pass
-
 def load_user_id():
-    try:
-        with open(USER_ID_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("rubina")
-    except Exception:
-        return None
+    return LINE_USER_ID
 
 # ======= 💌 Flex 小卡（今日香氣） =======
 def create_perfume_card(name, description, lumie_line, style_hint):
@@ -302,7 +289,6 @@ def push_daily_perfume():
 def handle_line_message(event):
     user_input = event.message.text.strip()
     user_id = event.source.user_id
-    save_user_id(user_id)
 
     # ✅ 查 ID
     if user_input in ["查我 ID", "user id", "我的ID"]:
