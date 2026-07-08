@@ -1,5 +1,19 @@
-const TOKEN = '2ruilagi7290501';
+// 驗證改由 HttpOnly session cookie 負責（登入頁 /login 設定），前端不再持有任何 token。
+// 保留這個空字串是為了讓底下沿用 `Bearer ${TOKEN}` 的呼叫不必逐一改寫——cookie 才是真正的憑證。
+const TOKEN = '';
 const BASE = 'https://phone-mcp.l760729.workers.dev';
+
+// 任何請求被判為未登入（401）就導去登入頁
+(function () {
+  const _f = window.fetch;
+  window.fetch = async function (...args) {
+    const res = await _f.apply(this, args);
+    if (res.status === 401 && location.pathname !== '/login') {
+      location.href = '/login';
+    }
+    return res;
+  };
+})();
 const START_DATE = new Date('2026-05-01');
 const SESSION_ID = 'default';
 let messages = [];

@@ -1,5 +1,89 @@
 import { fishCmd, fishNewGame } from './fishing-engine';
 
+// ── 瀏覽器登入 / Session 驗證 ──────────────────────
+// PWA 不再把 API token 寫死在前端。改成：使用者用密碼登入 → 發一個帶簽章的
+// HttpOnly session cookie；之後的請求靠 cookie 驗證。對外的 MCP / Tasker 仍走
+// 原本的 Bearer token，不受影響。
+const SESSION_COOKIE = 'anchor_sess';
+const SESSION_TTL_MS = 90 * 86400000; // 90 天
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+function sessionKey(env: any): string {
+  // 有專用 SESSION_SECRET 就用它，否則退回 MCP_TOKEN（已是機密）當簽章金鑰
+  return env.SESSION_SECRET || env.MCP_TOKEN || '';
+}
+
+async function hmacHex(key: string, msg: string): Promise<string> {
+  const enc = new TextEncoder();
+  const k = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', k, enc.encode(msg));
+  return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function makeSessionCookie(env: any): Promise<string> {
+  const exp = Date.now() + SESSION_TTL_MS;
+  const payload = String(exp);
+  const sig = await hmacHex(sessionKey(env), payload);
+  const value = `${payload}.${sig}`;
+  return `${SESSION_COOKIE}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`;
+}
+
+function readCookie(request: Request, name: string): string | null {
+  const raw = request.headers.get('Cookie');
+  if (!raw) return null;
+  for (const part of raw.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx < 0) continue;
+    if (part.slice(0, idx).trim() === name) return part.slice(idx + 1).trim();
+  }
+  return null;
+}
+
+async function hasValidSession(request: Request, env: any): Promise<boolean> {
+  const key = sessionKey(env);
+  if (!key) return false;
+  const val = readCookie(request, SESSION_COOKIE);
+  if (!val) return false;
+  const dot = val.lastIndexOf('.');
+  if (dot < 0) return false;
+  const payload = val.slice(0, dot), sig = val.slice(dot + 1);
+  const exp = Number(payload);
+  if (!exp || Date.now() > exp) return false;
+  const expected = await hmacHex(key, payload);
+  return timingSafeEqual(sig, expected);
+}
+
+function loginPage(error = false): Response {
+  const html = `<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⚓ Anchor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e8e0d8;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:32px;gap:20px;text-align:center}
+.label{font-size:11px;color:#666;letter-spacing:0.2em;text-transform:uppercase}
+form{display:flex;flex-direction:column;gap:14px;width:100%;max-width:280px}
+input{padding:12px 14px;font-size:16px;background:#1a1a1a;border:1px solid #2c2c2c;border-radius:10px;color:#e8e0d8}
+button{padding:12px;font-size:15px;background:#3d5a7a;border:none;border-radius:10px;color:#fff;cursor:pointer}
+.err{font-size:13px;color:#c86a6a;min-height:16px}
+</style></head>
+<body>
+<div class="label">⚓ Anchor</div>
+<form method="POST" action="/login">
+<input type="password" name="password" placeholder="密語" autofocus autocomplete="current-password" required>
+<button type="submit">進來</button>
+<div class="err">${error ? '密語不對。' : ''}</div>
+</form>
+</body></html>`;
+  return new Response(html, { status: error ? 401 : 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
 // ── VAPID / Web Push helpers ──────────────────────
 function b64urlToBytes(b64url: string): Uint8Array {
   const pad = '='.repeat((4 - b64url.length % 4) % 4);
@@ -1271,6 +1355,44 @@ export default {
     try {
     const url = new URL(request.url);
 
+    // ── 登入頁 / 驗證密碼 ──────────────────────────
+    if (url.pathname === "/login") {
+      if (request.method === "GET") {
+        if (await hasValidSession(request, env)) {
+          return new Response(null, { status: 302, headers: { Location: "/chat-ui.html" } });
+        }
+        return loginPage(false);
+      }
+      if (request.method === "POST") {
+        if (!env.APP_PASSWORD) {
+          return new Response("APP_PASSWORD 尚未設定，請先在 Cloudflare 設定 secret。", { status: 500 });
+        }
+        let password = "";
+        const ct = request.headers.get("Content-Type") || "";
+        if (ct.includes("application/json")) {
+          password = String(((await request.json().catch(() => ({}))) as any).password || "");
+        } else {
+          const form = await request.formData().catch(() => null);
+          password = form ? String(form.get("password") || "") : "";
+        }
+        if (!timingSafeEqual(password, String(env.APP_PASSWORD))) {
+          return loginPage(true);
+        }
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "/chat-ui.html", "Set-Cookie": await makeSessionCookie(env) },
+        });
+      }
+    }
+
+    // 有合法的登入 cookie → 把它「翻譯」成路由們原本認得的 Bearer token，
+    // 這樣底下所有既有的驗證判斷完全不用改，瀏覽器也不需要持有真正的 token。
+    if (await hasValidSession(request, env)) {
+      const h = new Headers(request.headers);
+      h.set("Authorization", `Bearer ${env.MCP_TOKEN}`);
+      request = new Request(request, { headers: h });
+    }
+
     // GET /debug — 診斷環境變數狀態（需 token）
     if (request.method === "GET" && url.pathname === "/debug") {
       const auth = request.headers.get("Authorization");
@@ -2249,6 +2371,8 @@ if (request.method === "POST" && url.pathname === "/tts") {
         return new Response("Unauthorized", { status: 401 });
       }
       const sessionId = crypto.randomUUID();
+      // 標記這個 session 已通過 token 驗證，/mcp/message 才認得它
+      await env.PHONE_STATE.put(`mcp_auth_${sessionId}`, "1", { expirationTtl: 300 });
       const msgUrl = `${url.origin}/mcp/message/${sessionId}`;
       const encoder = new TextEncoder();
       const { readable, writable } = new TransformStream();
@@ -2285,6 +2409,9 @@ if (request.method === "POST" && url.pathname === "/tts") {
     // POST /mcp/message/:sessionId — relay MCP messages to SSE stream
     if (request.method === "POST" && url.pathname.startsWith("/mcp/message/")) {
       const sessionId = url.pathname.replace("/mcp/message/", "");
+      // 只接受由已驗證的 /mcp/sse 發出的 session，堵住無驗證直接呼叫工具的漏洞
+      const authed = await env.PHONE_STATE.get(`mcp_auth_${sessionId}`);
+      if (!authed) return new Response("Unauthorized", { status: 401 });
       const bodyText = await request.text();
       const body = JSON.parse(bodyText) as any;
       if (body.id === undefined) return new Response("", { status: 202 }); // notification, no response needed
@@ -2314,6 +2441,12 @@ if (request.method === "POST" && url.pathname === "/tts") {
     // GET /media/* — 從 R2 取圖片
     if (request.method === "GET" && url.pathname.startsWith("/media/")) {
       const key = url.pathname.replace("/media/", "");
+      // 私人照片與生成檔案需驗證（瀏覽器靠 cookie，已在上面翻譯成 Bearer）。
+      // audio/ 需要跨源播放，維持公開。
+      if (!key.startsWith("audio/")) {
+        const auth = request.headers.get("Authorization");
+        if (auth !== `Bearer ${env.MCP_TOKEN}`) return new Response("Unauthorized", { status: 401 });
+      }
       const obj = await env.MEDIA.get(key);
       if (!obj) return new Response("Not found", { status: 404 });
       const ct = obj.httpMetadata?.contentType ?? "image/jpeg";
@@ -2731,11 +2864,15 @@ audio{width:300px;margin-top:4px}
       let result: any = { text: "他還在想今晚要說什麼……23:00 之後再來。" };
       if (raw) {
         const q = JSON.parse(raw);
+        // 用台灣時間算「今晚 22:00」：先取台灣當地日期，再換回 UTC 時間戳
         const now = Date.now();
-        const nightStart = new Date(now);
-        if (new Date(now).getHours() < 4) nightStart.setDate(nightStart.getDate() - 1);
-        nightStart.setHours(22, 0, 0, 0);
-        if (q.updatedAt && q.updatedAt >= nightStart.getTime()) result = q;
+        const tw = new Date(now + 8 * 3600000);
+        // 台灣時間凌晨 4 點前，「今晚」仍指前一天的 22:00
+        if (tw.getUTCHours() < 4) tw.setUTCDate(tw.getUTCDate() - 1);
+        const y = tw.getUTCFullYear(), mo = tw.getUTCMonth(), d = tw.getUTCDate();
+        // 台灣 22:00 = 當地 22:00 對應的 UTC 時間戳（-8 小時）
+        const nightStart = Date.UTC(y, mo, d, 22, 0, 0) - 8 * 3600000;
+        if (q.updatedAt && q.updatedAt >= nightStart) result = q;
       }
       return Response.json(result, { headers: h });
     }
@@ -3261,7 +3398,7 @@ async function verifyLineSignature(body: string, signature: string, secret: stri
     );
     const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
     const expected = btoa(String.fromCharCode(...new Uint8Array(sig)));
-    return expected === signature;
+    return timingSafeEqual(expected, signature);
   } catch {
     return false;
   }

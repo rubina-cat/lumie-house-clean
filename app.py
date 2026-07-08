@@ -225,7 +225,9 @@ def push_daily_perfume_card(user_id, perfumes_dict, line_bot_api):
 # ======= 🚪 webhook 接收 =======
 @app.route("/line-webhook", methods=["POST"])
 def callback():
-    signature = request.headers["X-Line-Signature"]
+    signature = request.headers.get("X-Line-Signature")
+    if not signature:
+        abort(400)
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
