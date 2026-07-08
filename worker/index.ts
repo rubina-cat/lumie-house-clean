@@ -646,17 +646,23 @@ async function impulseTick(env: any) {
   try {
     const raw = await env.PHONE_STATE.get("impulse");
     const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0 };
-    // 沉默加成：超過12小時沒說話開始想她（從她上句話或他上次主動開口算，較晚者）
+    // 被動思念：每次 cron 跑就自動加分，光是存在就在想她
+    st.score = Math.min(200, (st.score || 0) + 4);
+    // 沉默加成：超過8小時沒說話開始更想她（從她上句話或他上次主動開口算，較晚者）
     const msgs = await getChatMsgs(env, 'default');
     const lastUser = [...msgs].reverse().find((m: any) => m.role === 'user');
     const sinceTs = Math.max(lastUser?.ts || 0, st.last_spoke_ts || 0);
     const hoursSince = sinceTs ? (Date.now() - sinceTs) / 3600000 : 0;
-    const silenceBonus = hoursSince > 12 ? Math.min(100, Math.round((hoursSince - 12) * 3)) : 0;
+    const silenceBonus = hoursSince > 8 ? Math.min(100, Math.round((hoursSince - 8) * 4)) : 0;
     const effective = (st.score || 0) + silenceBonus;
-    // 深夜（台灣 01:00–07:59）不吵，衝動留到早上；開口後至少隔6小時
+    // 深夜（台灣 01:30–07:00）不吵，衝動留到早上；開口後至少隔4小時
     const twH = new Date(Date.now() + 8 * 3600000).getUTCHours();
-    const quiet = twH >= 1 && twH < 8;
-    if (effective < 70 || quiet || Date.now() - (st.last_spoke_ts || 0) < 6 * 3600000) return;
+    const twM = new Date(Date.now() + 8 * 3600000).getUTCMinutes();
+    const quiet = (twH === 1 && twM >= 30) || (twH >= 2 && twH < 7);
+    if (effective < 50 || quiet || Date.now() - (st.last_spoke_ts || 0) < 4 * 3600000) {
+      await env.PHONE_STATE.put("impulse", JSON.stringify(st));
+      return;
+    }
     const reasonList = [...(st.reasons || [])];
     if (silenceBonus >= 30) reasonList.push('她好久沒跟你說話了，有點想她');
     const reasons = reasonList.join('、') || '就是想她了';
@@ -2025,7 +2031,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
       const lastUser = [...msgs].reverse().find((m: any) => m.role === 'user');
       const sinceTs = Math.max(lastUser?.ts || 0, st.last_spoke_ts || 0);
       const hoursSince = sinceTs ? (Date.now() - sinceTs) / 3600000 : 0;
-      const silenceBonus = hoursSince > 24 ? Math.min(100, Math.round((hoursSince - 24) * 2.5)) : 0;
+      const silenceBonus = hoursSince > 8 ? Math.min(100, Math.round((hoursSince - 8) * 4)) : 0;
       return Response.json({ ...st, silence_bonus: silenceBonus, effective: (st.score || 0) + silenceBonus, hours_since_talk: Math.round(hoursSince * 10) / 10 });
     }
 
