@@ -1243,12 +1243,17 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     };
     const bodyObj: any = { model: modelId, max_tokens: maxTok, system: systemBlocks, tools, messages: m };
     if (usesThinking) bodyObj.thinking = { type: "adaptive" };
-    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(bodyObj) });
-    if (!r.ok) {
+    const retryable = new Set([403, 429, 500, 502, 503, 529]);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(bodyObj) });
+      if (r.ok) return r.json() as Promise<any>;
+      if (retryable.has(r.status) && attempt < 2) {
+        await new Promise(ok => setTimeout(ok, (attempt + 1) * 2000));
+        continue;
+      }
       const errText = await r.text().catch(() => `HTTP ${r.status}`);
       throw new Error(`Anthropic ${r.status}: ${errText.slice(0, 200)}`);
     }
-    return r.json() as Promise<any>;
   };
   let data = await call(msgs).catch((e: any) => ({ content: [{ type: "text", text: `（暫時無法回應：${e.message}）` }], stop_reason: "end_turn", usage: null }));
   if (data.usage) { totalUsage.input_tokens += data.usage.input_tokens || 0; totalUsage.output_tokens += data.usage.output_tokens || 0; totalUsage.cache_creation_tokens += data.usage.cache_creation_input_tokens || 0; totalUsage.cache_read_tokens += data.usage.cache_read_input_tokens || 0; }
