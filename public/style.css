@@ -565,7 +565,7 @@ body {
   padding: 20px 12px 200px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   min-height: calc(100dvh - 200px);
   overflow-y: auto;
 }
@@ -667,8 +667,9 @@ body {
   color: var(--deep);
   border-radius: 0;
   box-shadow: none;
-  padding: 4px 4px 8px;
+  padding: 2px 4px 4px;
   max-width: 100%;
+  line-height: 1.55;
 }
 .msg-wrap.av .msg.assistant { max-width: calc(100% - 40px); }
 
@@ -1844,14 +1845,16 @@ textarea::placeholder { color: var(--light-text); }
 /* ── Moodlet 情緒徽章 ─────────────────────────────── */
 .moodlet-card {
   position: relative;
-  display: inline-block;
-  margin: 6px 0;
-  padding: 8px 12px 8px 14px;
-  border-radius: 12px;
+  display: block;
+  width: fit-content;
+  align-self: flex-start;
+  margin: 4px 0;
+  padding: 7px 12px 7px 12px;
+  border-radius: 10px;
   border-left: 3px solid var(--mc, #c8b0b0);
   background: var(--card);
   box-shadow: 0 1px 8px rgba(0,0,0,0.07);
-  max-width: 220px;
+  max-width: 240px;
   overflow: hidden;
 }
 .moodlet-card::before {
