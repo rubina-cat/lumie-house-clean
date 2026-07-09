@@ -3154,7 +3154,7 @@ audio{width:300px;margin-top:4px}
         for (let i = 0; i < u8.byteLength; i++) bin += String.fromCharCode(u8[i]);
         const b64 = btoa(bin);
         const mime = audio.type || "audio/webm";
-        const gr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_KEY}`, {
+        const gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + env.GEMINI_KEY, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -3165,11 +3165,20 @@ audio{width:300px;margin-top:4px}
             generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
           })
         });
+        if (!gr.ok) {
+          const errText = await gr.text().catch(() => `HTTP ${gr.status}`);
+          return Response.json({ error: `Gemini ${gr.status}: ${errText.slice(0, 300)}` }, { status: 500 });
+        }
         const gd = await gr.json() as any;
         const raw = gd.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (!raw) return Response.json({ error: "Gemini 回傳空白，可能音檔太短或格式不支援。mime=" + mime + " size=" + u8.byteLength }, { status: 500 });
         const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-        const parsed = JSON.parse(cleaned);
-        return Response.json({ text: parsed.text || "", emotion: parsed.emotion || "" });
+        try {
+          const parsed = JSON.parse(cleaned);
+          return Response.json({ text: parsed.text || "", emotion: parsed.emotion || "" });
+        } catch {
+          return Response.json({ error: "Gemini 回傳非 JSON: " + cleaned.slice(0, 200) }, { status: 500 });
+        }
       } catch (e: any) {
         return Response.json({ error: e.message }, { status: 500 });
       }
