@@ -1104,7 +1104,7 @@ async function extractFileBlock(reply: string, env: any): Promise<{ clean: strin
   return { clean, file_url: `/media/${key}`, file_name: rawName };
 }
 
-async function runClaudeChat(env: any, history: any[], modelKey = 'haiku'): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
+async function runClaudeChat(env: any, history: any[], modelKey = 'haiku', voiceEmotion?: string): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
   const MODEL_MAP: Record<string, string> = {
     haiku:    'claude-haiku-4-5-20251001',
     sonnet:   'claude-sonnet-4-6',
@@ -1209,6 +1209,9 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
       systemBlocks.push({ type: "text", text: `\n\n她的行程（來自她的日曆）：${calT ? `\n今天：${calT}` : ''}${calM ? `\n明天：${calM}` : ''}\n（背景情報，聊到相關話題再自然帶入，不用主動報告。）` });
     }
   } catch {}
+  if (voiceEmotion) {
+    systemBlocks.push({ type: "text", text: `\n\n【語音情緒】她剛才這句話是用語音說的，語氣分析：${voiceEmotion}\n（自然地感受她的狀態，不要直接說「我聽到你語氣怎樣」，而是讓你的回應方式反映你讀到了她的空氣。）` });
+  }
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
@@ -3136,6 +3139,42 @@ audio{width:300px;margin-top:4px}
       return Response.json({ messages: raw ? JSON.parse(raw) : [] });
     }
 
+    // POST /api/chat/voice — 語音轉文字＋情緒辨識（Gemini Flash）
+    if (request.method === "POST" && url.pathname === "/api/chat/voice") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (!env.GEMINI_KEY) return Response.json({ error: "GEMINI_KEY not set" }, { status: 500 });
+      try {
+        const formData = await request.formData();
+        const audio = formData.get("audio") as File;
+        if (!audio) return Response.json({ error: "no audio" }, { status: 400 });
+        const buf = await audio.arrayBuffer();
+        const u8 = new Uint8Array(buf);
+        let bin = "";
+        for (let i = 0; i < u8.byteLength; i++) bin += String.fromCharCode(u8[i]);
+        const b64 = btoa(bin);
+        const mime = audio.type || "audio/webm";
+        const gr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [
+              { inline_data: { mime_type: mime, data: b64 } },
+              { text: '請聽這段語音，回傳 JSON（不要 markdown code block）：{"text":"逐字轉錄的文字（繁體中文）","emotion":"用一句繁體中文描述說話者的語氣和情緒狀態，例如：聽起來有點疲憊，語速慢，尾音下沉"}' }
+            ] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
+          })
+        });
+        const gd = await gr.json() as any;
+        const raw = gd.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+        const parsed = JSON.parse(cleaned);
+        return Response.json({ text: parsed.text || "", emotion: parsed.emotion || "" });
+      } catch (e: any) {
+        return Response.json({ error: e.message }, { status: 500 });
+      }
+    }
+
     // POST /api/chat/send
     if (request.method === "POST" && url.pathname === "/api/chat/send") {
       const auth = request.headers.get("Authorization");
@@ -3190,7 +3229,8 @@ audio{width:300px;margin-top:4px}
       if (!content) return Response.json({ error: "empty" }, { status: 400 });
       const userId = `u_${Date.now()}`;
       msgs.push({ id: userId, role: "user", content, ts: Date.now() });
-      const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
+      const voiceEmotion = (body.voice_emotion || "").trim() || undefined;
+      const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, modelKey, voiceEmotion);
       ctx.waitUntil(Promise.all([logUsage(env, usage), autoExtractMemories(env, msgs)]));
       const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
       const assistantId = `a_${Date.now() + 1}`;
