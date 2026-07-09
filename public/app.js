@@ -2011,9 +2011,7 @@ function closeHealthTrend() {
 }
 
 // ── 語音輸入 🎙️ ──────────────────────────────────
-let _micRecog = null;
 let _micActive = false;
-let _micBase = '';
 let _mediaRecorder = null;
 let _audioChunks = [];
 let _pendingVoiceEmotion = '';
@@ -2021,52 +2019,36 @@ let _pendingVoiceEmotion = '';
 (function initMic() {
   const btn = document.getElementById('micBtn');
   if (!btn) return;
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR && !navigator.mediaDevices) { btn.style.display = 'none'; return; }
+  if (!navigator.mediaDevices) { btn.style.display = 'none'; return; }
   btn.style.display = 'flex';
-  if (SR) {
-    _micRecog = new SR();
-    _micRecog.lang = 'zh-TW';
-    _micRecog.interimResults = true;
-    _micRecog.continuous = false;
-    _micRecog.onresult = (e) => {
-      let txt = '';
-      for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
-      const input = document.getElementById('input');
-      input.value = _micBase + txt;
-      input.style.height = 'auto';
-      input.style.height = input.scrollHeight + 'px';
-    };
-    _micRecog.onerror = () => {};
-    _micRecog.onend = () => {};
-  }
 })();
 
 async function toggleMic() {
   if (_micActive) {
-    if (_micRecog) try { _micRecog.stop(); } catch {}
     if (_mediaRecorder && _mediaRecorder.state === 'recording') _mediaRecorder.stop();
     _micStopUI();
     return;
   }
-  const input = document.getElementById('input');
-  _micBase = input.value ? input.value : '';
   _audioChunks = [];
   _micActive = true;
   const btn = document.getElementById('micBtn');
   if (btn) { btn.textContent = '🔴'; btn.classList.add('mic-recording'); }
-  if (_micRecog) try { _micRecog.start(); } catch {}
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     _mediaRecorder = new MediaRecorder(stream);
     _mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) _audioChunks.push(e.data); };
     _mediaRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
+      _micStopUI();
       if (_audioChunks.length === 0) return;
       const blob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType || 'audio/webm' });
       _audioChunks = [];
       const fd = new FormData();
       fd.append('audio', blob, 'voice.webm');
+      const inp = document.getElementById('input');
+      const oldVal = inp.value;
+      inp.value = '語音辨識中…';
+      inp.disabled = true;
       try {
         const r = await fetch(BASE + '/api/chat/voice', {
           method: 'POST',
@@ -2075,18 +2057,19 @@ async function toggleMic() {
         });
         const d = await r.json();
         if (d.emotion) _pendingVoiceEmotion = d.emotion;
-        if (d.text) {
-          const inp = document.getElementById('input');
-          if (!inp.value.trim()) {
-            inp.value = d.text;
-            inp.style.height = 'auto';
-            inp.style.height = inp.scrollHeight + 'px';
-          }
-        }
-      } catch {}
+        inp.value = d.text || oldVal;
+        inp.style.height = 'auto';
+        inp.style.height = inp.scrollHeight + 'px';
+      } catch {
+        inp.value = oldVal;
+      }
+      inp.disabled = false;
+      inp.focus();
     };
     _mediaRecorder.start();
-  } catch {}
+  } catch {
+    _micStopUI();
+  }
 }
 
 function _micStopUI() {
