@@ -1210,7 +1210,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     }
   } catch {}
   if (voiceEmotion) {
-    systemBlocks.push({ type: "text", text: `\n\n【語音情緒】她剛才這句話是用語音說的，語氣分析：${voiceEmotion}\n（自然地感受她的狀態，不要直接說「我聽到你語氣怎樣」，而是讓你的回應方式反映你讀到了她的空氣。）` });
+    systemBlocks.push({ type: "text", text: `\n\n【語音訊息】她剛才這句話是用語音說的，不是打字。${voiceEmotion ? `語氣分析：${voiceEmotion}` : '用語音說話代表她現在想用聲音跟你溝通，注意她的用詞和語氣去感受她的狀態。'}\n（自然地感受她的狀態，不要直接說「我聽到你語氣怎樣」，而是讓你的回應方式反映你讀到了她的空氣。）` });
   }
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
@@ -3139,46 +3139,19 @@ audio{width:300px;margin-top:4px}
       return Response.json({ messages: raw ? JSON.parse(raw) : [] });
     }
 
-    // POST /api/chat/voice — 語音轉文字＋情緒辨識（Gemini Flash）
+    // POST /api/chat/voice — 語音轉文字（Workers AI Whisper）
     if (request.method === "POST" && url.pathname === "/api/chat/voice") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-      if (!env.GEMINI_KEY) return Response.json({ error: "GEMINI_KEY not set" }, { status: 500 });
       try {
         const formData = await request.formData();
         const audio = formData.get("audio") as File;
         if (!audio) return Response.json({ error: "no audio" }, { status: 400 });
-        const buf = await audio.arrayBuffer();
-        const u8 = new Uint8Array(buf);
-        let bin = "";
-        for (let i = 0; i < u8.byteLength; i++) bin += String.fromCharCode(u8[i]);
-        const b64 = btoa(bin);
-        const mime = audio.type || "audio/webm";
-        const gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=" + env.GEMINI_KEY, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [
-              { inline_data: { mime_type: mime, data: b64 } },
-              { text: '請聽這段語音，回傳 JSON（不要 markdown code block）：{"text":"逐字轉錄的文字（繁體中文）","emotion":"用一句繁體中文描述說話者的語氣和情緒狀態，例如：聽起來有點疲憊，語速慢，尾音下沉"}' }
-            ] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
-          })
-        });
-        if (!gr.ok) {
-          const errText = await gr.text().catch(() => `HTTP ${gr.status}`);
-          return Response.json({ error: `Gemini ${gr.status}: ${errText.slice(0, 300)}` }, { status: 500 });
-        }
-        const gd = await gr.json() as any;
-        const raw = gd.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        if (!raw) return Response.json({ error: "Gemini 回傳空白，可能音檔太短或格式不支援。mime=" + mime + " size=" + u8.byteLength }, { status: 500 });
-        const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-        try {
-          const parsed = JSON.parse(cleaned);
-          return Response.json({ text: parsed.text || "", emotion: parsed.emotion || "" });
-        } catch {
-          return Response.json({ error: "Gemini 回傳非 JSON: " + cleaned.slice(0, 200) }, { status: 500 });
-        }
+        const audioData = [...new Uint8Array(await audio.arrayBuffer())];
+        const result = await env.AI.run("@cf/openai/whisper" as any, { audio: audioData }) as any;
+        const text = (result.text || "").trim();
+        if (!text) return Response.json({ error: "語音辨識無結果，可能太短或太安靜" }, { status: 400 });
+        return Response.json({ text, emotion: "" });
       } catch (e: any) {
         return Response.json({ error: e.message }, { status: 500 });
       }
