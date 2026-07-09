@@ -2060,7 +2060,7 @@ async function toggleMic() {
           inp.value = oldVal;
           alert('語音辨識失敗：' + d.error);
         } else {
-          _pendingVoiceEmotion = d.emotion || '語音訊息';
+          if (d.emotion) _pendingVoiceEmotion = d.emotion;
           inp.value = d.text || oldVal;
           inp.style.height = 'auto';
           inp.style.height = inp.scrollHeight + 'px';
