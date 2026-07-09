@@ -3154,7 +3154,7 @@ audio{width:300px;margin-top:4px}
         for (let i = 0; i < u8.byteLength; i++) bin += String.fromCharCode(u8[i]);
         const b64 = btoa(bin);
         const mime = audio.type || "audio/webm";
-        const gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + env.GEMINI_KEY, {
+        const gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=" + env.GEMINI_KEY, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
