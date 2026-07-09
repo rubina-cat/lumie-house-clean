@@ -565,7 +565,7 @@ body {
   padding: 20px 12px 200px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   min-height: calc(100dvh - 200px);
   overflow-y: auto;
 }
@@ -594,10 +594,10 @@ body {
 
 .msg {
   max-width: 94%;
-  padding: 16px 20px;
+  padding: 12px 18px;
   border-radius: 22px;
-  font-size: 17px;
-  line-height: 1.7;
+  font-size: 15px;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
   animation: fadeUp 0.3s ease;
