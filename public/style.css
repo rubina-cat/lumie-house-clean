@@ -1845,9 +1845,9 @@ textarea::placeholder { color: var(--light-text); }
 /* ── Moodlet 情緒徽章 ─────────────────────────────── */
 .moodlet-card {
   position: relative;
-  display: block;
-  width: fit-content;
-  align-self: flex-start;
+  display: inline-block;
+  white-space: normal;
+  vertical-align: top;
   margin: 4px 0;
   padding: 7px 12px 7px 12px;
   border-radius: 10px;

@@ -115,13 +115,8 @@ function _moodCard(attr) {
   const d = MOODS[mood] || { icon: '✦', title: mood || '—', color: '#b09090' };
   const title = escHtml(as_ || d.title);
   const hasV = hr || rd || fl || br;
-  return `<div class="moodlet-card" style="--mc:${d.color}">
-    <div class="moodlet-top"><span class="moodlet-icon">${d.icon}</span><span class="moodlet-title">${title}</span></div>
-    ${reason ? `<div class="moodlet-reason">${escHtml(reason)}</div>` : ''}
-    ${hasV ? `<details class="moodlet-vitals"><summary>✦ 狀態</summary><div class="moodlet-vitals-body">${
-      [hr&&`<span>♡ ${escHtml(hr)}</span>`, rd&&`<span>⟳ ${escHtml(rd)}</span>`, fl&&`<span>◎ ${escHtml(fl)}</span>`, br&&`<span>~ ${escHtml(br)}</span>`].filter(Boolean).join('')
-    }</div></details>` : ''}
-  </div>`;
+  const vitals = hasV ? `<details class="moodlet-vitals"><summary>✦ 狀態</summary><div class="moodlet-vitals-body">${[hr&&`<span>♡ ${escHtml(hr)}</span>`,rd&&`<span>⟳ ${escHtml(rd)}</span>`,fl&&`<span>◎ ${escHtml(fl)}</span>`,br&&`<span>~ ${escHtml(br)}</span>`].filter(Boolean).join('')}</div></details>` : '';
+  return `<div class="moodlet-card" style="--mc:${d.color}"><div class="moodlet-top"><span class="moodlet-icon">${d.icon}</span><span class="moodlet-title">${title}</span></div>${reason?`<div class="moodlet-reason">${escHtml(reason)}</div>`:''}${vitals}</div>`;
 }
 
 
