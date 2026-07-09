@@ -2056,12 +2056,18 @@ async function toggleMic() {
           body: fd
         });
         const d = await r.json();
-        if (d.emotion) _pendingVoiceEmotion = d.emotion;
-        inp.value = d.text || oldVal;
-        inp.style.height = 'auto';
-        inp.style.height = inp.scrollHeight + 'px';
-      } catch {
+        if (d.error) {
+          inp.value = oldVal;
+          alert('語音辨識失敗：' + d.error);
+        } else {
+          if (d.emotion) _pendingVoiceEmotion = d.emotion;
+          inp.value = d.text || oldVal;
+          inp.style.height = 'auto';
+          inp.style.height = inp.scrollHeight + 'px';
+        }
+      } catch (e) {
         inp.value = oldVal;
+        alert('語音上傳失敗：' + e.message);
       }
       inp.disabled = false;
       inp.focus();
