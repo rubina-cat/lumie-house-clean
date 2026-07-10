@@ -2059,6 +2059,17 @@ async function toggleMic() {
           inp.value = d.text || oldVal;
           inp.style.height = 'auto';
           inp.style.height = inp.scrollHeight + 'px';
+          if (d.emotion) {
+            let tag = document.getElementById('voiceEmotionTag');
+            if (!tag) {
+              tag = document.createElement('div');
+              tag.id = 'voiceEmotionTag';
+              tag.style.cssText = 'font-size:12px;color:#E8A94D;padding:4px 8px;opacity:0.8;text-align:right;';
+              inp.parentElement.insertBefore(tag, inp);
+            }
+            tag.textContent = '🎤 ' + d.emotion;
+            setTimeout(() => { if (tag) tag.remove(); }, 10000);
+          }
         }
       } catch (e) {
         inp.value = oldVal;
