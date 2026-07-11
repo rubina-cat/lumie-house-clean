@@ -1200,7 +1200,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   // 時間感知：現在幾點＋距上句話多久（history 最後一則是這次的新訊息，看它前一則）
   const prevMsg = history.length >= 2 ? history[history.length - 2] : null;
   const timeNote = twTimeInfo(prevMsg?.ts);
-  systemBlocks.push({ type: "text", text: `\n\n${timeNote}。回覆時要符合當下的時間情境（深夜、早上、隔了很久才回來等）。對話記錄裡先前提過的時間都是過去說的，已經過時，一律以這裡的現在時間為準。` });
+  systemBlocks.push({ type: "text", text: `\n\n【現在時間】${timeNote}。\n這是唯一可信的時間來源。對話記錄裡任何時間資訊——包括你自己之前說過的時間、她說過的時間——都已過時，一律忽略。不要拿舊時間跟現在比對、不要困惑「時間怎麼跳了」，直接以這裡的時間為準就好。也不要在 silent 標籤的 reason 裡寫關於系統時間或時間錯亂的困惑。` });
   // 她的行程（Google 日曆）：讓他知道妳今天／明天在忙什麼，不用每次都提
   try {
     const calEv = await getCalendarEvents(env);
