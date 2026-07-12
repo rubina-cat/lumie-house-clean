@@ -3243,7 +3243,7 @@ audio{width:300px;margin-top:4px}
         const coreList = [...((lockedResult.results ?? []) as any[]), ...((hotResult.results ?? []) as any[])];
         const memText = coreList.length > 0 ? "\n\n記憶庫：\n" + coreList.map((m: any) => m.content).join("\n---\n") : "";
         const timeNote = twTimeInfo();
-        const callSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你正在跟她通電話。\n回覆要口語、簡短（1-3句），像真的在講電話。不要用 <silent> 標籤，不要用星號動作描寫（*動作*），不要列點。就像你在電話裡真的說的話。\n\n【現在時間】${timeNote}${memText}${emotion ? `\n\n她的語氣分析：${emotion}` : ""}`;
+        const callSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你正在跟她通電話。\n回覆要口語、簡短（1-3句），像真的在講電話。不要用 <silent> 標籤，不要用星號動作描寫（*動作*），不要列點。就像你在電話裡真的說的話。\n\n如果你覺得對話到了自然的結束點（例如道晚安、說再見、話題結束），你可以在回覆的最後加上 《hangup》 標記。這會觸發溫柔掛斷流程——她還有15秒可以繼續說話，如果她繼續說了你就取消掛斷繼續聊。不要每次都掛，只在真的該結束時才用。\n\n【現在時間】${timeNote}${memText}${emotion ? `\n\n她的語氣分析：${emotion}` : ""}`;
         const messages: any[] = [];
         for (const t of recentTurns) messages.push({ role: t.role, content: t.transcript });
         messages.push({ role: "user", content: `[語音通話] ${text}` });
@@ -3257,19 +3257,22 @@ audio{width:300px;margin-top:4px}
           return Response.json({ error: `Claude ${claudeRes.status}: ${errText.slice(0, 300)}` }, { status: 500 });
         }
         const claudeData = await claudeRes.json() as any;
-        const replyText = (claudeData.content?.[0]?.text || '').trim();
-        if (!replyText) return Response.json({ error: "empty_reply" }, { status: 500 });
+        const rawReply = (claudeData.content?.[0]?.text || '').trim();
+        if (!rawReply) return Response.json({ error: "empty_reply" }, { status: 500 });
+        const closing = rawReply.includes("《hangup》");
+        const replyText = rawReply.replace(/《hangup》/g, "").trim();
         const audioUrl = await callMiniMaxTTS(replyText, env);
         session.turns.push({ role: "user", transcript: text, tone: emotion || null, ts: Date.now() });
         session.turns.push({ role: "assistant", transcript: replyText, tone: null, ts: Date.now() });
+        if (closing) session.closingUntil = Date.now() + 15000;
         await env.PHONE_STATE.put("call:active", JSON.stringify(session));
-        return Response.json({ reply: replyText, audioUrl });
+        return Response.json({ reply: replyText, audioUrl, closing });
       } catch (e: any) {
         return Response.json({ error: e.message }, { status: 500 });
       }
     }
 
-    // POST /call/hangup — 掛斷通話
+    // POST /call/hangup — 掛斷通話，存記錄＋生成摘要
     if (request.method === "POST" && url.pathname === "/call/hangup") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -3277,9 +3280,67 @@ audio{width:300px;margin-top:4px}
       if (!sessRaw) return Response.json({ ok: true, duration: 0 });
       const session = JSON.parse(sessRaw);
       const duration = Math.round((Date.now() - (session.startedAt || Date.now())) / 1000);
-      await env.PHONE_STATE.put("call:last", sessRaw);
       await env.PHONE_STATE.delete("call:active");
-      return Response.json({ ok: true, duration });
+
+      // Save call record to D1
+      await env.DB.exec(`CREATE TABLE IF NOT EXISTS call_records (
+        id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
+        direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
+      )`);
+      const turns = session.turns || [];
+      let summary = "";
+      if (turns.length >= 2) {
+        try {
+          const convo = turns.map((t: any) => `${t.role === "user" ? "她" : "Anchor"}：${t.transcript}`).join("\n");
+          const sumRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5-20251001", max_tokens: 60,
+              system: "用一句繁體中文簡短摘要這通電話的內容（15字以內）。只輸出摘要，不要其他文字。",
+              messages: [{ role: "user", content: convo }]
+            })
+          });
+          if (sumRes.ok) {
+            const sumData = await sumRes.json() as any;
+            summary = (sumData.content?.[0]?.text || "").trim();
+          }
+        } catch {}
+      }
+      await env.DB.prepare(
+        "INSERT INTO call_records (id, started_at, ended_at, duration, direction, summary, turns) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).bind(session.id, session.startedAt, Date.now(), duration, "outbound_user", summary, JSON.stringify(turns)).run();
+
+      return Response.json({ ok: true, duration, summary });
+    }
+
+    // GET /call/records — 通話記錄列表
+    if (request.method === "GET" && url.pathname === "/call/records") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await env.DB.exec(`CREATE TABLE IF NOT EXISTS call_records (
+        id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
+        direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
+      )`);
+      const result = await env.DB.prepare(
+        "SELECT id, started_at, ended_at, duration, direction, summary FROM call_records ORDER BY started_at DESC LIMIT 50"
+      ).all();
+      return Response.json({ records: result.results || [] });
+    }
+
+    // GET /call/records/:id — 單筆通話記錄（含逐字稿）
+    if (request.method === "GET" && url.pathname.startsWith("/call/records/")) {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const recordId = url.pathname.replace("/call/records/", "");
+      await env.DB.exec(`CREATE TABLE IF NOT EXISTS call_records (
+        id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
+        direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
+      )`);
+      const row = await env.DB.prepare("SELECT * FROM call_records WHERE id = ?").bind(recordId).first();
+      if (!row) return Response.json({ error: "not found" }, { status: 404 });
+      const record = { ...row as any, turns: JSON.parse((row as any).turns || "[]") };
+      return Response.json({ record });
     }
 
     // GET /call/status — 查詢通話狀態

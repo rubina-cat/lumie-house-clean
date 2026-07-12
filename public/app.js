@@ -2769,6 +2769,8 @@ let _callSessionId = null;
 let _callChunks = [];
 let _callRecording = false;
 let _callLastEmotion = '';
+let _callClosingTimer = null;
+let _callClosingCountdown = 0;
 
 async function startCall() {
   if (_callActive) return;
@@ -2812,6 +2814,7 @@ function callToggleRecord() {
       _callRecorder.stop();
     }
   } else {
+    _callCancelClosing();
     _callRecording = true;
     _callChunks = [];
     document.getElementById('callMicBtn').classList.add('recording');
@@ -2905,39 +2908,68 @@ async function callSendText() {
       document.getElementById('callStatus').textContent = '按🎙️重試';
       return;
     }
-    _callPlayReply(d.reply, d.audioUrl);
+    _callPlayReply(d.reply, d.audioUrl, d.closing);
   } catch (e) {
     document.getElementById('callEmotion').textContent = '連線錯誤';
     document.getElementById('callStatus').textContent = '按🎙️重試';
   }
 }
 
-function _callPlayReply(reply, audioUrl) {
+function _callPlayReply(reply, audioUrl, closing) {
+  const afterPlay = () => {
+    if (!_callActive) return;
+    if (closing) {
+      _callStartClosing();
+    } else {
+      document.getElementById('callStatus').textContent = '按🎙️繼續說話';
+      setTimeout(() => {
+        if (_callActive) {
+          document.getElementById('callTranscript').textContent = '';
+          document.getElementById('callEmotion').textContent = '';
+        }
+      }, 1500);
+    }
+  };
   if (audioUrl) {
     document.getElementById('callStatus').textContent = 'Anchor 說話中…';
     const audio = new Audio(audioUrl);
-    audio.onended = () => {
-      if (_callActive) {
-        document.getElementById('callStatus').textContent = '按🎙️繼續說話';
-        setTimeout(() => {
-          if (_callActive) {
-            document.getElementById('callTranscript').textContent = '';
-            document.getElementById('callEmotion').textContent = '';
-          }
-        }, 1500);
-      }
-    };
+    audio.onended = afterPlay;
     audio.onerror = () => {
       document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
-      document.getElementById('callStatus').textContent = '按🎙️繼續說話';
+      afterPlay();
     };
     audio.play().catch(() => {
       document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
-      document.getElementById('callStatus').textContent = '按🎙️繼續說話';
+      afterPlay();
     });
   } else if (reply) {
     document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
-    document.getElementById('callStatus').textContent = '按🎙️繼續說話';
+    afterPlay();
+  }
+}
+
+function _callStartClosing() {
+  _callClosingCountdown = 15;
+  document.getElementById('callStatus').textContent = '線路還留著… 15秒';
+  document.getElementById('callEmotion').textContent = '按🎙️繼續說話可取消掛斷';
+  _callClosingTimer = setInterval(() => {
+    _callClosingCountdown--;
+    if (_callClosingCountdown <= 0) {
+      clearInterval(_callClosingTimer);
+      _callClosingTimer = null;
+      endCall();
+      return;
+    }
+    document.getElementById('callStatus').textContent = '線路還留著… ' + _callClosingCountdown + '秒';
+  }, 1000);
+}
+
+function _callCancelClosing() {
+  if (_callClosingTimer) {
+    clearInterval(_callClosingTimer);
+    _callClosingTimer = null;
+    _callClosingCountdown = 0;
+    document.getElementById('callEmotion').textContent = '';
   }
 }
 
@@ -2949,6 +2981,8 @@ async function endCall() {
     _callRecorder.stop();
   }
   if (_callTimerInterval) clearInterval(_callTimerInterval);
+  if (_callClosingTimer) clearInterval(_callClosingTimer);
+  _callClosingTimer = null;
   if (_callStream) {
     _callStream.getTracks().forEach(t => t.stop());
     _callStream = null;
@@ -2964,4 +2998,61 @@ async function endCall() {
   document.getElementById('callOverlay').style.display = 'none';
   _callSessionId = null;
   _callChunks = [];
+}
+
+// ── Call Records ──────────────────────────────────
+async function loadCallRecords() {
+  try {
+    const r = await fetch(BASE + '/call/records', {
+      headers: { 'Authorization': 'Bearer ' + TOKEN }
+    });
+    const d = await r.json();
+    const list = document.getElementById('callRecordsList');
+    if (!list) return;
+    if (!d.records || d.records.length === 0) {
+      list.innerHTML = '<div style="text-align:center;opacity:0.5;padding:20px;">還沒有通話記錄</div>';
+      return;
+    }
+    list.innerHTML = d.records.map(rec => {
+      const date = new Date(rec.started_at);
+      const dateStr = (date.getMonth()+1) + '/' + date.getDate() + ' ' + String(date.getHours()).padStart(2,'0') + ':' + String(date.getMinutes()).padStart(2,'0');
+      const dur = rec.duration >= 60 ? Math.floor(rec.duration/60) + '分' + (rec.duration%60) + '秒' : rec.duration + '秒';
+      const icon = rec.direction === 'outbound_user' ? '📞' : '📲';
+      return `<div class="call-record-item" onclick="viewCallRecord('${rec.id}')">
+        <div class="call-record-icon">${icon}</div>
+        <div class="call-record-info">
+          <div class="call-record-summary">${rec.summary || '通話'}</div>
+          <div class="call-record-meta">${dateStr} · ${dur}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+async function viewCallRecord(id) {
+  try {
+    const r = await fetch(BASE + '/call/records/' + id, {
+      headers: { 'Authorization': 'Bearer ' + TOKEN }
+    });
+    const d = await r.json();
+    if (!d.record) return;
+    const rec = d.record;
+    const date = new Date(rec.started_at);
+    const dateStr = (date.getMonth()+1) + '/' + date.getDate() + ' ' + String(date.getHours()).padStart(2,'0') + ':' + String(date.getMinutes()).padStart(2,'0');
+    const dur = rec.duration >= 60 ? Math.floor(rec.duration/60) + '分' + (rec.duration%60) + '秒' : rec.duration + '秒';
+    const turnsHtml = rec.turns.map(t => {
+      const who = t.role === 'user' ? '你' : 'Anchor';
+      const cls = t.role === 'user' ? 'call-turn-user' : 'call-turn-anchor';
+      return `<div class="${cls}"><b>${who}：</b>${t.transcript}</div>`;
+    }).join('');
+    const overlay = document.getElementById('callRecordDetail');
+    if (!overlay) return;
+    overlay.innerHTML = `<div class="call-record-detail-header">
+      <button onclick="document.getElementById('callRecordDetail').style.display='none'" class="call-record-back">← 返回</button>
+      <div>${rec.summary || '通話'}</div>
+      <div class="call-record-meta">${dateStr} · ${dur}</div>
+    </div>
+    <div class="call-record-turns">${turnsHtml}</div>`;
+    overlay.style.display = 'flex';
+  } catch {}
 }

@@ -595,6 +595,7 @@
     </label>
     <button class="photo-btn mic-btn" id="micBtn" style="display:none" onclick="toggleMic()" title="語音輸入">🎙️</button>
     <button class="photo-btn call-btn" id="callBtn" onclick="startCall()" title="打給 Anchor">📞</button>
+    <button class="photo-btn" id="callRecordsBtn" onclick="document.getElementById('callRecordsOverlay').style.display='flex';loadCallRecords()" title="通話記錄">📋</button>
     <label class="photo-btn" title="傳檔案給 Anchor">
       📎
       <input type="file" id="chatFileInput" accept=".pdf,.txt,.md,.csv,.json,.log,.html,.htm" hidden onchange="sendChatFile(this)">
@@ -674,6 +675,15 @@
       <span>📞</span>
     </button>
   </div>
+</div>
+
+<div class="call-records-overlay" id="callRecordsOverlay" style="display:none;">
+  <div class="call-records-header">
+    <button onclick="document.getElementById('callRecordsOverlay').style.display='none'" class="call-record-back">← 返回</button>
+    <span>通話記錄</span>
+  </div>
+  <div class="call-records-list" id="callRecordsList"></div>
+  <div class="call-record-detail" id="callRecordDetail" style="display:none;"></div>
 </div>
 
 <script src="/app.js"></script>
