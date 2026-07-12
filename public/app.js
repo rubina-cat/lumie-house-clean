@@ -2825,6 +2825,7 @@ async function startCall() {
 
 function _callStartRecording() {
   if (!_callActive || !_callStream) return;
+  if (_callVadInterval) clearInterval(_callVadInterval);
   _callChunks = [];
   _callSilenceStart = 0;
   _callProcessing = false;

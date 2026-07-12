@@ -3215,7 +3215,9 @@ audio{width:300px;margin-top:4px}
         } catch {
           return Response.json({ error: "Gemini parse error: " + cleaned.slice(0, 200) }, { status: 500 });
         }
-        if (!transcript.trim()) return Response.json({ error: "no_speech" }, { status: 200 });
+        if (!transcript.trim() || transcript.includes("請聽這段語音") || transcript.includes("回傳 JSON")) {
+          return Response.json({ error: "no_speech" }, { status: 200 });
+        }
 
         // 3. Load call session and build history
         const sessRaw = await env.PHONE_STATE.get("call:active");
