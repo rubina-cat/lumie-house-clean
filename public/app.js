@@ -2767,6 +2767,7 @@ let _callStartTime = 0;
 let _callTimerInterval = null;
 let _callSessionId = null;
 let _callAudioContext = null;
+let _callErrorStreak = 0;
 let _callAnalyser = null;
 let _callVadInterval = null;
 let _callChunks = [];
@@ -2901,12 +2902,15 @@ async function _callSendTurn() {
     }
 
     if (d.error) {
-      document.getElementById('callEmotion').textContent = '⚠ ' + d.error + '（重試中…）';
+      _callErrorStreak++;
+      const wait = Math.min(_callErrorStreak * 3, 15);
+      document.getElementById('callEmotion').textContent = '⚠ ' + d.error + `（${wait}秒後重試…）`;
       _callProcessing = false;
-      setTimeout(() => { if (_callActive) _callStartRecording(); }, 1500);
+      setTimeout(() => { if (_callActive) _callStartRecording(); }, wait * 1000);
       return;
     }
 
+    _callErrorStreak = 0;
     // Show user's transcript
     if (d.transcript) {
       document.getElementById('callTranscript').textContent = '「' + d.transcript + '」';

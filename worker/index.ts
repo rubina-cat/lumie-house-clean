@@ -3187,22 +3187,28 @@ audio{width:300px;margin-top:4px}
           generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
         });
         const geminiRetryable = new Set([429, 500, 502, 503, 529]);
+        const geminiModels = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
         let gr: Response | null = null;
-        for (let gAttempt = 0; gAttempt < 3; gAttempt++) {
-          gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + env.GEMINI_KEY, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: geminiBody
-          });
-          if (gr.ok) break;
-          if (geminiRetryable.has(gr.status) && gAttempt < 2) {
-            await new Promise(ok => setTimeout(ok, (gAttempt + 1) * 1500));
-            continue;
+        for (const gModel of geminiModels) {
+          for (let gAttempt = 0; gAttempt < 2; gAttempt++) {
+            gr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=` + env.GEMINI_KEY, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: geminiBody
+            });
+            if (gr.ok) break;
+            if (geminiRetryable.has(gr.status) && gAttempt < 1) {
+              await new Promise(ok => setTimeout(ok, 1500));
+              continue;
+            }
+            break;
           }
-          const errText = await gr.text().catch(() => `HTTP ${gr!.status}`);
-          return Response.json({ error: `Gemini ${gr.status}: ${errText.slice(0, 300)}` }, { status: 500 });
+          if (gr && gr.ok) break;
         }
-        if (!gr || !gr.ok) return Response.json({ error: "Gemini unavailable" }, { status: 500 });
+        if (!gr || !gr.ok) {
+          const errText = gr ? await gr.text().catch(() => `HTTP ${gr!.status}`) : "no response";
+          return Response.json({ error: `Gemini ${gr?.status}: ${errText.slice(0, 300)}` }, { status: 500 });
+        }
         const gd = await gr.json() as any;
         const raw = gd.candidates?.[0]?.content?.parts?.[0]?.text || "";
         if (!raw) return Response.json({ error: "no_speech" }, { status: 200 });
