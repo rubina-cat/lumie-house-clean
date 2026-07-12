@@ -3219,3 +3219,106 @@ textarea::placeholder { color: var(--light-text); }
 }
 @keyframes wxFall { to { transform: translateY(1400%); } }
 .garden-wrap { position: relative; }
+
+/* ── Voice Call Overlay ─────────────────────────── */
+.call-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(30,20,40,0.97) 0%, rgba(50,30,60,0.98) 100%);
+  backdrop-filter: blur(20px);
+  color: #e8ddd4;
+  gap: 12px;
+  padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom);
+}
+
+.call-status {
+  font-size: 14px;
+  opacity: 0.7;
+  letter-spacing: 0.08em;
+}
+
+.call-timer {
+  font-size: 36px;
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.call-avatar {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(200,154,148,0.4);
+  box-shadow: 0 4px 30px rgba(200,154,148,0.2);
+  margin: 16px 0 8px;
+}
+
+.call-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.call-name {
+  font-size: 24px;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+}
+
+.call-emotion {
+  font-size: 12px;
+  opacity: 0.6;
+  min-height: 18px;
+  max-width: 80%;
+  text-align: center;
+}
+
+.call-transcript {
+  font-size: 15px;
+  opacity: 0.85;
+  max-width: 80%;
+  text-align: center;
+  min-height: 24px;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+
+.call-controls {
+  margin-top: auto;
+  padding-bottom: 40px;
+  display: flex;
+  gap: 32px;
+}
+
+.call-ctrl-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
+}
+
+.call-ctrl-btn:active {
+  transform: scale(0.92);
+}
+
+.call-hangup {
+  background: #e74c3c;
+  color: white;
+  transform: rotate(135deg);
+}
+
+.call-hangup:active {
+  transform: rotate(135deg) scale(0.92);
+}

@@ -594,6 +594,7 @@
       <input type="file" id="chatPhotoInput" accept="image/*" hidden onchange="previewChatPhoto(this)">
     </label>
     <button class="photo-btn mic-btn" id="micBtn" style="display:none" onclick="toggleMic()" title="語音輸入">🎙️</button>
+    <button class="photo-btn call-btn" id="callBtn" onclick="startCall()" title="打給 Anchor">📞</button>
     <label class="photo-btn" title="傳檔案給 Anchor">
       📎
       <input type="file" id="chatFileInput" accept=".pdf,.txt,.md,.csv,.json,.log,.html,.htm" hidden onchange="sendChatFile(this)">
@@ -648,6 +649,22 @@
     <span class="nav-dark-text">釣魚</span>
   </button>
 </nav>
+
+<div class="call-overlay" id="callOverlay" style="display:none;">
+  <div class="call-status" id="callStatus">撥號中…</div>
+  <div class="call-timer" id="callTimer">0:00</div>
+  <div class="call-avatar">
+    <img src="/room/face-calm.png" alt="Anchor" class="call-avatar-img">
+  </div>
+  <div class="call-name">Anchor</div>
+  <div class="call-emotion" id="callEmotion"></div>
+  <div class="call-transcript" id="callTranscript"></div>
+  <div class="call-controls">
+    <button class="call-ctrl-btn call-hangup" id="callHangupBtn" onclick="endCall()">
+      <span>📞</span>
+    </button>
+  </div>
+</div>
 
 <script src="/app.js"></script>
 </body>

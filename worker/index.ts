@@ -3149,6 +3149,143 @@ audio{width:300px;margin-top:4px}
       return Response.json({ messages: raw ? JSON.parse(raw) : [] });
     }
 
+    // ── Voice Call Endpoints (M1 half-duplex) ─────────────────────────────
+
+    // POST /call/start — 開始通話 session
+    if (request.method === "POST" && url.pathname === "/call/start") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const callId = "call_" + Date.now();
+      const session = { id: callId, startedAt: Date.now(), turns: [] as any[] };
+      await env.PHONE_STATE.put("call:active", JSON.stringify(session));
+      return Response.json({ id: callId, status: "active" });
+    }
+
+    // POST /call/turn — 一輪對話：user audio → transcript → Claude reply → TTS audio
+    if (request.method === "POST" && url.pathname === "/call/turn") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (!env.GEMINI_KEY) return Response.json({ error: "GEMINI_KEY not set" }, { status: 500 });
+      try {
+        // 1. Read audio from form data
+        const formData = await request.formData();
+        const audio = formData.get("audio") as File;
+        if (!audio) return Response.json({ error: "no audio" }, { status: 400 });
+        const buf = await audio.arrayBuffer();
+        const u8 = new Uint8Array(buf);
+        let bin = "";
+        for (let i = 0; i < u8.byteLength; i++) bin += String.fromCharCode(u8[i]);
+        const b64 = btoa(bin);
+        const mime = audio.type || "audio/webm";
+
+        // 2. Gemini STT + emotion analysis
+        const gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + env.GEMINI_KEY, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [
+              { inline_data: { mime_type: mime, data: b64 } },
+              { text: '請聽這段語音，回傳 JSON（不要 markdown code block）：{"text":"逐字轉錄的文字（繁體中文）","emotion":"用一句繁體中文描述說話者的語氣和情緒狀態，例如：聽起來有點疲憊，語速慢，尾音下沉"}' }
+            ] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
+          })
+        });
+        if (!gr.ok) {
+          const errText = await gr.text().catch(() => `HTTP ${gr.status}`);
+          return Response.json({ error: `Gemini ${gr.status}: ${errText.slice(0, 300)}` }, { status: 500 });
+        }
+        const gd = await gr.json() as any;
+        const raw = gd.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (!raw) return Response.json({ error: "no_speech" }, { status: 200 });
+        const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+        let transcript = "", emotion = "";
+        try {
+          const parsed = JSON.parse(cleaned);
+          transcript = parsed.text || "";
+          emotion = parsed.emotion || "";
+        } catch {
+          return Response.json({ error: "Gemini parse error: " + cleaned.slice(0, 200) }, { status: 500 });
+        }
+        if (!transcript.trim()) return Response.json({ error: "no_speech" }, { status: 200 });
+
+        // 3. Load call session and build history
+        const sessRaw = await env.PHONE_STATE.get("call:active");
+        const session = sessRaw ? JSON.parse(sessRaw) : { id: "call_" + Date.now(), startedAt: Date.now(), turns: [] };
+        const recentTurns = (session.turns || []).slice(-10);
+
+        // 4. Load memories for context
+        await initMemoriesTable(env);
+        const lockedResult = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 1 ORDER BY id ASC").all();
+        const hotResult = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 0 ORDER BY heat DESC, id ASC LIMIT 5").all();
+        const coreList = [...((lockedResult.results ?? []) as any[]), ...((hotResult.results ?? []) as any[])];
+        const memText = coreList.length > 0
+          ? "\n\n記憶庫：\n" + coreList.map((m: any) => m.content).join("\n---\n") : "";
+
+        // 5. Build messages for Claude
+        const timeNote = twTimeInfo();
+        const callSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你正在跟她通電話。\n回覆要口語、簡短（1-3句），像真的在講電話。不要用 <silent> 標籤，不要用星號動作描寫（*動作*），不要列點。就像你在電話裡真的說的話。\n\n【現在時間】${timeNote}${memText}\n\n她的語氣分析：${emotion}`;
+        const messages: any[] = [];
+        for (const t of recentTurns) {
+          messages.push({ role: t.role, content: t.transcript });
+        }
+        messages.push({ role: "user", content: `[語音通話] ${transcript}` });
+
+        // 6. Call Claude Haiku for fast response
+        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 300,
+            system: callSystem,
+            messages
+          })
+        });
+        if (!claudeRes.ok) {
+          const errText = await claudeRes.text().catch(() => `HTTP ${claudeRes.status}`);
+          return Response.json({ error: `Claude ${claudeRes.status}: ${errText.slice(0, 300)}` }, { status: 500 });
+        }
+        const claudeData = await claudeRes.json() as any;
+        const replyText = (claudeData.content?.[0]?.text || '').trim();
+        if (!replyText) return Response.json({ error: "empty_reply" }, { status: 500 });
+
+        // 7. TTS via MiniMax
+        const audioUrl = await callMiniMaxTTS(replyText, env);
+
+        // 8. Store turns in session
+        session.turns.push({ role: "user", transcript, tone: emotion, ts: Date.now() });
+        session.turns.push({ role: "assistant", transcript: replyText, tone: null, ts: Date.now() });
+        await env.PHONE_STATE.put("call:active", JSON.stringify(session));
+
+        return Response.json({ transcript, emotion, reply: replyText, audioUrl });
+      } catch (e: any) {
+        return Response.json({ error: e.message }, { status: 500 });
+      }
+    }
+
+    // POST /call/hangup — 掛斷通話
+    if (request.method === "POST" && url.pathname === "/call/hangup") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const sessRaw = await env.PHONE_STATE.get("call:active");
+      if (!sessRaw) return Response.json({ ok: true, duration: 0 });
+      const session = JSON.parse(sessRaw);
+      const duration = Math.round((Date.now() - (session.startedAt || Date.now())) / 1000);
+      await env.PHONE_STATE.put("call:last", sessRaw);
+      await env.PHONE_STATE.delete("call:active");
+      return Response.json({ ok: true, duration });
+    }
+
+    // GET /call/status — 查詢通話狀態
+    if (request.method === "GET" && url.pathname === "/call/status") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const sessRaw = await env.PHONE_STATE.get("call:active");
+      if (!sessRaw) return Response.json({ active: false });
+      const session = JSON.parse(sessRaw);
+      return Response.json({ active: true, ...session });
+    }
+
     // POST /api/chat/voice — 語音轉文字＋情緒辨識（Gemini Flash Lite）
     if (request.method === "POST" && url.pathname === "/api/chat/voice") {
       const auth = request.headers.get("Authorization");
