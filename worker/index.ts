@@ -3187,7 +3187,7 @@ audio{width:300px;margin-top:4px}
           generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
         });
         const geminiRetryable = new Set([429, 500, 502, 503, 529]);
-        const geminiModels = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+        const geminiModels = ["gemini-2.5-flash-lite", "gemini-2.0-flash"];
         let gr: Response | null = null;
         for (const gModel of geminiModels) {
           for (let gAttempt = 0; gAttempt < 2; gAttempt++) {
