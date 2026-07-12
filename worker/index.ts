@@ -3178,22 +3178,31 @@ audio{width:300px;margin-top:4px}
         const b64 = btoa(bin);
         const mime = audio.type || "audio/webm";
 
-        // 2. Gemini STT + emotion analysis
-        const gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + env.GEMINI_KEY, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [
-              { inline_data: { mime_type: mime, data: b64 } },
-              { text: '請聽這段語音，回傳 JSON（不要 markdown code block）：{"text":"逐字轉錄的文字（繁體中文）","emotion":"用一句繁體中文描述說話者的語氣和情緒狀態，例如：聽起來有點疲憊，語速慢，尾音下沉"}' }
-            ] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
-          })
+        // 2. Gemini STT + emotion analysis (with retry on transient errors)
+        const geminiBody = JSON.stringify({
+          contents: [{ parts: [
+            { inline_data: { mime_type: mime, data: b64 } },
+            { text: '請聽這段語音，回傳 JSON（不要 markdown code block）：{"text":"逐字轉錄的文字（繁體中文）","emotion":"用一句繁體中文描述說話者的語氣和情緒狀態，例如：聽起來有點疲憊，語速慢，尾音下沉"}' }
+          ] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
         });
-        if (!gr.ok) {
-          const errText = await gr.text().catch(() => `HTTP ${gr.status}`);
+        const geminiRetryable = new Set([429, 500, 502, 503, 529]);
+        let gr: Response | null = null;
+        for (let gAttempt = 0; gAttempt < 3; gAttempt++) {
+          gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + env.GEMINI_KEY, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: geminiBody
+          });
+          if (gr.ok) break;
+          if (geminiRetryable.has(gr.status) && gAttempt < 2) {
+            await new Promise(ok => setTimeout(ok, (gAttempt + 1) * 1500));
+            continue;
+          }
+          const errText = await gr.text().catch(() => `HTTP ${gr!.status}`);
           return Response.json({ error: `Gemini ${gr.status}: ${errText.slice(0, 300)}` }, { status: 500 });
         }
+        if (!gr || !gr.ok) return Response.json({ error: "Gemini unavailable" }, { status: 500 });
         const gd = await gr.json() as any;
         const raw = gd.candidates?.[0]?.content?.parts?.[0]?.text || "";
         if (!raw) return Response.json({ error: "no_speech" }, { status: 200 });

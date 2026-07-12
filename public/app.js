@@ -2900,9 +2900,9 @@ async function _callSendTurn() {
     }
 
     if (d.error) {
-      document.getElementById('callEmotion').textContent = '⚠ ' + d.error;
+      document.getElementById('callEmotion').textContent = '連線不穩，重試中…';
       _callProcessing = false;
-      _callStartRecording();
+      setTimeout(() => { if (_callActive) _callStartRecording(); }, 1500);
       return;
     }
 
