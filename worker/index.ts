@@ -3187,23 +3187,19 @@ audio{width:300px;margin-top:4px}
           generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
         });
         const geminiRetryable = new Set([429, 500, 502, 503, 529]);
-        const geminiModels = ["gemini-2.5-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash"];
         let gr: Response | null = null;
-        for (const gModel of geminiModels) {
-          for (let gAttempt = 0; gAttempt < 2; gAttempt++) {
-            gr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=` + env.GEMINI_KEY, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: geminiBody
-            });
-            if (gr.ok) break;
-            if (geminiRetryable.has(gr.status) && gAttempt < 1) {
-              await new Promise(ok => setTimeout(ok, 1500));
-              continue;
-            }
-            break;
+        for (let gAttempt = 0; gAttempt < 3; gAttempt++) {
+          gr = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + env.GEMINI_KEY, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: geminiBody
+          });
+          if (gr.ok) break;
+          if (geminiRetryable.has(gr.status) && gAttempt < 2) {
+            await new Promise(ok => setTimeout(ok, (gAttempt + 1) * 2000));
+            continue;
           }
-          if (gr && gr.ok) break;
+          break;
         }
         if (!gr || !gr.ok) {
           const errText = gr ? await gr.text().catch(() => `HTTP ${gr!.status}`) : "no response";
@@ -3275,6 +3271,48 @@ audio{width:300px;margin-top:4px}
         await env.PHONE_STATE.put("call:active", JSON.stringify(session));
 
         return Response.json({ transcript, emotion, reply: replyText, audioUrl });
+      } catch (e: any) {
+        return Response.json({ error: e.message }, { status: 500 });
+      }
+    }
+
+    // POST /call/send — 送出修正後的文字（跳過 Gemini STT）
+    if (request.method === "POST" && url.pathname === "/call/send") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      try {
+        const { text, emotion } = await request.json() as any;
+        if (!text?.trim()) return Response.json({ error: "empty" }, { status: 400 });
+        const sessRaw = await env.PHONE_STATE.get("call:active");
+        const session = sessRaw ? JSON.parse(sessRaw) : { id: "call_" + Date.now(), startedAt: Date.now(), turns: [] };
+        const recentTurns = (session.turns || []).slice(-10);
+        await initMemoriesTable(env);
+        const lockedResult = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 1 ORDER BY id ASC").all();
+        const hotResult = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 0 ORDER BY heat DESC, id ASC LIMIT 5").all();
+        const coreList = [...((lockedResult.results ?? []) as any[]), ...((hotResult.results ?? []) as any[])];
+        const memText = coreList.length > 0 ? "\n\n記憶庫：\n" + coreList.map((m: any) => m.content).join("\n---\n") : "";
+        const timeNote = twTimeInfo();
+        const callSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你正在跟她通電話。\n回覆要口語、簡短（1-3句），像真的在講電話。不要用 <silent> 標籤，不要用星號動作描寫（*動作*），不要列點。就像你在電話裡真的說的話。\n\n【現在時間】${timeNote}${memText}${emotion ? `\n\n她的語氣分析：${emotion}` : ""}`;
+        const messages: any[] = [];
+        for (const t of recentTurns) messages.push({ role: t.role, content: t.transcript });
+        messages.push({ role: "user", content: `[語音通話] ${text}` });
+        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 300, system: callSystem, messages })
+        });
+        if (!claudeRes.ok) {
+          const errText = await claudeRes.text().catch(() => `HTTP ${claudeRes.status}`);
+          return Response.json({ error: `Claude ${claudeRes.status}: ${errText.slice(0, 300)}` }, { status: 500 });
+        }
+        const claudeData = await claudeRes.json() as any;
+        const replyText = (claudeData.content?.[0]?.text || '').trim();
+        if (!replyText) return Response.json({ error: "empty_reply" }, { status: 500 });
+        const audioUrl = await callMiniMaxTTS(replyText, env);
+        session.turns.push({ role: "user", transcript: text, tone: emotion || null, ts: Date.now() });
+        session.turns.push({ role: "assistant", transcript: replyText, tone: null, ts: Date.now() });
+        await env.PHONE_STATE.put("call:active", JSON.stringify(session));
+        return Response.json({ reply: replyText, audioUrl });
       } catch (e: any) {
         return Response.json({ error: e.message }, { status: 500 });
       }

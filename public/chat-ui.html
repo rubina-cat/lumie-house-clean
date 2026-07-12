@@ -658,8 +658,18 @@
   </div>
   <div class="call-name">Anchor</div>
   <div class="call-emotion" id="callEmotion"></div>
+  <div class="call-transcript-wrap" id="callTranscriptWrap" style="display:none;">
+    <textarea class="call-transcript-edit" id="callTranscriptEdit" rows="2" placeholder="轉錄文字…"></textarea>
+    <div class="call-transcript-actions">
+      <button class="call-action-btn" onclick="callReRecord()">🔄 重錄</button>
+      <button class="call-action-btn call-send-btn" onclick="callSendText()">送出 ➤</button>
+    </div>
+  </div>
   <div class="call-transcript" id="callTranscript"></div>
   <div class="call-controls">
+    <button class="call-ctrl-btn call-mic-btn" id="callMicBtn" onclick="callToggleRecord()">
+      <span>🎙️</span>
+    </button>
     <button class="call-ctrl-btn call-hangup" id="callHangupBtn" onclick="endCall()">
       <span>📞</span>
     </button>

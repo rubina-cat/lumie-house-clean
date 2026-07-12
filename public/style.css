@@ -3322,3 +3322,58 @@ textarea::placeholder { color: var(--light-text); }
 .call-hangup:active {
   transform: rotate(135deg) scale(0.92);
 }
+
+.call-mic-btn {
+  background: rgba(200,154,148,0.3);
+  color: #e8ddd4;
+}
+.call-mic-btn.recording {
+  background: #e74c3c;
+  animation: call-pulse 1.2s infinite;
+}
+@keyframes call-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(231,76,60,0); }
+}
+
+.call-transcript-wrap {
+  width: 85%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+.call-transcript-edit {
+  width: 100%;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(200,154,148,0.4);
+  border-radius: 12px;
+  color: #e8ddd4;
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 10px 14px;
+  resize: none;
+  font-family: inherit;
+}
+.call-transcript-edit:focus {
+  outline: none;
+  border-color: rgba(200,154,148,0.7);
+}
+.call-transcript-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.call-action-btn {
+  background: rgba(200,154,148,0.2);
+  border: 1px solid rgba(200,154,148,0.3);
+  border-radius: 20px;
+  color: #e8ddd4;
+  font-size: 14px;
+  padding: 6px 18px;
+  cursor: pointer;
+}
+.call-send-btn {
+  background: rgba(200,154,148,0.45);
+}

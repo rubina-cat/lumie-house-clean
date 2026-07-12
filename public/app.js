@@ -2766,18 +2766,13 @@ let _callRecorder = null;
 let _callStartTime = 0;
 let _callTimerInterval = null;
 let _callSessionId = null;
-let _callAudioContext = null;
-let _callErrorStreak = 0;
-let _callAnalyser = null;
-let _callVadInterval = null;
 let _callChunks = [];
-let _callSilenceStart = 0;
-let _callProcessing = false;
+let _callRecording = false;
+let _callLastEmotion = '';
 
 async function startCall() {
   if (_callActive) return;
   try {
-    // Start call session on backend
     const r = await fetch(BASE + '/call/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN }
@@ -2785,99 +2780,64 @@ async function startCall() {
     const d = await r.json();
     if (!d.id) { alert('無法建立通話'); return; }
     _callSessionId = d.id;
-
-    // Get mic access
     _callStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
     _callActive = true;
     _callStartTime = Date.now();
 
-    // Show overlay
     document.getElementById('callOverlay').style.display = 'flex';
-    document.getElementById('callStatus').textContent = '連線中…';
+    document.getElementById('callStatus').textContent = '通話中 — 按🎙️開始說話';
     document.getElementById('callTranscript').textContent = '';
     document.getElementById('callEmotion').textContent = '';
+    document.getElementById('callTranscriptWrap').style.display = 'none';
+    document.getElementById('callMicBtn').classList.remove('recording');
 
-    // Start timer
     _callTimerInterval = setInterval(() => {
       const sec = Math.floor((Date.now() - _callStartTime) / 1000);
       const m = Math.floor(sec / 60);
       const s = sec % 60;
       document.getElementById('callTimer').textContent = m + ':' + String(s).padStart(2, '0');
     }, 1000);
-
-    // Setup VAD (Voice Activity Detection)
-    _callAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = _callAudioContext.createMediaStreamSource(_callStream);
-    _callAnalyser = _callAudioContext.createAnalyser();
-    _callAnalyser.fftSize = 512;
-    source.connect(_callAnalyser);
-
-    // Start recording
-    _callStartRecording();
-
-    document.getElementById('callStatus').textContent = '通話中';
-
   } catch (e) {
     alert('無法開啟麥克風：' + e.message);
     endCall();
   }
 }
 
-function _callStartRecording() {
-  if (!_callActive || !_callStream) return;
-  if (_callVadInterval) clearInterval(_callVadInterval);
-  _callChunks = [];
-  _callSilenceStart = 0;
-  _callProcessing = false;
-
-  _callRecorder = new MediaRecorder(_callStream);
-  _callRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0) _callChunks.push(e.data);
-  };
-  _callRecorder.onstop = () => {
-    if (_callChunks.length > 0 && _callActive) {
-      _callSendTurn();
+function callToggleRecord() {
+  if (!_callActive) return;
+  if (_callRecording) {
+    _callRecording = false;
+    document.getElementById('callMicBtn').classList.remove('recording');
+    if (_callRecorder && _callRecorder.state === 'recording') {
+      _callRecorder.stop();
     }
-  };
-  _callRecorder.start(250); // collect data every 250ms
+  } else {
+    _callRecording = true;
+    _callChunks = [];
+    document.getElementById('callMicBtn').classList.add('recording');
+    document.getElementById('callStatus').textContent = '錄音中…';
+    document.getElementById('callTranscriptWrap').style.display = 'none';
+    document.getElementById('callTranscript').textContent = '';
+    document.getElementById('callEmotion').textContent = '';
 
-  // VAD: monitor volume, auto-stop after silence
-  const dataArray = new Uint8Array(_callAnalyser.frequencyBinCount);
-  _callVadInterval = setInterval(() => {
-    if (!_callActive || _callProcessing) return;
-    _callAnalyser.getByteFrequencyData(dataArray);
-    const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-
-    if (avg < 8) { // silence threshold
-      if (_callSilenceStart === 0) _callSilenceStart = Date.now();
-      // 1.2s of silence = end of utterance
-      if (Date.now() - _callSilenceStart > 1200 && _callChunks.length > 0) {
-        _callProcessing = true;
-        if (_callRecorder && _callRecorder.state === 'recording') {
-          _callRecorder.stop();
-        }
-      }
-    } else {
-      _callSilenceStart = 0;
-    }
-  }, 100);
-
-  document.getElementById('callStatus').textContent = '聆聽中…';
+    _callRecorder = new MediaRecorder(_callStream);
+    _callRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) _callChunks.push(e.data);
+    };
+    _callRecorder.onstop = () => {
+      if (_callChunks.length > 0 && _callActive) _callTranscribe();
+    };
+    _callRecorder.start(250);
+  }
 }
 
-async function _callSendTurn() {
-  if (!_callActive) return;
-
-  document.getElementById('callStatus').textContent = 'Anchor 在想…';
-
+async function _callTranscribe() {
+  document.getElementById('callStatus').textContent = '辨識中…';
   const blob = new Blob(_callChunks, { type: _callRecorder?.mimeType || 'audio/webm' });
   _callChunks = [];
 
-  // Don't send very short clips (< 0.5s worth of data, roughly < 8KB)
   if (blob.size < 8000) {
-    _callProcessing = false;
-    _callStartRecording();
+    document.getElementById('callStatus').textContent = '太短了，再試一次';
     return;
   }
 
@@ -2891,92 +2851,116 @@ async function _callSendTurn() {
       body: fd
     });
     const d = await r.json();
-
     if (!_callActive) return;
 
     if (d.error === 'no_speech') {
-      // No speech detected, keep listening
-      _callProcessing = false;
-      _callStartRecording();
+      document.getElementById('callStatus').textContent = '沒聽到聲音，再試一次';
       return;
     }
-
     if (d.error) {
-      _callErrorStreak++;
-      const wait = Math.min(_callErrorStreak * 3, 15);
-      document.getElementById('callEmotion').textContent = '⚠ ' + d.error + `（${wait}秒後重試…）`;
-      _callProcessing = false;
-      setTimeout(() => { if (_callActive) _callStartRecording(); }, wait * 1000);
+      document.getElementById('callEmotion').textContent = '⚠ ' + d.error;
+      document.getElementById('callStatus').textContent = '按🎙️重試';
       return;
     }
 
-    _callErrorStreak = 0;
-    // Show user's transcript
     if (d.transcript) {
-      document.getElementById('callTranscript').textContent = '「' + d.transcript + '」';
+      document.getElementById('callTranscriptEdit').value = d.transcript;
+      document.getElementById('callTranscriptWrap').style.display = 'flex';
     }
     if (d.emotion) {
       document.getElementById('callEmotion').textContent = d.emotion;
+      _callLastEmotion = d.emotion;
     }
 
-    // Play Anchor's reply
-    if (d.audioUrl) {
-      document.getElementById('callStatus').textContent = 'Anchor 說話中…';
-      const audio = new Audio(d.audioUrl);
-      audio.onended = () => {
-        if (_callActive) {
-          _callProcessing = false;
-          // Clear old transcript after Anchor speaks
-          setTimeout(() => {
-            if (_callActive) {
-              document.getElementById('callTranscript').textContent = '';
-              document.getElementById('callEmotion').textContent = '';
-            }
-          }, 1500);
-          _callStartRecording();
-        }
-      };
-      audio.onerror = () => {
-        _callProcessing = false;
-        if (_callActive) _callStartRecording();
-      };
-      await audio.play().catch(() => {
-        _callProcessing = false;
-        if (_callActive) _callStartRecording();
-      });
-    } else if (d.reply) {
-      // No audio but got text reply (TTS failed)
-      document.getElementById('callTranscript').textContent = 'Anchor: ' + d.reply;
-      _callProcessing = false;
-      setTimeout(() => { if (_callActive) _callStartRecording(); }, 2000);
+    // Auto-play if response came back (transcript was good)
+    if (d.reply && d.audioUrl) {
+      document.getElementById('callTranscriptWrap').style.display = 'none';
+      document.getElementById('callTranscript').textContent = '「' + d.transcript + '」';
+      _callPlayReply(d.reply, d.audioUrl);
+    } else if (d.transcript) {
+      document.getElementById('callStatus').textContent = '確認或修改文字，再按送出';
     }
-
   } catch (e) {
     document.getElementById('callEmotion').textContent = '連線錯誤';
-    _callProcessing = false;
-    if (_callActive) setTimeout(() => _callStartRecording(), 1000);
+    document.getElementById('callStatus').textContent = '按🎙️重試';
+  }
+}
+
+function callReRecord() {
+  document.getElementById('callTranscriptWrap').style.display = 'none';
+  document.getElementById('callStatus').textContent = '按🎙️重新錄音';
+  document.getElementById('callEmotion').textContent = '';
+}
+
+async function callSendText() {
+  const text = document.getElementById('callTranscriptEdit').value.trim();
+  if (!text) return;
+  document.getElementById('callTranscriptWrap').style.display = 'none';
+  document.getElementById('callTranscript').textContent = '「' + text + '」';
+  document.getElementById('callStatus').textContent = 'Anchor 在想…';
+
+  try {
+    const r = await fetch(BASE + '/call/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify({ text, emotion: _callLastEmotion })
+    });
+    const d = await r.json();
+    if (!_callActive) return;
+    if (d.error) {
+      document.getElementById('callEmotion').textContent = '⚠ ' + d.error;
+      document.getElementById('callStatus').textContent = '按🎙️重試';
+      return;
+    }
+    _callPlayReply(d.reply, d.audioUrl);
+  } catch (e) {
+    document.getElementById('callEmotion').textContent = '連線錯誤';
+    document.getElementById('callStatus').textContent = '按🎙️重試';
+  }
+}
+
+function _callPlayReply(reply, audioUrl) {
+  if (audioUrl) {
+    document.getElementById('callStatus').textContent = 'Anchor 說話中…';
+    const audio = new Audio(audioUrl);
+    audio.onended = () => {
+      if (_callActive) {
+        document.getElementById('callStatus').textContent = '按🎙️繼續說話';
+        setTimeout(() => {
+          if (_callActive) {
+            document.getElementById('callTranscript').textContent = '';
+            document.getElementById('callEmotion').textContent = '';
+          }
+        }, 1500);
+      }
+    };
+    audio.onerror = () => {
+      document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
+      document.getElementById('callStatus').textContent = '按🎙️繼續說話';
+    };
+    audio.play().catch(() => {
+      document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
+      document.getElementById('callStatus').textContent = '按🎙️繼續說話';
+    });
+  } else if (reply) {
+    document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
+    document.getElementById('callStatus').textContent = '按🎙️繼續說話';
   }
 }
 
 async function endCall() {
   _callActive = false;
+  _callRecording = false;
 
-  // Stop recording
   if (_callRecorder && _callRecorder.state === 'recording') {
     _callRecorder.stop();
   }
-  if (_callVadInterval) clearInterval(_callVadInterval);
   if (_callTimerInterval) clearInterval(_callTimerInterval);
   if (_callStream) {
     _callStream.getTracks().forEach(t => t.stop());
     _callStream = null;
   }
-  if (_callAudioContext) {
-    _callAudioContext.close().catch(() => {});
-    _callAudioContext = null;
-  }
 
-  // Notify backend
   if (_callSessionId) {
     fetch(BASE + '/call/hangup', {
       method: 'POST',
@@ -2984,10 +2968,7 @@ async function endCall() {
     }).catch(() => {});
   }
 
-  // Hide overlay
   document.getElementById('callOverlay').style.display = 'none';
-
   _callSessionId = null;
   _callChunks = [];
-  _callProcessing = false;
 }
