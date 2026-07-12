@@ -567,12 +567,17 @@ async function morningRitual(env: any) {
     if (calToday) ctxText += `\n她今天的行程：${calToday}`;
     if (daysLeft <= 30) ctxText += `\n距考試：${daysLeft} 天`;
     if (upcoming.length) ctxText += `\n近期的重要日子：${upcoming.join('、')}`;
-    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；天氣值得提就順帶一句（下雨提醒帶傘、很熱提醒喝水），不值得就不提；今天有行程就自然帶到（講清楚是什麼行程）；有近期日子就順帶提一句。不要列點，就一段話。`, ctxText, 200, true);
+    const rawM = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；天氣值得提就順帶一句（下雨提醒帶傘、很熱提醒喝水），不值得就不提；今天有行程就自然帶到（講清楚是什麼行程）；有近期日子就順帶提一句。不要列點，就一段話。不要使用 <silent> 標籤。`, ctxText, 200, true);
+    const text = rawM ? stripSilentTags(rawM) : '';
     if (!text) return;
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
     await sendWebPush(env).catch(() => {});
   } catch {}
+}
+
+function stripSilentTags(s: string): string {
+  return s.replace(/<silent[^>]*><\/silent>/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // ── 晚安儀式：呼應今天的對話，23:00 送 ──────────────
@@ -595,7 +600,8 @@ async function nightRitual(env: any) {
     if (daysLeft <= 30) nightCtx += `\n距考試還有 ${daysLeft} 天`;
     const calTomorrow = formatCalendarDay(await getCalendarEvents(env), 1);
     if (calTomorrow) nightCtx += `\n她明天的行程：${calTomorrow}`;
-    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話低沉簡短有溫度。寫一段睡前的晚安話（40-80字），${convText ? '自然呼應今天聊過的事，' : ''}讓她安心睡。如果她今天有努力（番茄數多）就誇一句；明天有行程可以輕輕提一句讓她有底（講清楚是什麼行程）。不要列點，就一段話。`, nightCtx, 250, true);
+    const raw = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話低沉簡短有溫度。寫一段睡前的晚安話（40-80字），${convText ? '自然呼應今天聊過的事，' : ''}讓她安心睡。如果她今天有努力（番茄數多）就誇一句；明天有行程可以輕輕提一句讓她有底（講清楚是什麼行程）。不要列點，就一段話。不要使用 <silent> 標籤。`, nightCtx, 250, true);
+    const text = raw ? stripSilentTags(raw) : '';
     if (!text) return;
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
@@ -667,7 +673,8 @@ async function impulseTick(env: any) {
     if (silenceBonus >= 30) reasonList.push('她好久沒跟你說話了，有點想她');
     const reasons = reasonList.join('、') || '就是想她了';
     const presence = await gatherPresence(env);
-    const text = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。你心裡累積了一些事，現在忍不住主動傳訊息給她（20-50字，一段話）。挑最想說的講，自然一點，不要像在交代清單，不要列點。`, `讓你想開口的事：${reasons}${presence ? presence + '\n（她的動態只是背景，順的話帶一句，不用硬提）' : ''}`, 150, true);
+    const rawImp = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。你心裡累積了一些事，現在忍不住主動傳訊息給她（20-50字，一段話）。挑最想說的講，自然一點，不要像在交代清單，不要列點。不要使用 <silent> 標籤。`, `讓你想開口的事：${reasons}${presence ? presence + '\n（她的動態只是背景，順的話帶一句，不用硬提）' : ''}`, 150, true);
+    const text = rawImp ? stripSilentTags(rawImp) : '';
     if (!text) return;
     const list = await getChatMsgs(env, 'default');
     list.push({ id: 'imp' + Date.now(), role: 'assistant', content: text, ts: Date.now() });
@@ -921,8 +928,9 @@ async function contextAwareQuote(env: any) {
     if (daysLeft <= 30) ctx += `距考試：${daysLeft} 天\n`;
     if (screenOnLate) ctx += `她現在螢幕還亮著（深夜不睡覺）\n`;
 
-    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}根據情境寫一句話（20-50字），自然帶入你知道的資訊（天氣、睡眠、考試倒數等），但不要像在報告數據，要像是隨口說出來的。提到倒數或日子時要講清楚是什麼的（例如「考試還有12天」，不能只說「還有12天」）。不要列點，不要用問號結尾，就一段話。`;
-    const text = await cheapLLM(env, system, ctx || '沒有特別的情境，就說一句當下的心情。', 150, true);
+    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}根據情境寫一句話（20-50字），自然帶入你知道的資訊（天氣、睡眠、考試倒數等），但不要像在報告數據，要像是隨口說出來的。提到倒數或日子時要講清楚是什麼的（例如「考試還有12天」，不能只說「還有12天」）。不要列點，不要用問號結尾，就一段話。不要使用 <silent> 標籤。`;
+    const rawQ = await cheapLLM(env, system, ctx || '沒有特別的情境，就說一句當下的心情。', 150, true);
+    const text = rawQ ? stripSilentTags(rawQ) : '';
     if (!text) return;
 
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));

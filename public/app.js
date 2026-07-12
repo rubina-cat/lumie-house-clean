@@ -947,7 +947,9 @@ async function fetchQuote() {
     if (!r.ok) throw new Error();
     const d = await r.json();
     if (d.text) {
-      document.getElementById('quoteText').textContent = d.text;
+      const qt = document.getElementById('quoteText');
+      const cleaned = d.text.replace(/<silent[^>]*><\/silent>/g, '').trim();
+      qt.textContent = cleaned;
       if (d.audioUrl) {
         const btn = document.getElementById('quotePlayBtn');
         btn.style.display = 'flex';
