@@ -2872,14 +2872,7 @@ async function _callTranscribe() {
       _callLastEmotion = d.emotion;
     }
 
-    // Auto-play if response came back (transcript was good)
-    if (d.reply && d.audioUrl) {
-      document.getElementById('callTranscriptWrap').style.display = 'none';
-      document.getElementById('callTranscript').textContent = '「' + d.transcript + '」';
-      _callPlayReply(d.reply, d.audioUrl);
-    } else if (d.transcript) {
-      document.getElementById('callStatus').textContent = '確認或修改文字，再按送出';
-    }
+    document.getElementById('callStatus').textContent = '確認或修改文字，再按送出';
   } catch (e) {
     document.getElementById('callEmotion').textContent = '連線錯誤';
     document.getElementById('callStatus').textContent = '按🎙️重試';

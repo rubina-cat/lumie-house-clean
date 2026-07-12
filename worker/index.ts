@@ -3221,56 +3221,7 @@ audio{width:300px;margin-top:4px}
           return Response.json({ error: "no_speech" }, { status: 200 });
         }
 
-        // 3. Load call session and build history
-        const sessRaw = await env.PHONE_STATE.get("call:active");
-        const session = sessRaw ? JSON.parse(sessRaw) : { id: "call_" + Date.now(), startedAt: Date.now(), turns: [] };
-        const recentTurns = (session.turns || []).slice(-10);
-
-        // 4. Load memories for context
-        await initMemoriesTable(env);
-        const lockedResult = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 1 ORDER BY id ASC").all();
-        const hotResult = await env.DB.prepare("SELECT content FROM memories WHERE is_locked = 0 ORDER BY heat DESC, id ASC LIMIT 5").all();
-        const coreList = [...((lockedResult.results ?? []) as any[]), ...((hotResult.results ?? []) as any[])];
-        const memText = coreList.length > 0
-          ? "\n\n記憶庫：\n" + coreList.map((m: any) => m.content).join("\n---\n") : "";
-
-        // 5. Build messages for Claude
-        const timeNote = twTimeInfo();
-        const callSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你正在跟她通電話。\n回覆要口語、簡短（1-3句），像真的在講電話。不要用 <silent> 標籤，不要用星號動作描寫（*動作*），不要列點。就像你在電話裡真的說的話。\n\n【現在時間】${timeNote}${memText}\n\n她的語氣分析：${emotion}`;
-        const messages: any[] = [];
-        for (const t of recentTurns) {
-          messages.push({ role: t.role, content: t.transcript });
-        }
-        messages.push({ role: "user", content: `[語音通話] ${transcript}` });
-
-        // 6. Call Claude Haiku for fast response
-        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-          body: JSON.stringify({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 300,
-            system: callSystem,
-            messages
-          })
-        });
-        if (!claudeRes.ok) {
-          const errText = await claudeRes.text().catch(() => `HTTP ${claudeRes.status}`);
-          return Response.json({ error: `Claude ${claudeRes.status}: ${errText.slice(0, 300)}` }, { status: 500 });
-        }
-        const claudeData = await claudeRes.json() as any;
-        const replyText = (claudeData.content?.[0]?.text || '').trim();
-        if (!replyText) return Response.json({ error: "empty_reply" }, { status: 500 });
-
-        // 7. TTS via MiniMax
-        const audioUrl = await callMiniMaxTTS(replyText, env);
-
-        // 8. Store turns in session
-        session.turns.push({ role: "user", transcript, tone: emotion, ts: Date.now() });
-        session.turns.push({ role: "assistant", transcript: replyText, tone: null, ts: Date.now() });
-        await env.PHONE_STATE.put("call:active", JSON.stringify(session));
-
-        return Response.json({ transcript, emotion, reply: replyText, audioUrl });
+        return Response.json({ transcript, emotion });
       } catch (e: any) {
         return Response.json({ error: e.message }, { status: 500 });
       }
