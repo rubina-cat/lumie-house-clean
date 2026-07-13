@@ -1224,23 +1224,24 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   }
   // 最近通話記錄
   try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_records (
-      id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
-      direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
-    )`).run();
-    const recentCalls = await env.DB.prepare(
-      "SELECT started_at, duration, summary FROM call_records ORDER BY started_at DESC LIMIT 3"
-    ).all();
-    const calls = (recentCalls.results ?? []) as any[];
-    if (calls.length > 0) {
-      const now = Date.now();
-      const lines = calls.map((c: any) => {
-        const ago = Math.round((now - c.started_at) / 60000);
-        const agoStr = ago < 60 ? `${ago}分鐘前` : ago < 1440 ? `${Math.round(ago / 60)}小時前` : `${Math.round(ago / 1440)}天前`;
-        const dur = c.duration >= 60 ? `${Math.floor(c.duration / 60)}分${c.duration % 60}秒` : `${c.duration}秒`;
-        return `・${agoStr}通話${dur}：${c.summary || '（無摘要）'}`;
-      });
-      systemBlocks.push({ type: "text", text: `\n\n【最近通話】你跟她通過電話：\n${lines.join("\n")}\n（你記得這些通話內容，可以自然地延續話題。不用主動提起，但她聊到相關的就接上。）` });
+    const _crCheck = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='call_records'"
+    ).first();
+    if (_crCheck) {
+      const recentCalls = await env.DB.prepare(
+        "SELECT started_at, duration, summary FROM call_records ORDER BY started_at DESC LIMIT 3"
+      ).all();
+      const calls = (recentCalls.results ?? []) as any[];
+      if (calls.length > 0) {
+        const now = Date.now();
+        const lines = calls.map((c: any) => {
+          const ago = Math.round((now - c.started_at) / 60000);
+          const agoStr = ago < 60 ? `${ago}分鐘前` : ago < 1440 ? `${Math.round(ago / 60)}小時前` : `${Math.round(ago / 1440)}天前`;
+          const dur = c.duration >= 60 ? `${Math.floor(c.duration / 60)}分${c.duration % 60}秒` : `${c.duration}秒`;
+          return `・${agoStr}通話${dur}：${c.summary || '（無摘要）'}`;
+        });
+        systemBlocks.push({ type: "text", text: `\n\n【最近通話】你跟她通過電話：\n${lines.join("\n")}\n（你記得這些通話內容，可以自然地延續話題。不用主動提起，但她聊到相關的就接上。）` });
+      }
     }
   } catch {}
   const tools = [
