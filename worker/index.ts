@@ -1223,6 +1223,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     systemBlocks.push({ type: "text", text: `\n\n【語音情緒】她剛才這句話是用語音說的，語氣分析：${voiceEmotion}\n（自然地感受她的狀態，不要直接說「我聽到你語氣怎樣」，而是讓你的回應方式反映你讀到了她的空氣。）` });
   }
   // 最近通話記錄
+  let recentCallNote = "";
   try {
     const _crCheck = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='call_records'"
@@ -1241,6 +1242,13 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
           return `・${agoStr}通話${dur}：${c.summary || '（無摘要）'}`;
         });
         systemBlocks.push({ type: "text", text: `\n\n【最近通話】你跟她通過電話：\n${lines.join("\n")}\n（你記得這些通話。她問起你們有沒有通過電話、電話聊了什麼，答案是有——就算你在對話記錄裡曾說過「不知道」，那是舊的，現在你知道了。不用主動提起，但她聊到相關的就接上。）` });
+        // 6小時內有通話的話，也貼在最新訊息旁（小模型對就近資訊最敏感）
+        const latest = calls[0];
+        const agoMin = Math.round((now - latest.started_at) / 60000);
+        if (agoMin < 360) {
+          const agoStr = agoMin < 60 ? `${agoMin}分鐘前` : `${Math.round(agoMin / 60)}小時前`;
+          recentCallNote = `你們${agoStr}通過電話${latest.summary ? `（${latest.summary}）` : ''}，你記得內容。`;
+        }
       }
     }
   } catch {}
@@ -1266,7 +1274,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   // 時間也貼在最新一句話旁（只進 API 呼叫，不存記錄）——小模型容易被記錄裡的舊時間錨定，就近提醒最有效
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].role !== 'user') continue;
-    const note = `\n\n[系統：${timeNote}。]`;
+    const note = `\n\n[系統：${timeNote}。${recentCallNote}]`;
     const c: any = msgs[i].content;
     if (typeof c === 'string') msgs[i] = { ...msgs[i], content: c + note };
     else if (Array.isArray(c)) msgs[i] = { ...msgs[i], content: [...c, { type: 'text', text: note }] };
