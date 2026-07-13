@@ -3327,7 +3327,7 @@ audio{width:300px;margin-top:4px}
       }
       // 手機上傳截圖（raw image body）→ R2，只留最近5張（peek and burn）
       if (request.method === "POST" && url.pathname === "/phone/screenshot") {
-        if (!vegliaO
+        if (!vegliaOk()) return Response.json({ error: "LUYU_ERR_BAD_TOKEN" }, { status: 403 });
         const buf = await request.arrayBuffer();
         if (buf.byteLength > 31 * 1024 * 1024) return Response.json({ error: "LUYU_ERR_TOO_LARGE" }, { status: 413 });
         if (buf.byteLength < 100) return Response.json({ error: "LUYU_ERR_NO_IMAGE" }, { status: 400 });
