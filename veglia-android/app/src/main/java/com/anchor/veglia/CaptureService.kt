@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.pm.ServiceInfo
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -63,11 +64,18 @@ class CaptureService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setOngoing(true)
             .build()
-        startForeground(1, notification)
+        try {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        } catch (e: Exception) {
+            log("startForeground 失敗: ${e.message}")
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         serverUrl = intent?.getStringExtra("url") ?: ""
         token = intent?.getStringExtra("token") ?: ""
         val resultCode = intent?.getIntExtra("resultCode", 0) ?: 0
+        @Suppress("DEPRECATION")
         val data = intent?.getParcelableExtra<Intent>("data") ?: run {
             log("缺少 MediaProjection data")
             stopSelf()
