@@ -15,6 +15,7 @@ import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -58,34 +59,50 @@ class CaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        try {
+            return doStart(intent)
+        } catch (e: Exception) {
+            log("啟動失敗: ${e.javaClass.simpleName}: ${e.message}")
+            try { stopSelf() } catch (_: Exception) {}
+            return START_NOT_STICKY
+        }
+    }
+
+    private fun doStart(intent: Intent?): Int {
         serverUrl = intent?.getStringExtra("url") ?: ""
         token = intent?.getStringExtra("token") ?: ""
         val resultCode = intent?.getIntExtra("resultCode", 0) ?: 0
-        @Suppress("DEPRECATION")
-        val data = intent?.getParcelableExtra<Intent>("data") ?: run {
+        val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra("data", Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra("data")
+        }
+        if (data == null) {
             log("缺少 MediaProjection data")
             stopSelf()
             return START_NOT_STICKY
         }
 
+        val notification = buildNotification()
+
+        // Step 1: start as regular foreground service first
+        startForeground(1, notification)
+        log("Foreground service 已啟動")
+
+        // Step 2: obtain MediaProjection (grants project_media appop)
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         projection = mpm.getMediaProjection(resultCode, data)
+        log("MediaProjection 已取得")
 
-        val notification = Notification.Builder(this, "veglia_ch")
-            .setContentTitle("Veglia 守望中")
-            .setContentText("等待 Anchor 的指令")
-            .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setOngoing(true)
-            .build()
-        try {
+        // Step 3: upgrade to media projection type
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            stopForeground(STOP_FOREGROUND_DETACH)
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        } catch (e: Exception) {
-            log("startForeground 失敗: ${e.message}")
-            projection?.stop()
-            stopSelf()
-            return START_NOT_STICKY
+            log("已升級為 mediaProjection foreground service")
         }
 
+        // Step 4: setup virtual display
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
@@ -104,7 +121,7 @@ class CaptureService : Service() {
 
         polling = true
         handler.post(pollRunnable)
-        log("MediaProjection 準備完成 (${w}x${h})")
+        log("守望就緒 (${w}x${h})，每 3 秒 poll 一次")
 
         return START_NOT_STICKY
     }
@@ -198,6 +215,15 @@ class CaptureService : Service() {
         } catch (e: Exception) {
             log("上傳錯誤: ${e.message}")
         }
+    }
+
+    private fun buildNotification(): Notification {
+        return Notification.Builder(this, "veglia_ch")
+            .setContentTitle("Veglia 守望中")
+            .setContentText("等待 Anchor 的指令")
+            .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .setOngoing(true)
+            .build()
     }
 
     private fun createNotificationChannel() {
