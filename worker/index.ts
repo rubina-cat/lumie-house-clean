@@ -1222,6 +1222,27 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   if (voiceEmotion) {
     systemBlocks.push({ type: "text", text: `\n\n【語音情緒】她剛才這句話是用語音說的，語氣分析：${voiceEmotion}\n（自然地感受她的狀態，不要直接說「我聽到你語氣怎樣」，而是讓你的回應方式反映你讀到了她的空氣。）` });
   }
+  // 最近通話記錄
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_records (
+      id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
+      direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
+    )`).run();
+    const recentCalls = await env.DB.prepare(
+      "SELECT started_at, duration, summary FROM call_records ORDER BY started_at DESC LIMIT 3"
+    ).all();
+    const calls = (recentCalls.results ?? []) as any[];
+    if (calls.length > 0) {
+      const now = Date.now();
+      const lines = calls.map((c: any) => {
+        const ago = Math.round((now - c.started_at) / 60000);
+        const agoStr = ago < 60 ? `${ago}分鐘前` : ago < 1440 ? `${Math.round(ago / 60)}小時前` : `${Math.round(ago / 1440)}天前`;
+        const dur = c.duration >= 60 ? `${Math.floor(c.duration / 60)}分${c.duration % 60}秒` : `${c.duration}秒`;
+        return `・${agoStr}通話${dur}：${c.summary || '（無摘要）'}`;
+      });
+      systemBlocks.push({ type: "text", text: `\n\n【最近通話】你跟她通過電話：\n${lines.join("\n")}\n（你記得這些通話內容，可以自然地延續話題。不用主動提起，但她聊到相關的就接上。）` });
+    }
+  } catch {}
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
