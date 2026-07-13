@@ -14,7 +14,6 @@ import android.hardware.display.VirtualDisplay
 import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -31,6 +30,7 @@ class CaptureService : Service() {
     companion object {
         var logCallback: ((String) -> Unit)? = null
         private fun log(msg: String) { logCallback?.invoke(msg) }
+        var pendingProjection: MediaProjection? = null
     }
 
     private var projection: MediaProjection? = null
@@ -71,38 +71,24 @@ class CaptureService : Service() {
     private fun doStart(intent: Intent?): Int {
         serverUrl = intent?.getStringExtra("url") ?: ""
         token = intent?.getStringExtra("token") ?: ""
-        val resultCode = intent?.getIntExtra("resultCode", 0) ?: 0
-        val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            intent?.getParcelableExtra("data", Intent::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent?.getParcelableExtra("data")
-        }
-        if (data == null) {
-            log("缺少 MediaProjection data")
+
+        projection = pendingProjection
+        pendingProjection = null
+        if (projection == null) {
+            log("缺少 MediaProjection")
             stopSelf()
             return START_NOT_STICKY
         }
 
         val notification = buildNotification()
-
-        // Step 1: start as regular foreground service first
-        startForeground(1, notification)
-        log("Foreground service 已啟動")
-
-        // Step 2: obtain MediaProjection (grants project_media appop)
-        val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        projection = mpm.getMediaProjection(resultCode, data)
-        log("MediaProjection 已取得")
-
-        // Step 3: upgrade to media projection type
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            stopForeground(STOP_FOREGROUND_DETACH)
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-            log("已升級為 mediaProjection foreground service")
+        } else {
+            startForeground(1, notification)
         }
+        log("mediaProjection foreground service 已啟動")
 
-        // Step 4: setup virtual display
+        // setup virtual display
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")

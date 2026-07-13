@@ -103,9 +103,10 @@ class MainActivity : AppCompatActivity() {
         val url = editUrl.text.toString().trim().trimEnd('/')
         val token = editToken.text.toString().trim()
 
+        val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        CaptureService.pendingProjection = mpm.getMediaProjection(resultCode, data)
+
         val intent = Intent(this, CaptureService::class.java).apply {
-            putExtra("resultCode", resultCode)
-            putExtra("data", data)
             putExtra("url", url)
             putExtra("token", token)
         }
