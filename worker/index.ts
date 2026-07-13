@@ -3346,6 +3346,16 @@ audio{width:300px;margin-top:4px}
       }
     }
 
+    // POST /call/test-ring — 測試用：手動觸發一通來電（不受每日限制）
+    if (request.method === "POST" && url.pathname === "/call/test-ring") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await env.PHONE_STATE.put("call:pending", JSON.stringify({
+        dial_reason: "測試來電，想聽聽妳的聲音", created_at: Date.now(), expires_at: Date.now() + 120000
+      }));
+      return Response.json({ ok: true });
+    }
+
     // GET /call/incoming/poll — 前端輪詢有沒有待接來電
     if (request.method === "GET" && url.pathname === "/call/incoming/poll") {
       const auth = request.headers.get("Authorization");
