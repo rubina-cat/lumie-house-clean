@@ -3000,6 +3000,80 @@ async function endCall() {
   _callChunks = [];
 }
 
+// ── Incoming Call (M3) ────────────────────────────
+let _incomingShown = false;
+
+async function pollIncomingCall() {
+  if (_callActive || document.hidden) return;
+  try {
+    const r = await fetch(BASE + '/call/incoming/poll', {
+      headers: { 'Authorization': 'Bearer ' + TOKEN }
+    });
+    const d = await r.json();
+    if (d.pending && !_incomingShown) {
+      _incomingShown = true;
+      document.getElementById('incomingReason').textContent = d.reason || '想聽聽妳的聲音';
+      document.getElementById('incomingCallOverlay').style.display = 'flex';
+      if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 400]);
+    } else if (!d.pending && _incomingShown) {
+      _incomingShown = false;
+      document.getElementById('incomingCallOverlay').style.display = 'none';
+    }
+  } catch {}
+}
+setInterval(pollIncomingCall, 20000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollIncomingCall(); });
+setTimeout(pollIncomingCall, 3000);
+
+async function answerCall() {
+  _incomingShown = false;
+  document.getElementById('incomingCallOverlay').style.display = 'none';
+  try {
+    const r = await fetch(BASE + '/call/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN }
+    });
+    const d = await r.json();
+    if (d.error) {
+      if (d.error !== 'no_pending') alert('接聽失敗：' + d.error);
+      return;
+    }
+    _callSessionId = d.id;
+    _callStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _callActive = true;
+    _callStartTime = Date.now();
+
+    document.getElementById('callOverlay').style.display = 'flex';
+    document.getElementById('callStatus').textContent = '通話中';
+    document.getElementById('callTranscript').textContent = '';
+    document.getElementById('callEmotion').textContent = '';
+    document.getElementById('callTranscriptWrap').style.display = 'none';
+    document.getElementById('callMicBtn').classList.remove('recording');
+
+    _callTimerInterval = setInterval(() => {
+      const sec = Math.floor((Date.now() - _callStartTime) / 1000);
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      document.getElementById('callTimer').textContent = m + ':' + String(s).padStart(2, '0');
+    }, 1000);
+
+    _callPlayReply(d.reply, d.audioUrl);
+  } catch (e) {
+    alert('無法開啟麥克風：' + e.message);
+    endCall();
+  }
+}
+
+async function declineCall(reason) {
+  _incomingShown = false;
+  document.getElementById('incomingCallOverlay').style.display = 'none';
+  fetch(BASE + '/call/decline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+    body: JSON.stringify({ reason: reason || '' })
+  }).catch(() => {});
+}
+
 // ── Call Records ──────────────────────────────────
 async function loadCallRecords() {
   try {

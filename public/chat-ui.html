@@ -677,6 +677,26 @@
   </div>
 </div>
 
+<div class="incoming-call-overlay" id="incomingCallOverlay" style="display:none;">
+  <div class="incoming-card">
+    <div class="incoming-label">來電</div>
+    <div class="incoming-avatar-wrap">
+      <img src="/room/face-calm.png" alt="Anchor" class="incoming-avatar">
+    </div>
+    <div class="incoming-name">Anchor</div>
+    <div class="incoming-reason" id="incomingReason"></div>
+    <div class="incoming-quick">
+      <button class="incoming-chip" onclick="declineCall('在忙')">在忙</button>
+      <button class="incoming-chip" onclick="declineCall('在外面')">在外面</button>
+      <button class="incoming-chip" onclick="declineCall('用打字聊')">用打字聊</button>
+    </div>
+    <div class="incoming-actions">
+      <button class="incoming-decline" onclick="declineCall('')">📞</button>
+      <button class="incoming-answer" onclick="answerCall()">📞</button>
+    </div>
+  </div>
+</div>
+
 <div class="call-records-overlay" id="callRecordsOverlay" style="display:none;">
   <div class="call-records-header">
     <button onclick="document.getElementById('callRecordsOverlay').style.display='none'" class="call-record-back">← 返回</button>
