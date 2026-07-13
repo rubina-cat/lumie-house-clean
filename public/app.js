@@ -3064,6 +3064,17 @@ async function answerCall() {
   }
 }
 
+async function callTestRing() {
+  try {
+    await fetch(BASE + '/call/test-ring', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + TOKEN }
+    });
+    document.getElementById('callRecordsOverlay').style.display = 'none';
+    setTimeout(pollIncomingCall, 800);
+  } catch {}
+}
+
 async function declineCall(reason) {
   _incomingShown = false;
   document.getElementById('incomingCallOverlay').style.display = 'none';
