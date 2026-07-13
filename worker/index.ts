@@ -3280,37 +3280,44 @@ audio{width:300px;margin-top:4px}
       if (!sessRaw) return Response.json({ ok: true, duration: 0 });
       const session = JSON.parse(sessRaw);
       const duration = Math.round((Date.now() - (session.startedAt || Date.now())) / 1000);
-      await env.PHONE_STATE.delete("call:active");
-
-      // Save call record to D1
-      await env.DB.exec(`CREATE TABLE IF NOT EXISTS call_records (
-        id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
-        direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
-      )`);
       const turns = session.turns || [];
       let summary = "";
-      if (turns.length >= 2) {
-        try {
-          const convo = turns.map((t: any) => `${t.role === "user" ? "她" : "Anchor"}：${t.transcript}`).join("\n");
-          const sumRes = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-            body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001", max_tokens: 60,
-              system: "用一句繁體中文簡短摘要這通電話的內容（15字以內）。只輸出摘要，不要其他文字。",
-              messages: [{ role: "user", content: convo }]
-            })
-          });
-          if (sumRes.ok) {
-            const sumData = await sumRes.json() as any;
-            summary = (sumData.content?.[0]?.text || "").trim();
-          }
-        } catch {}
-      }
-      await env.DB.prepare(
-        "INSERT INTO call_records (id, started_at, ended_at, duration, direction, summary, turns) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).bind(session.id, session.startedAt, Date.now(), duration, "outbound_user", summary, JSON.stringify(turns)).run();
 
+      // Save call record to D1 (try-catch so hangup always succeeds)
+      try {
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_records (
+          id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
+          direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
+        )`).run();
+
+        if (turns.length >= 2) {
+          try {
+            const convo = turns.map((t: any) => `${t.role === "user" ? "她" : "Anchor"}：${t.transcript}`).join("\n");
+            const sumRes = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({
+                model: "claude-haiku-4-5-20251001", max_tokens: 60,
+                system: "用一句繁體中文簡短摘要這通電話的內容（15字以內）。只輸出摘要，不要其他文字。",
+                messages: [{ role: "user", content: convo }]
+              })
+            });
+            if (sumRes.ok) {
+              const sumData = await sumRes.json() as any;
+              summary = (sumData.content?.[0]?.text || "").trim();
+            }
+          } catch {}
+        }
+
+        await env.DB.prepare(
+          "INSERT INTO call_records (id, started_at, ended_at, duration, direction, summary, turns) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).bind(session.id, session.startedAt, Date.now(), duration, "outbound_user", summary, JSON.stringify(turns)).run();
+      } catch (e: any) {
+        console.error("call_records save error:", e.message);
+      }
+
+      // Delete active session AFTER saving record
+      await env.PHONE_STATE.delete("call:active");
       return Response.json({ ok: true, duration, summary });
     }
 
@@ -3318,10 +3325,10 @@ audio{width:300px;margin-top:4px}
     if (request.method === "GET" && url.pathname === "/call/records") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-      await env.DB.exec(`CREATE TABLE IF NOT EXISTS call_records (
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_records (
         id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
         direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
-      )`);
+      )`).run();
       const result = await env.DB.prepare(
         "SELECT id, started_at, ended_at, duration, direction, summary FROM call_records ORDER BY started_at DESC LIMIT 50"
       ).all();
@@ -3333,10 +3340,10 @@ audio{width:300px;margin-top:4px}
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const recordId = url.pathname.replace("/call/records/", "");
-      await env.DB.exec(`CREATE TABLE IF NOT EXISTS call_records (
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_records (
         id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
         direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
-      )`);
+      )`).run();
       const row = await env.DB.prepare("SELECT * FROM call_records WHERE id = ?").bind(recordId).first();
       if (!row) return Response.json({ error: "not found" }, { status: 404 });
       const record = { ...row as any, turns: JSON.parse((row as any).turns || "[]") };
