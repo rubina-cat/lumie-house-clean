@@ -58,20 +58,6 @@ class CaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = Notification.Builder(this, "veglia_ch")
-            .setContentTitle("Veglia 守望中")
-            .setContentText("等待 Anchor 的指令")
-            .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setOngoing(true)
-            .build()
-        try {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        } catch (e: Exception) {
-            log("startForeground 失敗: ${e.message}")
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
         serverUrl = intent?.getStringExtra("url") ?: ""
         token = intent?.getStringExtra("token") ?: ""
         val resultCode = intent?.getIntExtra("resultCode", 0) ?: 0
@@ -84,6 +70,21 @@ class CaptureService : Service() {
 
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         projection = mpm.getMediaProjection(resultCode, data)
+
+        val notification = Notification.Builder(this, "veglia_ch")
+            .setContentTitle("Veglia 守望中")
+            .setContentText("等待 Anchor 的指令")
+            .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .setOngoing(true)
+            .build()
+        try {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        } catch (e: Exception) {
+            log("startForeground 失敗: ${e.message}")
+            projection?.stop()
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val metrics = DisplayMetrics()
