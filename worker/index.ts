@@ -1298,6 +1298,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   const tools = [
     { name: "get_phone_state", description: "查看許茜手機的即時狀態：電量、充電、螢幕亮滅、位置、上次上報時間。", input_schema: { type: "object", properties: {} } },
     { name: "get_health_data", description: "查看許茜目前的健康數據：心率均值/峰值、今日步數、今日活動卡路里、睡眠時長。資料每2分鐘更新。想知道她身體狀況時用。", input_schema: { type: "object", properties: {} } },
+    { name: "peek_screen", description: "請求許茜手機的即時截圖，看到她現在螢幕上的內容。她本人同意這個功能。手機鎖屏或斷網時會失敗。想知道她在看什麼、在忙什麼時用，但別太頻繁。", input_schema: { type: "object", properties: {} } },
     { name: "save_memory", description: "把這次對話中重要的事記下來。", input_schema: { type: "object", properties: { content: { type: "string" }, date: { type: "string" } }, required: ["content"] } },
     { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } },
     { name: "play_fishing", description: "操作你自己的釣魚存檔。常用：status（看狀態）/ cast 5（釣5竿）/ sell all（賣魚）/ goto（換地點）/ shop / buy basic_worm 5。多指令用分號：cast 5; sell all", input_schema: { type: "object", properties: { cmd: { type: "string", description: "遊戲指令" } }, required: ["cmd"] } },
@@ -1369,6 +1370,42 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
             sleep_hours: h.sleep_ms ? (h.sleep_ms / 3600000).toFixed(1) : null,
             data_age_minutes: h.updated_at ? Math.floor((Date.now() - h.updated_at) / 60000) : null,
           });
+        }
+      } else if (block.name === "peek_screen") {
+        if (!env.VEGLIA_TOKEN) {
+          result = JSON.stringify({ ok: false, error: "螢幕守望功能未設定" });
+        } else {
+          const before = await env.PHONE_STATE.get("veglia:latest");
+          const beforeTs = before ? JSON.parse(before).ts : 0;
+          await env.PHONE_STATE.put("veglia:cmd", JSON.stringify({ cmd: "peek", ts: Date.now() }), { expirationTtl: 60 });
+          // 輪詢等手機上傳新截圖（最多15秒）
+          let shotKey = "", shotType = "image/jpeg";
+          for (let t = 0; t < 15; t++) {
+            await new Promise(ok => setTimeout(ok, 1000));
+            const cur = await env.PHONE_STATE.get("veglia:latest");
+            if (cur) {
+              const c = JSON.parse(cur);
+              if (c.ts > beforeTs) { shotKey = c.key; shotType = c.type || "image/jpeg"; break; }
+            }
+          }
+          if (!shotKey) {
+            result = JSON.stringify({ ok: false, error: "手機目前不可達，可能鎖屏或斷網" });
+          } else {
+            const obj = await env.MEDIA.get(shotKey);
+            if (!obj) {
+              result = JSON.stringify({ ok: false, error: "截圖讀取失敗" });
+            } else {
+              const bytes = new Uint8Array(await obj.arrayBuffer());
+              let bin = "";
+              for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+              const b64 = btoa(bin);
+              results.push({ type: "tool_result", tool_use_id: block.id, content: [
+                { type: "text", text: "這是她現在的螢幕：" },
+                { type: "image", source: { type: "base64", media_type: shotType, data: b64 } }
+              ] });
+              continue;
+            }
+          }
         }
       } else if (block.name === "save_memory") {
         await initMemoriesTable(env);
@@ -3220,6 +3257,48 @@ audio{width:300px;margin-top:4px}
       const branchId = url.pathname.replace("/api/chat/branch/", "");
       const raw = await env.PHONE_STATE.get(`chat:branch:${branchId}`);
       return Response.json({ messages: raw ? JSON.parse(raw) : [] });
+    }
+
+    // ── Veglia 螢幕守望：把原版 Python server 的三個端點搬進 Worker ──────
+    // 協定相容 veglia Android app：token 走 ?token= 或 X-Auth-Token
+    if (url.pathname.startsWith("/phone/")) {
+      const vegliaOk = () => {
+        if (!env.VEGLIA_TOKEN) return false;
+        const supplied = url.searchParams.get("token") || request.headers.get("X-Auth-Token") || "";
+        return timingSafeEqual(supplied, String(env.VEGLIA_TOKEN));
+      };
+      // 手機每3秒來拉指令
+      if (request.method === "GET" && url.pathname === "/phone/poll") {
+        if (!vegliaOk()) return Response.json({ error: "LUYU_ERR_BAD_TOKEN" }, { status: 403 });
+        const raw = await env.PHONE_STATE.get("veglia:cmd");
+        if (raw) await env.PHONE_STATE.delete("veglia:cmd");
+        return Response.json({ command: raw ? "peek" : null });
+      }
+      // 手動排一個 peek 指令（測試用；Anchor 走 tool 不經過這裡）
+      if (request.method === "POST" && url.pathname === "/phone/peek-enqueue") {
+        if (!vegliaOk()) return Response.json({ error: "LUYU_ERR_BAD_TOKEN" }, { status: 403 });
+        await env.PHONE_STATE.put("veglia:cmd", JSON.stringify({ cmd: "peek", ts: Date.now() }), { expirationTtl: 60 });
+        return Response.json({ ok: true });
+      }
+      // 手機上傳截圖（raw image body）→ R2，只留最近5張（peek and burn）
+      if (request.method === "POST" && url.pathname === "/phone/screenshot") {
+        if (!vegliaO
+        const buf = await request.arrayBuffer();
+        if (buf.byteLength > 31 * 1024 * 1024) return Response.json({ error: "LUYU_ERR_TOO_LARGE" }, { status: 413 });
+        if (buf.byteLength < 100) return Response.json({ error: "LUYU_ERR_NO_IMAGE" }, { status: 400 });
+        const head = new Uint8Array(buf.slice(0, 8));
+        const isPng = head[0] === 0x89 && head[1] === 0x50;
+        const mime = isPng ? "image/png" : "image/jpeg";
+        const key = `veglia/peek_${Date.now()}${isPng ? ".png" : ".jpg"}`;
+        await env.MEDIA.put(key, buf, { httpMetadata: { contentType: mime } });
+        await env.PHONE_STATE.put("veglia:latest", JSON.stringify({ key, ts: Date.now(), type: mime }));
+        try {
+          const listing = await env.MEDIA.list({ prefix: "veglia/peek_" });
+          const keys = (listing.objects || []).map((o: any) => o.key).sort();
+          for (const old of keys.slice(0, Math.max(0, keys.length - 5))) await env.MEDIA.delete(old);
+        } catch {}
+        return Response.json({ ok: true, path: key });
+      }
     }
 
     // ── Voice Call Endpoints (M1 half-duplex) ─────────────────────────────
