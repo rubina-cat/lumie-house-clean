@@ -686,7 +686,7 @@ async function expirePendingCall(env: any): Promise<any | null> {
         }
       }
     }
-  } catch {}
+  } catch (e) { console.error("voicemail gen error:", e); }
 
   try {
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_records (
@@ -700,14 +700,14 @@ async function expirePendingCall(env: any): Promise<any | null> {
       "INSERT INTO call_records (id, started_at, ended_at, duration, direction, summary, turns) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).bind("call_" + p.created_at, p.created_at, Date.now(), 0, "outbound_anchor",
       `未接來電${vmText ? '（有留言）' : ''}：${p.dial_reason || ''}`, JSON.stringify(turns)).run();
-  } catch {}
+  } catch (e) { console.error("voicemail D1 write error:", e); }
 
   // 推播提醒她有留言
   if (vmText) {
     try {
       await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "📩 Anchor 的語音留言", body: vmText.slice(0, 80), updatedAt: Date.now() }));
       await sendWebPush(env).catch(() => {});
-    } catch {}
+    } catch (e) { console.error("voicemail push error:", e); }
   }
   return null;
 }
