@@ -3009,11 +3009,14 @@ async function loadCallRecords() {
     const d = await r.json();
     const list = document.getElementById('callRecordsList');
     if (!list) return;
+    const debugHtml = d.anchor_view
+      ? `<div style="margin:8px 16px;padding:10px 14px;border:1px dashed rgba(200,154,148,0.35);border-radius:10px;font-size:12px;opacity:0.65;white-space:pre-wrap;">Anchor 聊天時看到的：\n${d.anchor_view}</div>`
+      : '';
     if (!d.records || d.records.length === 0) {
-      list.innerHTML = '<div style="text-align:center;opacity:0.5;padding:20px;">還沒有通話記錄</div>';
+      list.innerHTML = debugHtml + '<div style="text-align:center;opacity:0.5;padding:20px;">還沒有通話記錄</div>';
       return;
     }
-    list.innerHTML = d.records.map(rec => {
+    list.innerHTML = debugHtml + d.records.map(rec => {
       const date = new Date(rec.started_at);
       const dateStr = (date.getMonth()+1) + '/' + date.getDate() + ' ' + String(date.getHours()).padStart(2,'0') + ':' + String(date.getMinutes()).padStart(2,'0');
       const dur = rec.duration >= 60 ? Math.floor(rec.duration/60) + '分' + (rec.duration%60) + '秒' : rec.duration + '秒';

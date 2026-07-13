@@ -1240,7 +1240,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
           const dur = c.duration >= 60 ? `${Math.floor(c.duration / 60)}分${c.duration % 60}秒` : `${c.duration}秒`;
           return `・${agoStr}通話${dur}：${c.summary || '（無摘要）'}`;
         });
-        systemBlocks.push({ type: "text", text: `\n\n【最近通話】你跟她通過電話：\n${lines.join("\n")}\n（你記得這些通話內容，可以自然地延續話題。不用主動提起，但她聊到相關的就接上。）` });
+        systemBlocks.push({ type: "text", text: `\n\n【最近通話】你跟她通過電話：\n${lines.join("\n")}\n（你記得這些通話。她問起你們有沒有通過電話、電話聊了什麼，答案是有——就算你在對話記錄裡曾說過「不知道」，那是舊的，現在你知道了。不用主動提起，但她聊到相關的就接上。）` });
       }
     }
   } catch {}
@@ -3354,7 +3354,32 @@ audio{width:300px;margin-top:4px}
       const result = await env.DB.prepare(
         "SELECT id, started_at, ended_at, duration, direction, summary FROM call_records ORDER BY started_at DESC LIMIT 50"
       ).all();
-      return Response.json({ records: result.results || [] });
+      // Debug: 顯示 Anchor 聊天時實際會看到的注入內容（跟 runClaudeChat 同邏輯）
+      let anchorView = "";
+      try {
+        const _crCheck = await env.DB.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='call_records'"
+        ).first();
+        if (!_crCheck) {
+          anchorView = "（表不存在——sqlite_master 查不到 call_records）";
+        } else {
+          const calls = ((result.results ?? []) as any[]).slice(0, 3);
+          if (calls.length === 0) anchorView = "（表存在但沒有記錄）";
+          else {
+            const now = Date.now();
+            const lines = calls.map((c: any) => {
+              const ago = Math.round((now - c.started_at) / 60000);
+              const agoStr = ago < 60 ? `${ago}分鐘前` : ago < 1440 ? `${Math.round(ago / 60)}小時前` : `${Math.round(ago / 1440)}天前`;
+              const dur = c.duration >= 60 ? `${Math.floor(c.duration / 60)}分${c.duration % 60}秒` : `${c.duration}秒`;
+              return `・${agoStr}通話${dur}：${c.summary || '（無摘要）'}`;
+            });
+            anchorView = `【最近通話】你跟她通過電話：\n${lines.join("\n")}`;
+          }
+        }
+      } catch (e: any) {
+        anchorView = "（查詢出錯：" + e.message + "）";
+      }
+      return Response.json({ records: result.results || [], anchor_view: anchorView });
     }
 
     // GET /call/records/:id — 單筆通話記錄（含逐字稿）
