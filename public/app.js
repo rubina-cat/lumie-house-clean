@@ -3064,6 +3064,28 @@ async function answerCall() {
   }
 }
 
+let _dndEnabled = false;
+async function loadDndState() {
+  try {
+    const r = await fetch(BASE + '/call/dnd', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    _dndEnabled = !!d.enabled;
+    const b = document.getElementById('dndBtn');
+    if (b) b.textContent = _dndEnabled ? '🔕 勿擾中' : '🔔';
+  } catch {}
+}
+
+async function toggleDnd() {
+  _dndEnabled = !_dndEnabled;
+  const b = document.getElementById('dndBtn');
+  if (b) b.textContent = _dndEnabled ? '🔕 勿擾中' : '🔔';
+  fetch(BASE + '/call/dnd', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+    body: JSON.stringify({ enabled: _dndEnabled })
+  }).catch(() => {});
+}
+
 async function callTestRing() {
   try {
     await fetch(BASE + '/call/test-ring', {
@@ -3087,6 +3109,7 @@ async function declineCall(reason) {
 
 // ── Call Records ──────────────────────────────────
 async function loadCallRecords() {
+  loadDndState();
   try {
     const r = await fetch(BASE + '/call/records', {
       headers: { 'Authorization': 'Bearer ' + TOKEN }
@@ -3131,7 +3154,9 @@ async function viewCallRecord(id) {
     const turnsHtml = rec.turns.map(t => {
       const who = t.role === 'user' ? '你' : 'Anchor';
       const cls = t.role === 'user' ? 'call-turn-user' : 'call-turn-anchor';
-      return `<div class="${cls}"><b>${who}：</b>${t.transcript}</div>`;
+      const vmLabel = t.voicemail ? '<div style="font-size:11px;opacity:0.6;margin-bottom:4px;">📩 語音留言</div>' : '';
+      const player = t.voicemail && t.audioUrl ? `<audio controls src="${t.audioUrl}" style="width:100%;margin-top:8px;height:36px;"></audio>` : '';
+      return `<div class="${cls}">${vmLabel}<b>${who}：</b>${t.transcript}${player}</div>`;
     }).join('');
     const overlay = document.getElementById('callRecordDetail');
     if (!overlay) return;

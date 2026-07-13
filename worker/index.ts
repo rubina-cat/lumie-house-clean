@@ -650,22 +650,65 @@ async function addImpulse(env: any, points: number, reason: string) {
   } catch {}
 }
 
-// 待接來電：沒過期回傳資料，過期就記一筆未接並清掉
+// 待接來電：沒過期回傳資料，過期就記一筆未接並清掉（M4：留一段語音留言）
 async function expirePendingCall(env: any): Promise<any | null> {
   const raw = await env.PHONE_STATE.get("call:pending");
   if (!raw) return null;
   const p = JSON.parse(raw);
   if (Date.now() < (p.expires_at || 0)) return p;
   await env.PHONE_STATE.delete("call:pending");
+
+  // 生成語音留言：Haiku 寫留言 → TTS → 抓下來存 R2（MiniMax 的 URL 會過期）
+  let vmText = "", vmUrl: string | null = null;
+  try {
+    const vmRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001", max_tokens: 200,
+        system: `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你剛打電話給她，她沒接，現在對著語音信箱留言。你打去的理由：${p.dial_reason || '想她了'}\n留一段話（2-3句，口語，溫柔但不黏膩），像真的留言。不要任何標記、不要動作描寫。`,
+        messages: [{ role: "user", content: "[系統：嘟聲後開始留言]" }]
+      })
+    });
+    if (vmRes.ok) {
+      const vd = await vmRes.json() as any;
+      vmText = (vd.content?.[0]?.text || "").trim();
+    }
+    if (vmText) {
+      const mmUrl = await callMiniMaxTTS(vmText, env);
+      if (mmUrl) {
+        const ar = await fetch(mmUrl);
+        if (ar.ok) {
+          const buf = await ar.arrayBuffer();
+          const key = `audio/voicemail/vm_${p.created_at}.mp3`;
+          await env.MEDIA.put(key, buf, { httpMetadata: { contentType: "audio/mpeg" } });
+          vmUrl = `/media/${key}`;
+        }
+      }
+    }
+  } catch {}
+
   try {
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS call_records (
       id TEXT PRIMARY KEY, started_at INTEGER, ended_at INTEGER, duration INTEGER,
       direction TEXT DEFAULT 'outbound_user', summary TEXT, turns TEXT
     )`).run();
+    const turns = vmText
+      ? [{ role: "assistant", transcript: vmText, voicemail: true, audioUrl: vmUrl, ts: Date.now() }]
+      : [];
     await env.DB.prepare(
       "INSERT INTO call_records (id, started_at, ended_at, duration, direction, summary, turns) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).bind("call_" + p.created_at, p.created_at, Date.now(), 0, "outbound_anchor", `未接來電：${p.dial_reason || ''}`, "[]").run();
+    ).bind("call_" + p.created_at, p.created_at, Date.now(), 0, "outbound_anchor",
+      `未接來電${vmText ? '（有留言）' : ''}：${p.dial_reason || ''}`, JSON.stringify(turns)).run();
   } catch {}
+
+  // 推播提醒她有留言
+  if (vmText) {
+    try {
+      await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "📩 Anchor 的語音留言", body: vmText.slice(0, 80), updatedAt: Date.now() }));
+      await sendWebPush(env).catch(() => {});
+    } catch {}
+  }
   return null;
 }
 
@@ -696,8 +739,10 @@ async function impulseTick(env: any) {
     // 衝動很強的話打電話（一天最多1次，23:00–08:00 不打）
     try {
       await expirePendingCall(env);
+      const dndRaw = await env.PHONE_STATE.get("call:dnd");
+      const dndOn = dndRaw ? !!JSON.parse(dndRaw).enabled : false;
       const canCallHour = !(twH >= 23 || twH < 8);
-      if (effective >= 70 && canCallHour) {
+      if (effective >= 70 && canCallHour && !dndOn) {
         const today = twnToday();
         const dialedDate = await env.PHONE_STATE.get("call:dial_date");
         const hasPending = await env.PHONE_STATE.get("call:pending");
@@ -3396,7 +3441,7 @@ audio{width:300px;margin-top:4px}
         const memText = coreList.length > 0 ? "\n\n記憶庫：\n" + coreList.map((m: any) => m.content).join("\n---\n") : "";
         const timeNote = twTimeInfo();
         const dialCtx = session.dialReason ? `\n\n這通電話是你主動打給她的，理由：${session.dialReason}` : "";
-        const callSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你正在跟她通電話。${dialCtx}\n回覆要口語、簡短（1-3句），像真的在講電話。不要用 <silent> 標籤，不要用星號動作描寫（*動作*），不要列點。就像你在電話裡真的說的話。\n\n如果你覺得對話到了自然的結束點（例如道晚安、說再見、話題結束），你可以在回覆的最後加上 《hangup》 標記。這會觸發溫柔掛斷流程——她還有15秒可以繼續說話，如果她繼續說了你就取消掛斷繼續聊。不要每次都掛，只在真的該結束時才用。\n\n【現在時間】${timeNote}${memText}${emotion ? `\n\n她的語氣分析：${emotion}` : ""}`;
+        const callSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你正在跟她通電話。${dialCtx}\n回覆要口語、簡短（1-3句），像真的在講電話。不要用 <silent> 標籤，不要用星號動作描寫（*動作*），不要列點。就像你在電話裡真的說的話。\n\n如果你覺得對話到了自然的結束點（例如道晚安、說再見、話題結束），你可以在回覆的最後加上 《hangup》 標記。這會觸發溫柔掛斷流程——她還有15秒可以繼續說話，如果她繼續說了你就取消掛斷繼續聊。不要每次都掛，只在真的該結束時才用。\n\n如果她說最近別打來、今晚別吵她，在回覆最後加 《dnd:on》（之後你就不會主動打電話給她）；她說可以打了就加 《dnd:off》。標記不會被唸出來。\n\n【現在時間】${timeNote}${memText}${emotion ? `\n\n她的語氣分析：${emotion}` : ""}`;
         const messages: any[] = [];
         for (const t of recentTurns) messages.push({ role: t.role, content: t.transcript });
         messages.push({ role: "user", content: `[語音通話] ${text}` });
@@ -3413,7 +3458,9 @@ audio{width:300px;margin-top:4px}
         const rawReply = (claudeData.content?.[0]?.text || '').trim();
         if (!rawReply) return Response.json({ error: "empty_reply" }, { status: 500 });
         const closing = rawReply.includes("《hangup》");
-        const replyText = rawReply.replace(/《hangup》/g, "").trim();
+        if (rawReply.includes("《dnd:on》")) await env.PHONE_STATE.put("call:dnd", JSON.stringify({ enabled: true, updated_at: Date.now() }));
+        else if (rawReply.includes("《dnd:off》")) await env.PHONE_STATE.put("call:dnd", JSON.stringify({ enabled: false, updated_at: Date.now() }));
+        const replyText = rawReply.replace(/《hangup》|《dnd:on》|《dnd:off》/g, "").trim();
         const audioUrl = await callMiniMaxTTS(replyText, env);
         session.turns.push({ role: "user", transcript: text, tone: emotion || null, ts: Date.now() });
         session.turns.push({ role: "assistant", transcript: replyText, tone: null, ts: Date.now() });
@@ -3422,6 +3469,21 @@ audio{width:300px;margin-top:4px}
         return Response.json({ reply: replyText, audioUrl, closing });
       } catch (e: any) {
         return Response.json({ error: e.message }, { status: 500 });
+      }
+    }
+
+    // GET/POST /call/dnd — 勿擾開關（開著 Anchor 就不會主動打來）
+    if (url.pathname === "/call/dnd") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (request.method === "GET") {
+        const raw = await env.PHONE_STATE.get("call:dnd");
+        return Response.json({ enabled: raw ? !!JSON.parse(raw).enabled : false });
+      }
+      if (request.method === "POST") {
+        const { enabled } = await request.json().catch(() => ({ enabled: false })) as any;
+        await env.PHONE_STATE.put("call:dnd", JSON.stringify({ enabled: !!enabled, updated_at: Date.now() }));
+        return Response.json({ ok: true, enabled: !!enabled });
       }
     }
 
