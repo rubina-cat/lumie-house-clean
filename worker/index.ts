@@ -1925,20 +1925,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
           }
         }
       } catch {}
-      let fishing: any = null;
-      try {
-        const raw = await env.PHONE_STATE.get("fishing_save:chien");
-        if (raw) {
-          const s = JSON.parse(raw);
-          fishing = {
-            location: s.location_id ?? null,
-            points: s.points ?? null,
-            caught: s.encyclopedia ? Object.keys(s.encyclopedia).length : null,
-            round: s.turn ?? null,
-          };
-        }
-      } catch {}
-      return Response.json({ mood, lastChatTs, fishing });
+      return Response.json({ mood, lastChatTs, fishing: null });
     }
 
     // GET /monthly-review?month=YYYY-MM — 月度回顧（結果快取在 KV）
