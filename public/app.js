@@ -1059,10 +1059,21 @@ async function loadGoals() {
     if (!goals.length) { list.innerHTML = '<div class="dates-empty">還沒有一起養的習慣，＋一個？</div>'; return; }
     list.innerHTML = goals.map(g => {
       const streak = g.streak > 1 ? `<span class="goal-streak">🔥 ${g.streak} 天</span>` : (g.total > 0 ? `<span class="goal-streak dim">共 ${g.total} 次</span>` : '');
+      if (g.countable) {
+        const cnt = g.count || 0;
+        return `<div class="goal-item${cnt > 0 ? ' done' : ''}">
+          <button class="goal-check goal-count-btn" onclick="countGoalCheck(${g.id})" oncontextmenu="event.preventDefault();countGoalDec(${g.id})">${cnt > 0 ? cnt : ''}</button>
+          <span class="goal-icon">${g.icon || '🌱'}</span>
+          <div class="goal-info"><div class="goal-title" oncontextmenu="event.preventDefault();toggleGoalCountable(${g.id})">${escHtml(g.title)}</div></div>
+          ${_plantImg(g, 'goal-plant')}
+          ${streak}
+          <button class="date-del-btn" onclick="deleteGoal(${g.id})">×</button>
+        </div>`;
+      }
       return `<div class="goal-item${g.checked ? ' done' : ''}">
         <button class="goal-check" onclick="toggleGoalCheck(${g.id})">${g.checked ? '✓' : ''}</button>
         <span class="goal-icon">${g.icon || '🌱'}</span>
-        <div class="goal-info"><div class="goal-title">${escHtml(g.title)}</div></div>
+        <div class="goal-info"><div class="goal-title" oncontextmenu="event.preventDefault();toggleGoalCountable(${g.id})">${escHtml(g.title)}</div></div>
         ${_plantImg(g, 'goal-plant')}
         ${streak}
         <button class="date-del-btn" onclick="deleteGoal(${g.id})">×</button>
@@ -1081,21 +1092,59 @@ async function toggleGoalCheck(id) {
   } catch {}
   loadGoals();
 }
+async function countGoalCheck(id) {
+  try {
+    await fetch(BASE + '/goals/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ id, date: _todayTWN() })
+    });
+  } catch {}
+  loadGoals();
+}
+async function countGoalDec(id) {
+  try {
+    await fetch(BASE + '/goals/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ id, date: _todayTWN(), decrement: true })
+    });
+  } catch {}
+  loadGoals();
+}
+async function toggleGoalCountable(id) {
+  const g = (_goalsCache || []).find(x => x.id === id);
+  if (!g) return;
+  const newVal = !g.countable;
+  if (!confirm(newVal ? '改為可計次？' : '改為一般打卡？')) return;
+  try {
+    await fetch(BASE + '/goals/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ countable: newVal })
+    });
+  } catch {}
+  loadGoals();
+}
 function openAddGoal() {
   document.getElementById('addGoalTitle').value = '';
   document.getElementById('addGoalIcon').value = '🌱';
+  const cb = document.getElementById('addGoalCountable');
+  if (cb) cb.checked = false;
   document.getElementById('addGoalOverlay').style.display = 'flex';
 }
 function closeAddGoal() { document.getElementById('addGoalOverlay').style.display = 'none'; }
 async function submitAddGoal() {
   const title = document.getElementById('addGoalTitle').value.trim();
   const icon = document.getElementById('addGoalIcon').value.trim() || '🌱';
+  const countableEl = document.getElementById('addGoalCountable');
+  const countable = countableEl ? countableEl.checked : false;
   if (!title) { alert('先寫一下要養什麼習慣'); return; }
   try {
     const r = await fetch(BASE + '/goals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify({ title, icon })
+      body: JSON.stringify({ title, icon, countable })
     });
     if (!r.ok) throw new Error();
     closeAddGoal();

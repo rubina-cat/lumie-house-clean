@@ -285,6 +285,8 @@ async function initGoalsTable(env: any) {
     date TEXT NOT NULL,
     UNIQUE(goal_id, date)
   )`).run();
+  try { await env.DB.prepare("ALTER TABLE goals ADD COLUMN countable INTEGER DEFAULT 0").run(); } catch {}
+  try { await env.DB.prepare("ALTER TABLE goal_checks ADD COLUMN count INTEGER DEFAULT 1").run(); } catch {}
 }
 
 // 台灣時區的今天 YYYY-MM-DD
@@ -1259,12 +1261,16 @@ async function runClaudeChat(env: any, history: any[], modelKey = 'haiku', voice
     await initGoalsTable(env);
     const today = twnToday();
     const gr = await env.DB.prepare(
-      "SELECT g.title, g.icon, (SELECT COUNT(*) FROM goal_checks c WHERE c.goal_id = g.id AND c.date = ?) as checked FROM goals g ORDER BY g.id ASC LIMIT 12"
+      "SELECT g.title, g.icon, g.countable, (SELECT count FROM goal_checks c WHERE c.goal_id = g.id AND c.date = ?) as cnt FROM goals g ORDER BY g.id ASC LIMIT 12"
     ).bind(today).all();
     const gs = (gr.results ?? []) as any[];
     if (gs.length > 0) {
       goalText = "\n\n你們一起養的習慣（今天）：\n" +
-        gs.map((g: any) => `${g.icon} ${g.title}：${g.checked ? '她打卡了' : '還沒打卡'}`).join("\n") +
+        gs.map((g: any) => {
+          const cnt = g.cnt ?? 0;
+          if (g.countable) return `${g.icon} ${g.title}：${cnt > 0 ? `她今天記了 ${cnt} 次` : '還沒記'}`;
+          return `${g.icon} ${g.title}：${cnt > 0 ? '她打卡了' : '還沒打卡'}`;
+        }).join("\n") +
         "\n（她做到了可以順口誇一下，一直沒動可以輕輕催。不用每次都提。）";
     }
   } catch {}
@@ -2128,9 +2134,15 @@ if (request.method === "POST" && url.pathname === "/tts") {
         if (!byGoal.has(c.goal_id)) byGoal.set(c.goal_id, new Set());
         byGoal.get(c.goal_id)!.add(c.date);
       }
+      const countResult = await env.DB.prepare(
+        "SELECT goal_id, count FROM goal_checks WHERE date = ?"
+      ).bind(today).all();
+      const countMap = new Map<number, number>();
+      for (const c of (countResult.results ?? []) as any[]) countMap.set(c.goal_id, c.count ?? 1);
       const out = goals.map(g => {
         const dates = byGoal.get(g.id) ?? new Set<string>();
-        return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size };
+        const todayCount = countMap.get(g.id) ?? 0;
+        return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size, count: todayCount, countable: g.countable ?? 0 };
       });
       return Response.json({ goals: out, today });
     }
@@ -2142,12 +2154,12 @@ if (request.method === "POST" && url.pathname === "/tts") {
       const body = await request.json() as any;
       if (!body.title) return Response.json({ error: "title required" }, { status: 400 });
       await initGoalsTable(env);
-      await env.DB.prepare("INSERT INTO goals (title, icon) VALUES (?, ?)")
-        .bind(String(body.title).slice(0, 40), body.icon ?? '🌱').run();
+      await env.DB.prepare("INSERT INTO goals (title, icon, countable) VALUES (?, ?, ?)")
+        .bind(String(body.title).slice(0, 40), body.icon ?? '🌱', body.countable ? 1 : 0).run();
       return Response.json({ ok: true });
     }
 
-    // POST /goals/check — 打卡／取消打卡（切換）
+    // POST /goals/check — 打卡／取消打卡（切換）；計次型支援 +1/-1
     if (request.method === "POST" && url.pathname === "/goals/check") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -2155,14 +2167,44 @@ if (request.method === "POST" && url.pathname === "/tts") {
       if (!body.id) return Response.json({ error: "id required" }, { status: 400 });
       await initGoalsTable(env);
       const date = body.date || twnToday();
+      const goal = await env.DB.prepare("SELECT countable FROM goals WHERE id = ?").bind(body.id).first() as any;
+      const isCountable = goal?.countable === 1;
+
+      if (isCountable) {
+        const existing = await env.DB.prepare("SELECT id, count FROM goal_checks WHERE goal_id = ? AND date = ?")
+          .bind(body.id, date).first() as any;
+        if (body.decrement) {
+          if (!existing || (existing.count ?? 1) <= 1) {
+            await env.DB.prepare("DELETE FROM goal_checks WHERE goal_id = ? AND date = ?").bind(body.id, date).run();
+            return Response.json({ ok: true, checked: false, count: 0 });
+          }
+          const newCount = (existing.count ?? 1) - 1;
+          await env.DB.prepare("UPDATE goal_checks SET count = ? WHERE goal_id = ? AND date = ?").bind(newCount, body.id, date).run();
+          return Response.json({ ok: true, checked: true, count: newCount });
+        }
+        if (existing) {
+          const newCount = (existing.count ?? 1) + 1;
+          await env.DB.prepare("UPDATE goal_checks SET count = ? WHERE goal_id = ? AND date = ?").bind(newCount, body.id, date).run();
+          return Response.json({ ok: true, checked: true, count: newCount });
+        }
+        await env.DB.prepare("INSERT INTO goal_checks (goal_id, date, count) VALUES (?, ?, 1)").bind(body.id, date).run();
+        ctx.waitUntil((async () => {
+          try {
+            const g = await env.DB.prepare("SELECT title FROM goals WHERE id = ?").bind(body.id).first() as any;
+            await addImpulse(env, 10, `她喝了一杯「${g?.title ?? ''}」`);
+          } catch {}
+        })());
+        return Response.json({ ok: true, checked: true, count: 1 });
+      }
+
+      // 非計次型：toggle
       const existing = await env.DB.prepare("SELECT id FROM goal_checks WHERE goal_id = ? AND date = ?")
         .bind(body.id, date).first();
       if (existing) {
         await env.DB.prepare("DELETE FROM goal_checks WHERE goal_id = ? AND date = ?").bind(body.id, date).run();
         return Response.json({ ok: true, checked: false });
       }
-      await env.DB.prepare("INSERT INTO goal_checks (goal_id, date) VALUES (?, ?)").bind(body.id, date).run();
-      // 衝動值：她打卡了，里程碑加更多
+      await env.DB.prepare("INSERT INTO goal_checks (goal_id, date, count) VALUES (?, ?, 1)").bind(body.id, date).run();
       ctx.waitUntil((async () => {
         try {
           const g = await env.DB.prepare("SELECT title FROM goals WHERE id = ?").bind(body.id).first() as any;
@@ -2177,6 +2219,23 @@ if (request.method === "POST" && url.pathname === "/tts") {
         } catch {}
       })());
       return Response.json({ ok: true, checked: true });
+    }
+
+    // PATCH /goals/:id — 更新習慣屬性（如 countable）
+    if (request.method === "PATCH" && /^\/goals\/\d+$/.test(url.pathname)) {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const id = url.pathname.split("/")[2];
+      const body: any = await request.json();
+      const sets: string[] = [];
+      const vals: any[] = [];
+      if (body.title !== undefined) { sets.push("title = ?"); vals.push(body.title); }
+      if (body.icon !== undefined) { sets.push("icon = ?"); vals.push(body.icon); }
+      if (body.countable !== undefined) { sets.push("countable = ?"); vals.push(body.countable ? 1 : 0); }
+      if (sets.length === 0) return Response.json({ error: "nothing to update" }, { status: 400 });
+      vals.push(id);
+      await env.DB.prepare(`UPDATE goals SET ${sets.join(", ")} WHERE id = ?`).bind(...vals).run();
+      return Response.json({ ok: true });
     }
 
     // DELETE /goals/:id — 刪除習慣（連打卡記錄一起）
