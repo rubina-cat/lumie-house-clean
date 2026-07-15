@@ -125,6 +125,11 @@
         <div class="mini-card-label">動態</div>
         <div class="mini-card-title">我們的朋友圈</div>
       </div>
+      <div class="mini-card" onclick="openCC()">
+        <span class="card-icon">⚡</span>
+        <div class="mini-card-label">CC</div>
+        <div class="mini-card-title">叫 CC 幫忙</div>
+      </div>
       <div class="mini-card wide" onclick="openHouse()">
         <span class="card-icon">🏠</span>
         <div class="mini-card-label">屋裡</div>
@@ -415,6 +420,17 @@
       <button onclick="closeStats()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--light-text);font-size:18px;cursor:pointer;">✕</button>
       <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;">📊 使用統計</div>
       <div id="statsContent" style="color:var(--light-text);font-size:14px;">載入中…</div>
+    </div>
+  </div>
+
+  <div class="overlay" id="ccOverlay" style="display:none;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:28px 24px;width:min(380px,92vw);position:relative;">
+      <button onclick="closeCC()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--light-text);font-size:18px;cursor:pointer;">✕</button>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;">⚡ Claude Code</div>
+      <div style="color:var(--light-text);font-size:12px;margin-bottom:16px;">讓 CC 幫你改 code、修 bug、加功能</div>
+      <div id="ccStatusArea" style="margin-bottom:12px;"></div>
+      <textarea id="ccPrompt" placeholder="跟 CC 說要做什麼……" rows="3" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;box-sizing:border-box;resize:vertical;font-family:inherit;"></textarea>
+      <button onclick="runCC()" id="ccRunBtn" style="background:var(--rose);border:none;border-radius:12px;padding:12px;color:#fff;font-size:15px;cursor:pointer;margin-top:8px;width:100%;">出動 CC</button>
     </div>
   </div>
 

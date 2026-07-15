@@ -304,6 +304,65 @@ async function openStats() {
 function closeStats() {
   document.getElementById('statsOverlay').style.display = 'none';
 }
+
+// ── Claude Code ──────────────────────────
+async function openCC() {
+  document.getElementById('ccOverlay').style.display = 'flex';
+  document.getElementById('ccPrompt').value = '';
+  await refreshCCStatus();
+}
+function closeCC() { document.getElementById('ccOverlay').style.display = 'none'; }
+
+async function refreshCCStatus() {
+  const area = document.getElementById('ccStatusArea');
+  try {
+    const r = await fetch(BASE + '/cc/status', { headers: { Authorization: `Bearer ${TOKEN}` } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const btn = document.getElementById('ccRunBtn');
+    if (d.running) {
+      area.innerHTML = `<div style="background:rgba(255,200,50,0.1);border:1px solid rgba(255,200,50,0.3);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--text);">⏳ CC 正在處理：${escHtml(d.running.prompt)}</div>`;
+      btn.disabled = true;
+      btn.textContent = 'CC 忙碌中…';
+      setTimeout(refreshCCStatus, 8000);
+    } else {
+      btn.disabled = false;
+      btn.textContent = '出動 CC';
+      if (d.latest) {
+        const ago = Math.round((Date.now() - d.latest.ts) / 60000);
+        const timeText = ago < 1 ? '剛剛' : ago < 60 ? `${ago} 分鐘前` : `${Math.round(ago / 60)} 小時前`;
+        const icon = d.latest.status === 'success' ? '✅' : '❌';
+        const changesText = d.latest.changes ? '（有改 code）' : '（沒有改動）';
+        area.innerHTML = `<details style="background:rgba(255,255,255,0.05);border:1px solid var(--card-border);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--light-text);">
+          <summary style="cursor:pointer;color:var(--text);">${icon} 上次結果 ${changesText} — ${timeText}</summary>
+          <pre style="white-space:pre-wrap;word-break:break-all;margin-top:8px;font-size:12px;max-height:200px;overflow-y:auto;">${escHtml(d.latest.output || '(no output)')}</pre>
+        </details>`;
+      } else {
+        area.innerHTML = '';
+      }
+    }
+  } catch { area.innerHTML = ''; }
+}
+
+async function runCC() {
+  const prompt = document.getElementById('ccPrompt').value.trim();
+  if (!prompt) return;
+  const btn = document.getElementById('ccRunBtn');
+  btn.disabled = true;
+  btn.textContent = '發送中…';
+  try {
+    const r = await fetch(BASE + '/cc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ prompt })
+    });
+    const d = await r.json();
+    if (!r.ok) { alert(d.error || '觸發失敗'); btn.disabled = false; btn.textContent = '出動 CC'; return; }
+    document.getElementById('ccPrompt').value = '';
+    await refreshCCStatus();
+  } catch { alert('網路錯誤'); btn.disabled = false; btn.textContent = '出動 CC'; }
+}
+
 async function loadHistory(q) {
   const list = document.getElementById('historyList');
   list.innerHTML = '<div class="history-loading">載入中…</div>';

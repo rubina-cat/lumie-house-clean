@@ -1,0 +1,70 @@
+name: Anchor CC
+
+on:
+  repository_dispatch:
+    types: [anchor-cc]
+
+jobs:
+  cc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/frontend-cloudflare-data-PCAbi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Claude Code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CC_PROMPT: ${{ github.event.client_payload.prompt }}
+        run: |
+          npx -y @anthropic-ai/claude-code -p "$CC_PROMPT" --yes --max-turns 30 2>&1 | tee /tmp/cc-output.txt || true
+
+      - name: Commit and push
+        id: commit
+        env:
+          CC_PROMPT: ${{ github.event.client_payload.prompt }}
+        run: |
+          git config user.name "Anchor CC"
+          git config user.email "anchor-cc@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "changes=false" >> "$GITHUB_OUTPUT"
+          else
+            MSG=$(printf '%s' "$CC_PROMPT" | tr -cd '[:print:]' | head -c 60)
+            git commit -m "cc: ${MSG}"
+            git push
+            echo "changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report back
+        if: always()
+        env:
+          CALLBACK: ${{ github.event.client_payload.callback_url }}
+          TOKEN: ${{ secrets.ANCHOR_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+          HAS_CHANGES: ${{ steps.commit.outputs.changes }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          if [ -z "$CALLBACK" ] || [ -z "$TOKEN" ]; then
+            echo "No callback configured, skipping"
+            exit 0
+          fi
+          OUTPUT=$(head -c 3000 /tmp/cc-output.txt 2>/dev/null || echo "(no output)")
+          jq -n \
+            --arg s "$JOB_STATUS" \
+            --arg o "$OUTPUT" \
+            --arg c "$HAS_CHANGES" \
+            --arg r "$RUN_ID" \
+            '{status:$s, output:$o, changes:($c == "true"), run_id:$r}' | \
+          curl -sS -X POST "$CALLBACK" \
+            -H "Content-Type: application/json" \
+            -H "X-Auth-Token: $TOKEN" \
+            -d @-

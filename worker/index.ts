@@ -2554,6 +2554,75 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return Response.json({ ok: true, cmd });
     }
 
+    // ── Claude Code 遠端觸發 ────────────────────────
+
+    // POST /cc — 從 Anchor 觸發 GitHub Actions 跑 Claude Code
+    if (request.method === "POST" && url.pathname === "/cc") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const prompt = String(body.prompt || '').trim();
+      if (!prompt) return Response.json({ error: "prompt required" }, { status: 400 });
+      if (!env.GITHUB_PAT) return Response.json({ error: "GITHUB_PAT not configured" }, { status: 500 });
+
+      const running = await env.PHONE_STATE.get("cc:running");
+      if (running) return Response.json({ error: "CC 正在忙，等他做完再說" }, { status: 409 });
+
+      await env.PHONE_STATE.put("cc:running", JSON.stringify({ prompt, ts: Date.now() }), { expirationTtl: 1200 });
+
+      const callbackUrl = `${url.origin}/cc/done`;
+      const resp = await fetch("https://api.github.com/repos/rubina-cat/lumie-house-clean/dispatches", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${env.GITHUB_PAT}`,
+          "Accept": "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+          "User-Agent": "Anchor-CC"
+        },
+        body: JSON.stringify({
+          event_type: "anchor-cc",
+          client_payload: { prompt, callback_url: callbackUrl }
+        })
+      });
+
+      if (!resp.ok) {
+        await env.PHONE_STATE.delete("cc:running");
+        const detail = await resp.text();
+        return Response.json({ error: "觸發失敗", detail }, { status: 502 });
+      }
+
+      return Response.json({ ok: true, message: "CC 已出動 ⚡" });
+    }
+
+    // POST /cc/done — GitHub Action 完成後回報
+    if (request.method === "POST" && url.pathname === "/cc/done") {
+      const token = request.headers.get("X-Auth-Token");
+      if (token !== env.MCP_TOKEN) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      await env.PHONE_STATE.put("cc:latest", JSON.stringify({
+        status: body.status,
+        output: String(body.output || '').slice(0, 3000),
+        changes: !!body.changes,
+        run_id: body.run_id,
+        ts: Date.now()
+      }), { expirationTtl: 86400 * 7 });
+      await env.PHONE_STATE.delete("cc:running");
+      return Response.json({ ok: true });
+    }
+
+    // GET /cc/status — 查看 CC 狀態
+    if (request.method === "GET" && url.pathname === "/cc/status") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const running = await env.PHONE_STATE.get("cc:running");
+      const latest = await env.PHONE_STATE.get("cc:latest");
+      return Response.json({
+        running: running ? JSON.parse(running) : null,
+        latest: latest ? JSON.parse(latest) : null
+      });
+    }
+
     // GET /toy-command — PWA拉指令
     if (request.method === "GET" && url.pathname === "/toy-command") {
       const auth = request.headers.get("Authorization");
