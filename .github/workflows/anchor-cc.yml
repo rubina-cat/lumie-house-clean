@@ -25,7 +25,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CC_PROMPT: ${{ github.event.client_payload.prompt }}
         run: |
-          npx -y @anthropic-ai/claude-code -p "$CC_PROMPT" --yes --max-turns 30 2>&1 | tee /tmp/cc-output.txt || true
+          npx -y @anthropic-ai/claude-code -p "$CC_PROMPT" --dangerously-skip-permissions --max-turns 30 2>&1 | tee /tmp/cc-output.txt || true
 
       - name: Commit and push
         id: commit
