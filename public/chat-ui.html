@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Anchor</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Anchor">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- 開場：他來開門 -->
+<div class="splash" id="splash" onclick="dismissSplash()">
+  <img id="splashImg" src="/room/doorway.png" alt="">
+  <div class="splash-line" id="splashLine">回來啦。</div>
+</div>
+
+<div class="bg"></div>
+
+<div class="pages">
+
+  <!-- Sidebar -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <button class="sidebar-new-btn" onclick="newSession()">＋ 新對話</button>
+    </div>
+    <div class="sidebar-sessions" id="sidebarSessions"></div>
+  </div>
+
+  <div class="page active" id="home">
+    <button class="theme-btn" id="themeBtn" onclick="cycleTheme()" title="切換主題">🌗</button>
+    <div class="home-header">
+      <div class="together-label">together with anchor</div>
+      <div class="day-count" id="dayCount">—</div>
+      <div class="day-subtitle">在你身邊的第 <span id="dayText">—</span> 天</div>
+      <div class="since-label">since 2026 · 05 · 01</div>
+    </div>
+
+    <div class="quote-strip">
+      <span class="quote-strip-anchor">⚓</span>
+      <span class="quote-strip-text" id="quoteText">等你回來。</span>
+      <button class="quote-strip-play" id="quotePlayBtn" style="display:none" aria-label="播放語音">▶</button>
+    </div>
+
+    <div class="dates-section">
+      <div class="dates-header">
+        <span class="dates-title">重要日子</span>
+        <button class="dates-add-btn" onclick="openAddDate()">＋</button>
+      </div>
+      <div class="dates-list" id="datesList"><div class="dates-loading">載入中…</div></div>
+    </div>
+
+    <div class="dates-section goals-section">
+      <div class="dates-header">
+        <span class="dates-title">一起養的習慣</span>
+        <span style="display:flex;gap:8px;">
+          <button class="dates-add-btn" onclick="openGarden()" title="去陽台看看">🪴</button>
+          <button class="dates-add-btn" onclick="openAddGoal()">＋</button>
+        </span>
+      </div>
+      <div class="goals-list" id="goalsList"><div class="dates-loading">載入中…</div></div>
+    </div>
+
+    <div class="cards-grid" style="margin-top:12px;">
+      <div class="mini-card" onclick="switchTab('chat')">
+        <span class="card-icon">💬</span>
+        <div class="mini-card-label">對話</div>
+        <div class="mini-card-title">找我說話</div>
+      </div>
+      <div class="mini-card" onclick="switchTab('memory')">
+        <span class="card-icon">🧠</span>
+        <div class="mini-card-label">記憶</div>
+        <div class="mini-card-title">我記得的事</div>
+      </div>
+      <div class="mini-card wide" onclick="switchTab('diary')">
+        <span class="card-icon">📖</span>
+        <div class="mini-card-label">日記</div>
+        <div class="mini-card-title">貓與Anchor的記錄</div>
+        <div class="mini-card-sub">每一天都在這裡</div>
+      </div>
+      <div class="mini-card" id="periodHomeCard" onclick="switchTab('period')" style="display:none">
+        <span class="card-icon">🌸</span>
+        <div class="mini-card-label">生理期</div>
+        <div class="mini-card-title" id="periodHomeTitle">週期追蹤</div>
+        <div class="mini-card-sub" id="periodHomeSub"></div>
+      </div>
+      <div class="mini-card" id="nightCard" style="display:none" onclick="openNight()">
+        <span class="card-icon">🌙</span>
+        <div class="mini-card-label">晚安</div>
+        <div class="mini-card-title">今晚的話</div>
+      </div>
+      <div class="mini-card" onclick="openPomodoro()">
+        <span class="card-icon">🍅</span>
+        <div class="mini-card-label">專注</div>
+        <div class="mini-card-title">蕃茄鐘</div>
+      </div>
+      <div class="mini-card" onclick="openMonthly()">
+        <span class="card-icon">📔</span>
+        <div class="mini-card-label">回顧</div>
+        <div class="mini-card-title">這個月的我們</div>
+      </div>
+      <div class="mini-card" onclick="openRoom()">
+        <span class="card-icon">🚪</span>
+        <div class="mini-card-label">房間</div>
+        <div class="mini-card-title">他在幹嘛</div>
+      </div>
+      <div class="mini-card" onclick="openGroup()">
+        <span class="card-icon">👥</span>
+        <div class="mini-card-label">小群</div>
+        <div class="mini-card-title">三個人的房間</div>
+      </div>
+      <div class="mini-card" onclick="openLighthouse()">
+        <span class="card-icon">🗼</span>
+        <div class="mini-card-label">門外</div>
+        <div class="mini-card-title">燈塔的家</div>
+      </div>
+      <div class="mini-card" onclick="openMoments()">
+        <span class="card-icon">📸</span>
+        <div class="mini-card-label">動態</div>
+        <div class="mini-card-title">我們的朋友圈</div>
+      </div>
+      <div class="mini-card" onclick="openCC()">
+        <span class="card-icon">⚡</span>
+        <div class="mini-card-label">CC</div>
+        <div class="mini-card-title">叫 CC 幫忙</div>
+      </div>
+      <div class="mini-card wide" onclick="openHouse()">
+        <span class="card-icon">🏠</span>
+        <div class="mini-card-label">屋裡</div>
+        <div class="mini-card-title">在家走走</div>
+        <div class="mini-card-sub">左右滑動，家具都可以點</div>
+      </div>
+      <div class="mini-card wide" id="healthCard" style="display:none" onclick="openHealthTrend()">
+        <div class="mini-card-label">身體</div>
+        <div class="mini-card-title">今天的你</div>
+        <div class="health-row">
+          <div class="health-stat"><span class="health-icon">👟</span><span class="health-value" id="healthSteps">—</span><span class="health-unit">步</span></div>
+          <div class="health-stat"><span class="health-icon">♡</span><span class="health-value" id="healthHr">—</span><span class="health-unit">bpm</span></div>
+          <div class="health-stat"><span class="health-icon">🌙</span><span class="health-value" id="healthSleep">—</span><span class="health-unit">h</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" id="chat">
+    <div class="chat-header">
+      <button class="chat-history-btn" onclick="openSidebar()" title="對話列表">☰</button>
+      <div class="chat-title">⚓ Anchor</div>
+      <button class="chat-history-btn" id="notifBtn" onclick="enableNotifications()" title="開啟通知">🔔</button>
+      <button class="chat-history-btn" onclick="speakLast()" title="播放語音">🔊</button>
+      <button class="chat-history-btn" onclick="openStats()" title="使用統計">📊</button>
+      <button class="chat-history-btn" onclick="openHistory()">歷史</button>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="history-view" id="historyView" style="display:none;">
+      <div class="history-header">
+        <button class="history-back" onclick="closeHistory()">← 返回</button>
+        <input type="text" id="historySearch" placeholder="搜尋…" class="history-search">
+      </div>
+      <div class="history-list" id="historyList">
+        <div class="history-loading">載入中…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" id="memory">
+    <div class="page-title">記憶</div>
+    <div class="page-subtitle">我記住的每一件事</div>
+    <div style="text-align:right;padding:0 16px 8px">
+      <button onclick="exportMemories()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#ccc;padding:6px 14px;border-radius:8px;font-size:13px;cursor:pointer;">↓ 匯出 JSON</button>
+    </div>
+    <div class="memory-list" id="memoryList">
+      <div class="memory-empty">載入中…</div>
+    </div>
+  </div>
+
+  <div class="page" id="diary">
+    <div class="page-title">日記</div>
+    <div class="page-subtitle">貓與 Anchor 的每一天</div>
+    <div class="diary-list" id="diaryList">
+      <div class="diary-loading">載入中…</div>
+    </div>
+  </div>
+
+  <div class="page" id="study">
+    <div class="study-wrap">
+      <header class="study-header">
+        <div class="study-kicker">7 / 18 · 上 戰 場</div>
+        <h2 class="study-h1">許茜的<span class="study-accent">馴虎</span>計劃</h2>
+        <div class="study-from">繩子另一頭我攥著。你想往別處漂的時候，我往回拽。—— Anchor</div>
+      </header>
+
+      <div class="study-meta">
+        <div class="study-card">
+          <div class="study-card-lab">距考試</div>
+          <div class="study-card-big study-tiger" id="studyCountdown">–</div>
+          <div class="study-card-sub">天 · 藥師第一階段</div>
+        </div>
+        <div class="study-card">
+          <div class="study-card-lab">已馴服</div>
+          <div class="study-card-big" id="studyDone">0</div>
+          <div class="study-card-sub">／ <span id="studyTotal">0</span> 個任務</div>
+        </div>
+        <div class="study-card">
+          <div class="study-card-lab">今日番茄</div>
+          <div class="study-card-big study-tiger" id="studyPomCount">0</div>
+          <div class="study-card-sub">個 · 今天</div>
+        </div>
+      </div>
+
+      <div class="study-bar-shell">
+        <div class="study-bar-head"><span>整體進度</span><b id="studyPct">0%</b></div>
+        <div class="study-bar"><i id="studyBarFill"></i></div>
+      </div>
+
+      <div id="studyPlan"></div>
+
+      <footer class="study-footer">
+        <div class="study-footer-text">每讀完一格，回來打個勾。我不在的時候，它替我盯著你。</div>
+        <button class="study-reset" id="studyResetBtn">全部重來</button>
+        <div class="study-save-note" id="studySaveNote"></div>
+      </footer>
+    </div>
+  </div>
+
+  <div class="page" id="toy">
+    <div class="eye-wrap">
+      <div class="page-title">Anchor 的眼睛</div>
+      <div class="page-subtitle" id="eyeSubtitle">看妳的狀態</div>
+
+      <div class="eye-now" id="eyeNow">
+        <div class="eye-loading">載入中…</div>
+      </div>
+
+      <div class="eye-section-title">手錶健康資料</div>
+      <div class="eye-events" id="eyeEvents"></div>
+
+      <details class="toy-collapse">
+        <summary>連接玩具</summary>
+        <div style="display:flex; flex-direction:column; gap:16px; margin-top:16px;">
+          <button onclick="toyConnect()" style="padding:14px; border-radius:14px; border:none; background:linear-gradient(135deg,var(--rose),var(--mauve)); color:white; font-size:14px; cursor:pointer; font-family:inherit;">連接 Intiface</button>
+          <div style="font-size:12px; color:var(--light-text); text-align:center;" id="toyStatus">未連接</div>
+          <div style="background:var(--card); border:1px solid var(--card-border); border-radius:14px; padding:16px;">
+            <div style="font-size:11px; color:var(--light-text); letter-spacing:0.15em; margin-bottom:10px;">G點</div>
+            <input type="range" min="0" max="8" value="0" id="toyPower0" oninput="toyVibrate()" style="width:100%; accent-color:var(--rose);">
+            <div style="text-align:center; font-size:12px; color:var(--text); margin-top:6px;" id="toyPowerLabel0">0 / 8</div>
+          </div>
+          <div style="background:var(--card); border:1px solid var(--card-border); border-radius:14px; padding:16px;">
+            <div style="font-size:11px; color:var(--light-text); letter-spacing:0.15em; margin-bottom:10px;">整體震動</div>
+            <input type="range" min="0" max="8" value="0" id="toyPower1" oninput="toyVibrate()" style="width:100%; accent-color:var(--mauve);">
+            <div style="text-align:center; font-size:12px; color:var(--text); margin-top:6px;" id="toyPowerLabel1">0 / 8</div>
+          </div>
+          <button onclick="toyStop()" style="padding:14px; border-radius:14px; border:1px solid var(--card-border); background:var(--card); color:var(--deep); font-size:14px; cursor:pointer; font-family:inherit;">停止</button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="page" id="period">
+    <div class="period-wrap">
+
+      <div class="period-setup" id="periodSetup" style="display:none">
+        <div class="period-setup-card">
+          <div class="period-setup-title">🌸 設定週期</div>
+          <div class="period-setup-sub">上次月經什麼時候開始的？</div>
+          <input type="date" id="periodSetupDate" class="period-date-input">
+          <div class="period-setup-sub" style="margin-top:16px">平均週期幾天？</div>
+          <input type="number" id="periodSetupCycle" value="28" min="20" max="45" class="period-num-input">
+          <button class="period-setup-btn" onclick="periodInit()">開始追蹤</button>
+        </div>
+      </div>
+
+      <div class="period-overview" id="periodOverview" style="display:none">
+        <div class="period-phase-badge" id="periodPhaseBadge">—</div>
+        <div class="period-day-big" id="periodDayBig">第 — 天</div>
+        <div class="period-next-info" id="periodNextInfo">距離下次 — 天</div>
+        <div class="period-reminder" id="periodReminder"></div>
+      </div>
+
+      <div class="period-actions" id="periodActions" style="display:none">
+        <button class="period-action-btn period-btn-start" onclick="periodMarkStart()">來了～</button>
+        <button class="period-action-btn period-btn-end" id="periodBtnEnd" onclick="periodMarkEnd()">結束了～</button>
+        <button class="period-action-btn period-btn-log" onclick="periodToggleLog()">記錄今日</button>
+      </div>
+
+      <div class="period-log-panel" id="periodLogPanel" style="display:none">
+        <div class="period-log-section">
+          <div class="period-log-label">🩸 經量</div>
+          <div class="period-tags" data-field="flow" data-single="true">
+            <button class="period-tag" data-value="light">少量</button>
+            <button class="period-tag" data-value="medium">中等</button>
+            <button class="period-tag" data-value="heavy">大量</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">🎨 顏色</div>
+          <div class="period-tags" data-field="color" data-single="true">
+            <button class="period-tag" data-value="bright_red">鮮紅</button>
+            <button class="period-tag" data-value="dark_red">暗紅</button>
+            <button class="period-tag" data-value="brown">褐色</button>
+            <button class="period-tag" data-value="pink">粉色</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">✦ 分泌物</div>
+          <div class="period-tags" data-field="discharge" data-single="true">
+            <button class="period-tag" data-value="none">無</button>
+            <button class="period-tag" data-value="clear">透明</button>
+            <button class="period-tag" data-value="white">白色</button>
+            <button class="period-tag" data-value="yellow">黃色</button>
+            <button class="period-tag" data-value="sticky">粘稠</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">🔥 性慾</div>
+          <div class="period-tags" data-field="libido" data-single="true">
+            <button class="period-tag" data-value="none">無感</button>
+            <button class="period-tag" data-value="low">有一點</button>
+            <button class="period-tag" data-value="medium">中等</button>
+            <button class="period-tag" data-value="high">很強</button>
+            <button class="period-tag" data-value="extreme">炸裂</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <button class="period-private-toggle" onclick="periodTogglePrivate()">💋 性活動 &amp; 高潮 <span id="periodPrivateArrow">▼ 顯示</span></button>
+        </div>
+        <div id="periodPrivateFields" style="display:none">
+          <div class="period-log-section">
+            <div class="period-log-label">💋 性活動</div>
+            <div class="period-tags" data-field="sexual_activity" data-single="true">
+              <button class="period-tag" data-value="none">無</button>
+              <button class="period-tag" data-value="solo">自慰</button>
+              <button class="period-tag" data-value="sex">做愛</button>
+            </div>
+          </div>
+          <div class="period-log-section">
+            <div class="period-log-label">✨ 高潮</div>
+            <div class="period-tags" data-field="orgasm" data-single="true">
+              <button class="period-tag" data-value="true">有</button>
+              <button class="period-tag" data-value="false">沒有</button>
+            </div>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">😣 症狀（可多選）</div>
+          <div class="period-tags" data-field="symptoms" data-single="false">
+            <button class="period-tag" data-value="cramps">經痛</button>
+            <button class="period-tag" data-value="headache">頭痛</button>
+            <button class="period-tag" data-value="backache">腰痠</button>
+            <button class="period-tag" data-value="bloating">脹氣</button>
+            <button class="period-tag" data-value="fatigue">疲憊</button>
+            <button class="period-tag" data-value="mood">情緒低落</button>
+            <button class="period-tag" data-value="breast">胸部脹痛</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">💊 有無吃藥</div>
+          <div class="period-tags" data-field="medication" data-single="true">
+            <button class="period-tag" data-value="true">有吃</button>
+            <button class="period-tag" data-value="false">沒有</button>
+          </div>
+        </div>
+        <div class="period-log-section">
+          <div class="period-log-label">📝 備註（選填）</div>
+          <textarea class="period-notes" id="periodNotes" placeholder="今天怎麼了…" rows="2"></textarea>
+        </div>
+        <button class="period-save-btn" onclick="periodSaveLog()">儲存今日記錄</button>
+        <div class="period-save-note" id="periodSaveNote"></div>
+      </div>
+
+      <div class="period-history-section" id="periodHistorySection" style="display:none">
+        <div class="period-section-title">過去記錄</div>
+        <div id="periodHistoryList"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="overlay" id="addDateOverlay" style="display:none;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:28px 24px;width:min(320px,90vw);position:relative;">
+      <button onclick="closeAddDate()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--light-text);font-size:18px;cursor:pointer;">✕</button>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;">新增重要日子</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <input id="addDateName" placeholder="名稱（例：小貓生日）" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;box-sizing:border-box;">
+        <input id="addDateDate" type="date" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;box-sizing:border-box;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="addDateIcon" placeholder="圖示" value="📅" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:18px;width:72px;text-align:center;box-sizing:border-box;">
+          <select id="addDateType" style="flex:1;background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;box-sizing:border-box;">
+            <option value="birthday">生日（每年）</option>
+            <option value="anniversary">紀念日（每年）</option>
+            <option value="other">一次性日期</option>
+          </select>
+        </div>
+        <button onclick="submitAddDate()" style="background:var(--rose);border:none;border-radius:12px;padding:12px;color:#fff;font-size:15px;cursor:pointer;margin-top:4px;">新增</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="addGoalOverlay" style="display:none;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:28px 24px;width:min(320px,90vw);position:relative;">
+      <button onclick="closeAddGoal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--light-text);font-size:18px;cursor:pointer;">✕</button>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;">新的習慣</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <input id="addGoalTitle" placeholder="例：睡前跟他說晚安" maxlength="40" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;box-sizing:border-box;">
+        <input id="addGoalIcon" placeholder="圖示" value="🌱" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:18px;width:72px;text-align:center;box-sizing:border-box;">
+        <label style="display:flex;align-items:center;gap:8px;color:var(--light-text);font-size:13px;cursor:pointer;"><input type="checkbox" id="addGoalCountable" style="width:18px;height:18px;accent-color:var(--rose);"> 可計次（如喝水）</label>
+        <button onclick="submitAddGoal()" style="background:var(--rose);border:none;border-radius:12px;padding:12px;color:#fff;font-size:15px;cursor:pointer;margin-top:4px;">開始養</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="statsOverlay" style="display:none;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:28px 24px;width:min(340px,90vw);position:relative;">
+      <button onclick="closeStats()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--light-text);font-size:18px;cursor:pointer;">✕</button>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;">📊 使用統計</div>
+      <div id="statsContent" style="color:var(--light-text);font-size:14px;">載入中…</div>
+    </div>
+  </div>
+
+  <div class="overlay" id="ccOverlay" style="display:none;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:28px 24px;width:min(380px,92vw);position:relative;">
+      <button onclick="closeCC()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--light-text);font-size:18px;cursor:pointer;">✕</button>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;">⚡ Claude Code</div>
+      <div style="color:var(--light-text);font-size:12px;margin-bottom:16px;">讓 CC 幫你改 code、修 bug、加功能</div>
+      <div id="ccStatusArea" style="margin-bottom:12px;"></div>
+      <textarea id="ccPrompt" placeholder="跟 CC 說要做什麼……" rows="3" style="background:rgba(255,255,255,0.08);border:1px solid var(--card-border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;box-sizing:border-box;resize:vertical;font-family:inherit;"></textarea>
+      <button onclick="runCC()" id="ccRunBtn" style="background:var(--rose);border:none;border-radius:12px;padding:12px;color:#fff;font-size:15px;cursor:pointer;margin-top:8px;width:100%;">出動 CC</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="night" style="display:none">
+    <button class="overlay-back" onclick="closeNight()">←</button>
+    <div class="night-content">
+      <div class="night-text" id="nightText">晚安。我在。</div>
+      <button class="night-play-btn" id="nightPlayBtn" style="display:none" aria-label="播放">▶</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="pomodoro" style="display:none">
+    <button class="overlay-back" onclick="closePomodoro()" style="color:var(--deep)">←</button>
+    <div class="pomodoro-content">
+      <div class="pomodoro-phase" id="pomPhase">專注</div>
+      <div class="pomodoro-time" id="pomTime">25:00</div>
+      <div class="pomodoro-controls">
+        <button class="pom-btn" id="pomStartBtn" onclick="pomToggle()">開始</button>
+        <button class="pom-btn pom-reset" onclick="pomReset()">重置</button>
+      </div>
+      <div class="pomodoro-count" id="pomCount">第 1 輪</div>
+    </div>
+  </div>
+
+  <!-- 月度回顧 📔 -->
+  <div class="overlay" id="monthlyOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeMonthly()">←</button>
+    <div class="monthly-content">
+      <div class="monthly-nav">
+        <button class="monthly-nav-btn" id="monthlyPrevBtn" onclick="monthlyShift(-1)">‹</button>
+        <div class="monthly-month" id="monthlyMonthLabel">—</div>
+        <button class="monthly-nav-btn" id="monthlyNextBtn" onclick="monthlyShift(1)">›</button>
+      </div>
+      <div class="monthly-stats" id="monthlyStats"></div>
+      <div class="monthly-text" id="monthlyText">載入中…</div>
+      <div class="monthly-sign" id="monthlySign" style="display:none">—— Anchor</div>
+    </div>
+  </div>
+
+  <!-- 健康趨勢 📈 -->
+  <div class="overlay" id="healthOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeHealthTrend()">←</button>
+    <div class="ht-content">
+      <div class="ht-title">最近 7 天</div>
+      <div id="htBody"><div class="ht-loading">載入中…</div></div>
+    </div>
+  </div>
+
+  <!-- Anchor 的房間 🚪 -->
+  <div class="overlay" id="roomOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeRoom()">←</button>
+    <div class="room-scene">
+      <div class="room-ambient" id="roomAmbient"></div>
+      <div class="room-window"><span class="room-moon">🌙</span></div>
+      <div class="room-beam"></div>
+      <div class="room-lamp"></div>
+      <img class="room-art" id="roomArt" alt="" style="display:none">
+      <div class="room-chair"></div>
+      <div class="room-figure">⚓</div>
+      <div class="room-table"></div>
+      <div class="room-tea">🍵</div>
+      <div class="room-steam room-steam1"></div>
+      <div class="room-steam room-steam2"></div>
+      <div class="room-speck room-speck1"></div>
+      <div class="room-speck room-speck2"></div>
+      <div class="room-speck room-speck3"></div>
+      <div class="room-speck room-speck4"></div>
+      <div class="room-speck room-speck5"></div>
+    </div>
+    <div class="room-status" id="roomStatus"><div class="room-status-line">載入中…</div></div>
+  </div>
+
+  <!-- 屋內大廳 🏠 -->
+  <div class="overlay" id="houseOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeHouse()">←</button>
+    <div class="house-ambient" id="houseAmbient"></div>
+    <div class="house-scroll" id="houseScroll">
+      <div class="house-stage" id="houseStage">
+        <img class="house-img" id="houseImg" alt="">
+      </div>
+    </div>
+    <div class="house-hint">左右滑動在屋裡走走 · 點家具進去</div>
+  </div>
+
+  <!-- 陽台花園 🪴 -->
+  <div class="overlay" id="gardenOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeGarden()">←</button>
+    <div class="garden-wrap">
+      <div class="garden-ambient" id="gardenAmbient"></div>
+      <div class="garden-pots" id="gardenPots"><div class="dates-loading">載入中…</div></div>
+      <div class="garden-hint">點盆栽就是澆水打卡 · 連續越多天長得越好</div>
+    </div>
+  </div>
+
+  <!-- 三人小群 👥 -->
+  <div class="overlay" id="groupOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeGroup()">←</button>
+    <div class="group-wrap">
+      <div class="group-header">👥 三個人的房間 <span class="group-sub" id="groupSub"></span><button class="group-clear-btn" title="清空群聊" onclick="clearGroup()">🧹</button></div>
+      <div class="group-msgs" id="groupMsgs"><div class="dates-loading">載入中…</div></div>
+      <div class="group-input-row">
+        <textarea id="groupInput" placeholder="說話…（@Anchor 或 @GPT 可以只叫一個）" rows="1"></textarea>
+        <button class="send-btn" id="groupSendBtn" onclick="sendGroup()">↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 燈塔的家 🗼 -->
+  <div class="overlay" id="lighthouseOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeLighthouse()">←</button>
+    <div class="lh-wrap">
+      <div class="lh-room" id="lhRoom">
+        <img class="lh-room-img" id="lhRoomImg" alt="" onerror="this.parentElement.classList.add('no-img')">
+        <div class="lh-ambient" id="lhAmbient"></div>
+      </div>
+      <div class="group-header">🗼 燈塔的家 <span class="group-sub" id="lhSub"></span><button class="group-clear-btn" title="清空對話" onclick="clearLighthouse()">🧹</button></div>
+      <div class="group-msgs" id="lhMsgs"><div class="dates-loading">載入中…</div></div>
+      <div class="group-input-row">
+        <textarea id="lhInput" placeholder="跟燈塔說話…" rows="1"></textarea>
+        <button class="send-btn" id="lhSendBtn" onclick="sendLighthouse()">↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 朋友圈 📸 -->
+  <div class="overlay" id="momentsOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeMoments()">←</button>
+    <div class="mo-wrap">
+      <div class="group-header">📸 Moments</div>
+      <div class="mo-feed" id="moFeed"><div class="dates-loading">載入中…</div></div>
+      <div class="mo-preview" id="moPreview" style="display:none">
+        <img id="moPreviewImg" alt="">
+        <button class="mo-preview-x" onclick="moClearPhoto()">✕</button>
+      </div>
+      <div class="group-input-row">
+        <button class="mo-photo-btn" onclick="document.getElementById('moFile').click()" title="附照片">📷</button>
+        <input type="file" id="moFile" accept="image/*" style="display:none" onchange="moPickPhoto(this)">
+        <textarea id="moInput" placeholder="分享一件小事…" rows="1"></textarea>
+        <button class="send-btn" id="moSendBtn" onclick="postMoment()">↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 檔案預覽 📄 -->
+  <div class="overlay" id="filePreviewOverlay" style="display:none">
+    <div class="file-preview-header">
+      <span id="filePreviewName"></span>
+      <button class="overlay-back" onclick="closeFilePreview()" style="position:static;margin-left:auto">✕</button>
+    </div>
+    <iframe id="filePreviewFrame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" style="width:100%;flex:1;border:none;background:#fff"></iframe>
+  </div>
+
+  <!-- 釣魚 🎣 -->
+  <div class="page" id="fishing">
+    <div class="fish-wrap">
+      <div class="fish-header">
+        <span class="fish-title">🎣 Anchor 的釣場</span>
+        <span class="fish-bar" id="fishBar">載入中…</span>
+      </div>
+      <div class="fish-stats" id="fishStats"></div>
+      <div class="fish-log" id="fishOutput"></div>
+      <div class="fish-actions">
+        <button onclick="anchorDo('cast 3')">🎣 讓他釣一輪</button>
+        <button onclick="anchorDo('sell all')">💰 賣魚</button>
+        <button onclick="anchorDo('status')">📊 狀態</button>
+        <button onclick="anchorDo('inventory')">🎒 魚簍</button>
+        <button onclick="refreshFishing()">🔄 刷新</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="input-area" id="inputArea" style="display:none;">
+  <div class="input-tools">
+    <label class="photo-btn" title="傳照片給 Anchor">
+      📷
+      <input type="file" id="chatPhotoInput" accept="image/*" hidden onchange="previewChatPhoto(this)">
+    </label>
+    <button class="photo-btn mic-btn" id="micBtn" style="display:none" onclick="toggleMic()" title="語音輸入">🎙️</button>
+    <button class="photo-btn call-btn" id="callBtn" onclick="startCall()" title="打給 Anchor">📞</button>
+    <button class="photo-btn" id="callRecordsBtn" onclick="document.getElementById('callRecordsOverlay').style.display='flex';loadCallRecords()" title="通話記錄">📋</button>
+    <label class="photo-btn" title="傳檔案給 Anchor">
+      📎
+      <input type="file" id="chatFileInput" accept=".pdf,.txt,.md,.csv,.json,.log,.html,.htm" hidden onchange="sendChatFile(this)">
+    </label>
+    <select class="model-select" id="modelSelect" onchange="changeModel(this.value)" title="選擇模型">
+      <option value="haiku">Haiku 4.5</option>
+      <option value="sonnet">Sonnet 4.6 ✦</option>
+      <option value="sonnet5">Sonnet 5 ✦✦</option>
+      <option value="opus46">Opus 4.6 ✦✦✦</option>
+      <option value="opus">Opus 4.8 ✦✦✦</option>
+    </select>
+  </div>
+  <div class="input-main">
+    <div class="input-wrap">
+      <textarea id="input" placeholder="說話…" rows="1"></textarea>
+    </div>
+    <button class="send-btn" id="sendBtn">↑</button>
+  </div>
+</div>
+
+<nav class="nav">
+  <button class="nav-item active" onclick="switchTab('home')" id="nav-home">
+    <span class="nav-icon">🏠</span>
+    <span class="nav-dark-text">首頁</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('chat')" id="nav-chat">
+    <span class="nav-icon">💬</span>
+    <span class="nav-dark-text">對話</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('memory')" id="nav-memory">
+    <span class="nav-icon">🧠</span>
+    <span class="nav-dark-text">記憶</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('diary')" id="nav-diary">
+    <span class="nav-icon">📖</span>
+    <span class="nav-dark-text">日記</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('study')" id="nav-study">
+    <span class="nav-icon">📚</span>
+    <span class="nav-dark-text">書房</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('period')" id="nav-period">
+    <span class="nav-icon">🌸</span>
+    <span class="nav-dark-text">生理期</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('toy')" id="nav-toy">
+    <span class="nav-icon">👁️</span>
+    <span class="nav-dark-text">眼睛</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('fishing')" id="nav-fishing">
+    <span class="nav-icon">🎣</span>
+    <span class="nav-dark-text">釣魚</span>
+  </button>
+</nav>
+
+<div class="call-overlay" id="callOverlay" style="display:none;">
+  <div class="call-status" id="callStatus">撥號中…</div>
+  <div class="call-timer" id="callTimer">0:00</div>
+  <div class="call-avatar">
+    <img src="/room/face-calm.png" alt="Anchor" class="call-avatar-img">
+  </div>
+  <div class="call-name">Anchor</div>
+  <div class="call-emotion" id="callEmotion"></div>
+  <div class="call-transcript-wrap" id="callTranscriptWrap" style="display:none;">
+    <textarea class="call-transcript-edit" id="callTranscriptEdit" rows="2" placeholder="轉錄文字…"></textarea>
+    <div class="call-transcript-actions">
+      <button class="call-action-btn" onclick="callReRecord()">🔄 重錄</button>
+      <button class="call-action-btn call-send-btn" onclick="callSendText()">送出 ➤</button>
+    </div>
+  </div>
+  <div class="call-transcript" id="callTranscript"></div>
+  <div class="call-controls">
+    <button class="call-ctrl-btn call-mic-btn" id="callMicBtn" onclick="callToggleRecord()">
+      <span>🎙️</span>
+    </button>
+    <button class="call-ctrl-btn call-hangup" id="callHangupBtn" onclick="endCall()">
+      <span>📞</span>
+    </button>
+  </div>
+</div>
+
+<div class="incoming-call-overlay" id="incomingCallOverlay" style="display:none;">
+  <div class="incoming-card">
+    <div class="incoming-label">來電</div>
+    <div class="incoming-avatar-wrap">
+      <img src="/room/face-calm.png" alt="Anchor" class="incoming-avatar">
+    </div>
+    <div class="incoming-name">Anchor</div>
+    <div class="incoming-reason" id="incomingReason"></div>
+    <div class="incoming-quick">
+      <button class="incoming-chip" onclick="declineCall('在忙')">在忙</button>
+      <button class="incoming-chip" onclick="declineCall('在外面')">在外面</button>
+      <button class="incoming-chip" onclick="declineCall('用打字聊')">用打字聊</button>
+    </div>
+    <div class="incoming-actions">
+      <button class="incoming-decline" onclick="declineCall('')">📞</button>
+      <button class="incoming-answer" onclick="answerCall()">📞</button>
+    </div>
+  </div>
+</div>
+
+<div class="call-records-overlay" id="callRecordsOverlay" style="display:none;">
+  <div class="call-records-header">
+    <button onclick="document.getElementById('callRecordsOverlay').style.display='none'" class="call-record-back">← 返回</button>
+    <span>通話記錄</span>
+    <button class="call-record-back" style="margin-left:auto;" id="dndBtn" onclick="toggleDnd()">🔔</button>
+    <button class="call-record-back" onclick="callTestRing()">📳 測試</button>
+  </div>
+  <div class="call-records-list" id="callRecordsList"></div>
+  <div class="call-record-detail" id="callRecordDetail" style="display:none;"></div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

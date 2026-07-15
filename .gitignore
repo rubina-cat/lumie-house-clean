@@ -6,3 +6,5 @@
 __pycache__/
 velvet_log.txt
 config.yaml
+.wrangler/
+user_id.json

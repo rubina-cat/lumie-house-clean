@@ -1,0 +1,3 @@
+#!/bin/sh
+# Gradle wrapper stub — GitHub Actions uses setup-gradle which provides its own
+exec gradle "$@"
