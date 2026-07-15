@@ -1804,7 +1804,9 @@ async function sendImageMessage(file, textMessage) {
     const response = await fetch(BASE + '/chat-image', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN }, body: formData });
     const data = await response.json(); thinking.remove();
     const reply = data.reply || '（看著照片，一時間沒有說話）';
-    messages.push({ role: 'assistant', content: reply }); addMsg('assistant', reply); saveMessage('assistant', reply);
+    chatMsgs = await _fetchChatMsgs();
+    renderAllMsgs();
+    try { localStorage.setItem(CHAT_SNAP_KEY, JSON.stringify(chatMsgs.slice(-50))); } catch {}
   } catch (error) {
     thinking.remove(); addMsg('assistant', '（看不太清那張照片，網路好像有些模糊……）');
   }
@@ -1829,7 +1831,9 @@ async function sendChatFile(input) {
     const response = await fetch(BASE + '/chat-file', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN }, body: formData });
     const data = await response.json(); thinking.remove();
     const reply = data.reply || '（收到檔案了，看了一會兒沒說話）';
-    addMsg('assistant', reply); saveMessage('assistant', reply);
+    chatMsgs = await _fetchChatMsgs();
+    renderAllMsgs();
+    try { localStorage.setItem(CHAT_SNAP_KEY, JSON.stringify(chatMsgs.slice(-50))); } catch {}
   } catch {
     thinking.remove(); addMsg('assistant', '（檔案好像傳丟了，再試一次？）');
   }

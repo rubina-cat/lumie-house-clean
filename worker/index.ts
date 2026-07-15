@@ -2801,6 +2801,14 @@ if (request.method === "POST" && url.pathname === "/tts") {
         await env.DB.prepare(
           "INSERT INTO messages (session_id, source, role, content, ts) VALUES (?, ?, ?, ?, ?)"
         ).bind("default", "chat-ui", "assistant", reply, Date.now()).run();
+
+        const sessionId = "default";
+        const chatMsgs = await getChatMsgs(env, sessionId);
+        const now = Date.now();
+        chatMsgs.push({ id: `u_${now}`, role: "user", content: `[許茜傳了一張照片] ${textMessage}`, ts: now });
+        chatMsgs.push({ id: `a_${now + 1}`, role: "assistant", content: reply, ts: now + 1 });
+        await saveChatMsgs(env, chatMsgs, sessionId);
+
         return Response.json({ reply });
 
       } catch (err: any) {
@@ -2878,6 +2886,13 @@ if (request.method === "POST" && url.pathname === "/tts") {
         await env.DB.prepare(
           "INSERT INTO messages (session_id, source, role, content, ts) VALUES (?, ?, ?, ?, ?)"
         ).bind("default", "chat-ui", "assistant", reply, Date.now()).run();
+
+        const fileChatMsgs = await getChatMsgs(env, "default");
+        const fileNow = Date.now();
+        fileChatMsgs.push({ id: `u_${fileNow}`, role: "user", content: `[許茜傳了檔案：${upFile.name}] ${textMessage}`, ts: fileNow });
+        fileChatMsgs.push({ id: `a_${fileNow + 1}`, role: "assistant", content: reply, ts: fileNow + 1 });
+        await saveChatMsgs(env, fileChatMsgs, "default");
+
         return Response.json({ reply });
       } catch (err: any) {
         console.error("檔案對話失敗:", err);
