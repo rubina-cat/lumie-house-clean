@@ -287,6 +287,21 @@ async function initGoalsTable(env: any) {
   )`).run();
   try { await env.DB.prepare("ALTER TABLE goals ADD COLUMN countable INTEGER DEFAULT 0").run(); } catch {}
   try { await env.DB.prepare("ALTER TABLE goal_checks ADD COLUMN count INTEGER DEFAULT 1").run(); } catch {}
+  // 一次性：補回誤刪的「喝水」習慣 + 12 天連續打卡
+  try {
+    const exists = await env.DB.prepare("SELECT id FROM goals WHERE title = '喝水'").first();
+    if (!exists) {
+      await env.DB.prepare("INSERT INTO goals (title, icon, countable) VALUES ('喝水', '💧', 1)").run();
+      const row = await env.DB.prepare("SELECT id FROM goals WHERE title = '喝水'").first() as any;
+      if (row) {
+        const now = Date.now() + 8 * 3600e3;
+        for (let i = 0; i < 12; i++) {
+          const d = new Date(now - i * 86400e3).toISOString().slice(0, 10);
+          try { await env.DB.prepare("INSERT INTO goal_checks (goal_id, date, count) VALUES (?, ?, 1)").bind(row.id, d).run(); } catch {}
+        }
+      }
+    }
+  } catch {}
 }
 
 // 台灣時區的今天 YYYY-MM-DD
