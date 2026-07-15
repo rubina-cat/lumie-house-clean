@@ -2805,7 +2805,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
         const sessionId = "default";
         const chatMsgs = await getChatMsgs(env, sessionId);
         const now = Date.now();
-        chatMsgs.push({ id: `u_${now}`, role: "user", content: `[許茜傳了一張照片] ${textMessage}`, ts: now });
+        chatMsgs.push({ id: `u_${now}`, role: "user", content: `[許茜傳了一張照片給你，你已經看過並回覆了] ${textMessage}`, ts: now });
         chatMsgs.push({ id: `a_${now + 1}`, role: "assistant", content: reply, ts: now + 1 });
         await saveChatMsgs(env, chatMsgs, sessionId);
 
@@ -2889,7 +2889,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
 
         const fileChatMsgs = await getChatMsgs(env, "default");
         const fileNow = Date.now();
-        fileChatMsgs.push({ id: `u_${fileNow}`, role: "user", content: `[許茜傳了檔案：${upFile.name}] ${textMessage}`, ts: fileNow });
+        fileChatMsgs.push({ id: `u_${fileNow}`, role: "user", content: `[許茜傳了檔案「${upFile.name}」給你，你已經讀過並回覆了] ${textMessage}`, ts: fileNow });
         fileChatMsgs.push({ id: `a_${fileNow + 1}`, role: "assistant", content: reply, ts: fileNow + 1 });
         await saveChatMsgs(env, fileChatMsgs, "default");
 
