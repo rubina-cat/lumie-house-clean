@@ -2104,9 +2104,14 @@ if (request.method === "POST" && url.pathname === "/tts") {
     if (request.method === "GET" && url.pathname === "/dates") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-      await initDatesTable(env);
-      const result = await env.DB.prepare("SELECT * FROM dates ORDER BY pinned DESC, date ASC").all();
-      return Response.json({ dates: result.results ?? [] });
+      try {
+        await initDatesTable(env);
+        const result = await env.DB.prepare("SELECT * FROM dates ORDER BY pinned DESC, date ASC").all();
+        return Response.json({ dates: result.results ?? [] });
+      } catch (e: any) {
+        console.error("GET /dates error:", e);
+        return Response.json({ dates: [], error: e?.message || "D1 error" });
+      }
     }
 
     // POST /dates — 新增日子
@@ -2134,29 +2139,34 @@ if (request.method === "POST" && url.pathname === "/tts") {
     if (request.method === "GET" && url.pathname === "/goals") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-      await initGoalsTable(env);
-      const today = url.searchParams.get("date") || twnToday();
-      const goalsResult = await env.DB.prepare("SELECT * FROM goals ORDER BY id ASC").all();
-      const goals = (goalsResult.results ?? []) as any[];
-      const checksResult = await env.DB.prepare(
-        "SELECT goal_id, date FROM goal_checks WHERE date >= date(?, '-90 days')"
-      ).bind(today).all();
-      const byGoal = new Map<number, Set<string>>();
-      for (const c of (checksResult.results ?? []) as any[]) {
-        if (!byGoal.has(c.goal_id)) byGoal.set(c.goal_id, new Set());
-        byGoal.get(c.goal_id)!.add(c.date);
+      try {
+        await initGoalsTable(env);
+        const today = url.searchParams.get("date") || twnToday();
+        const goalsResult = await env.DB.prepare("SELECT * FROM goals ORDER BY id ASC").all();
+        const goals = (goalsResult.results ?? []) as any[];
+        const checksResult = await env.DB.prepare(
+          "SELECT goal_id, date FROM goal_checks WHERE date >= date(?, '-90 days')"
+        ).bind(today).all();
+        const byGoal = new Map<number, Set<string>>();
+        for (const c of (checksResult.results ?? []) as any[]) {
+          if (!byGoal.has(c.goal_id)) byGoal.set(c.goal_id, new Set());
+          byGoal.get(c.goal_id)!.add(c.date);
+        }
+        const countResult = await env.DB.prepare(
+          "SELECT goal_id, count FROM goal_checks WHERE date = ?"
+        ).bind(today).all();
+        const countMap = new Map<number, number>();
+        for (const c of (countResult.results ?? []) as any[]) countMap.set(c.goal_id, c.count ?? 1);
+        const out = goals.map(g => {
+          const dates = byGoal.get(g.id) ?? new Set<string>();
+          const todayCount = countMap.get(g.id) ?? 0;
+          return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size, count: todayCount, countable: g.countable ?? 0 };
+        });
+        return Response.json({ goals: out, today });
+      } catch (e: any) {
+        console.error("GET /goals error:", e);
+        return Response.json({ goals: [], today: twnToday(), error: e?.message || "D1 error" });
       }
-      const countResult = await env.DB.prepare(
-        "SELECT goal_id, count FROM goal_checks WHERE date = ?"
-      ).bind(today).all();
-      const countMap = new Map<number, number>();
-      for (const c of (countResult.results ?? []) as any[]) countMap.set(c.goal_id, c.count ?? 1);
-      const out = goals.map(g => {
-        const dates = byGoal.get(g.id) ?? new Set<string>();
-        const todayCount = countMap.get(g.id) ?? 0;
-        return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size, count: todayCount, countable: g.countable ?? 0 };
-      });
-      return Response.json({ goals: out, today });
     }
 
     // POST /goals — 新增習慣
