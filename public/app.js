@@ -3044,16 +3044,11 @@ function _callPlayReply(reply, audioUrl, closing) {
   };
   if (audioUrl) {
     document.getElementById('callStatus').textContent = 'Anchor 說話中…';
+    document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
     const audio = new Audio(audioUrl);
     audio.onended = afterPlay;
-    audio.onerror = () => {
-      document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
-      afterPlay();
-    };
-    audio.play().catch(() => {
-      document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
-      afterPlay();
-    });
+    audio.onerror = afterPlay;
+    audio.play().catch(() => afterPlay());
   } else if (reply) {
     document.getElementById('callTranscript').textContent = 'Anchor: ' + reply;
     afterPlay();
