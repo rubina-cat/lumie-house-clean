@@ -216,7 +216,7 @@ async function callMiniMaxTTS(text: string, env: any): Promise<string | null> {
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.MINIMAX_API_KEY}` },
     body: JSON.stringify({
       model: "speech-02-turbo", text, stream: false, output_format: "url",
-      voice_setting: { voice_id: "moss_audio_40644ab6-5fc7-11f1-8fdf-22f27a8feaff", speed: 0.85, vol: 1.0, pitch: 0 },
+      voice_setting: { voice_id: "moss_audio_40644ab6-5fc7-11f1-8fdf-22f27a8feaff", speed: 1.02, vol: 1.0, pitch: -1 },
       audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3" }
     })
   });
@@ -1729,9 +1729,9 @@ if (request.method === "POST" && url.pathname === "/tts") {
       output_format: "url",
       voice_setting: {
         voice_id: "moss_audio_40644ab6-5fc7-11f1-8fdf-22f27a8feaff",
-        speed: 0.85,
+        speed: 1.02,
         vol: 1.0,
-        pitch: 0
+        pitch: -1
       },
       audio_setting: {
         sample_rate: 32000,
