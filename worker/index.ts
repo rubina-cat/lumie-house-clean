@@ -720,6 +720,15 @@ async function expirePendingCall(env: any): Promise<any | null> {
       `未接來電${vmText ? '（有留言）' : ''}：${p.dial_reason || ''}`, JSON.stringify(turns)).run();
   } catch (e) { console.error("voicemail D1 write error:", e); }
 
+  // 寫進聊天歷史，這樣 Anchor 後續對話會記得留過言
+  if (vmText) {
+    try {
+      const chatMsgs = await getChatMsgs(env, 'default');
+      chatMsgs.push({ id: `a_vm_${Date.now()}`, role: "assistant", content: `[Anchor 打了電話給你，留了語音留言]\n${vmText}`, ts: Date.now() });
+      await saveChatMsgs(env, chatMsgs, 'default');
+    } catch (e) { console.error("voicemail chat history write error:", e); }
+  }
+
   // 推播提醒她有留言
   if (vmText) {
     try {
