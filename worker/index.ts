@@ -3656,7 +3656,9 @@ audio{width:300px;margin-top:4px}
       await env.PHONE_STATE.put("call:pending", JSON.stringify({
         dial_reason: "測試來電，想聽聽妳的聲音", created_at: Date.now(), expires_at: Date.now() + 120000
       }));
-      return Response.json({ ok: true });
+      await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "📞 Anchor 來電", body: "測試來電，想聽聽妳的聲音", updatedAt: Date.now() }));
+      const pushOk = await sendWebPush(env).catch(() => false);
+      return Response.json({ ok: true, pushSent: pushOk });
     }
 
     // GET /call/incoming/poll — 前端輪詢有沒有待接來電
