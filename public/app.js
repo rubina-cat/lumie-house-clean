@@ -2351,6 +2351,9 @@ async function openRoom() {
       const moodIcon = chibi ? `<img class="room-chibi" src="/room/${chibi}.png" alt="">` : `<span class="room-mood-icon">${md.icon}</span>`;
       html += `<div class="room-status-line room-mood" style="--rc:${md.color}">${moodIcon} ${escHtml(md.title)}${d.mood.reason ? `<span class="room-mood-reason">${escHtml(d.mood.reason)}</span>` : ''}</div>`;
     }
+    if (d.activity && d.activity.label) {
+      html += `<div class="room-status-line">💭 ${escHtml(d.activity.label)}</div>`;
+    }
     if (d.fishing) {
       const locName = FISH_LOC[d.fishing.location] || d.fishing.location || '某處';
       html += `<div class="room-status-line">🎣 在${escHtml(locName)}釣魚 · 圖鑑 ${d.fishing.caught} 種 · ${d.fishing.points} 點</div>`;
@@ -2679,9 +2682,11 @@ function _moComment(c) {
   return `<div class="mo-comment"><span class="mo-c-name${isAnchor ? '' : ' gpt'}">${name}</span><span class="mo-c-text">${escHtml(c.content)}</span></div>`;
 }
 function _moCard(m) {
-  return `<div class="mo-card" id="moCard-${m.id}">
+  const isAnchor = m.author === 'anchor';
+  const authorLine = isAnchor ? `<span class="mo-author">⚓ Anchor</span>` : '';
+  return `<div class="mo-card${isAnchor ? ' mo-anchor' : ''}" id="moCard-${m.id}">
     <div class="mo-head">
-      <span class="mo-time">${_moTime(m.ts)}</span>
+      ${authorLine}<span class="mo-time">${_moTime(m.ts)}</span>
       <button class="mo-del" onclick="deleteMoment(${m.id})" title="刪除">刪除</button>
     </div>
     ${m.content ? `<div class="mo-text">${escHtml(m.content)}</div>` : ''}

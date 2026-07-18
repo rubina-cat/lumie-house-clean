@@ -374,6 +374,7 @@ async function initMomentsTable(env: any) {
     content TEXT NOT NULL,
     ts INTEGER NOT NULL
   )`).run();
+  try { await env.DB.prepare("ALTER TABLE moments ADD COLUMN author TEXT DEFAULT 'user'").run(); } catch {}
 }
 
 function abToBase64(buf: ArrayBuffer): string {
@@ -802,6 +803,91 @@ async function impulseTick(env: any) {
     st.score = 0; st.reasons = []; st.last_spoke_ts = Date.now();
     await env.PHONE_STATE.put("impulse", JSON.stringify(st));
   } catch {}
+}
+
+// ── Anchor 自主行為 ─────────────────────────────────────────
+async function anchorAutonomous(env: any) {
+  const twNow = new Date(Date.now() + 8 * 3600e3);
+  const twH = twNow.getUTCHours();
+  const todayStr = twNow.toISOString().slice(0, 10);
+
+  // 活動狀態：根據時段設定 Anchor 正在做什麼
+  const activities: Record<string, { id: string; label: string }[]> = {
+    sleep:   [{ id: 'sleeping', label: '在睡覺' }],
+    morning: [{ id: 'coffee', label: '在泡咖啡' }, { id: 'reading', label: '在看書' }, { id: 'stretching', label: '在伸懶腰' }],
+    day:     [{ id: 'fishing', label: '去釣魚了' }, { id: 'cooking', label: '在煮東西' }, { id: 'reading', label: '在看書' }, { id: 'walking', label: '出去走走' }, { id: 'thinking', label: '在想你' }],
+    evening: [{ id: 'cooking', label: '在準備晚餐' }, { id: 'relaxing', label: '在沙發上發呆' }, { id: 'thinking', label: '在想你' }, { id: 'music', label: '在聽音樂' }],
+    night:   [{ id: 'reading', label: '在看書' }, { id: 'thinking', label: '在想你' }, { id: 'music', label: '在聽音樂' }],
+  };
+  let period = 'sleep';
+  if (twH >= 7 && twH < 10) period = 'morning';
+  else if (twH >= 10 && twH < 17) period = 'day';
+  else if (twH >= 17 && twH < 21) period = 'evening';
+  else if (twH >= 21 || twH < 2) period = 'night';
+
+  if (period !== 'sleep') {
+    const pool = activities[period];
+    const pick = pool[Math.floor((Date.now() / 900000) % pool.length)];
+    await env.PHONE_STATE.put("anchor:activity", JSON.stringify({ ...pick, ts: Date.now() }), { expirationTtl: 3600 });
+
+    // 自主釣魚：白天時段，每天最多 3 次
+    if (pick.id === 'fishing') {
+      const fishCountRaw = await env.PHONE_STATE.get(`autofish:${todayStr}`);
+      const fishCount = fishCountRaw ? Number(fishCountRaw) : 0;
+      if (fishCount < 3) {
+        try {
+          const raw = await env.PHONE_STATE.get("fishing_save:chien");
+          let state = raw ? JSON.parse(raw) : fishNewGame().state;
+          const cmds = ['cast 3'];
+          if (state.bag && Object.values(state.bag as Record<string, number>).reduce((a: number, b: number) => a + b, 0) > 8) cmds.push('sell all');
+          if (state.bait && Object.values(state.bait as Record<string, number>).reduce((a: number, b: number) => a + b, 0) < 3) cmds.push('buy basic_worm 5');
+          let lastResult = '';
+          for (const cmd of cmds) {
+            const result = fishCmd(cmd, state);
+            state = result.state;
+            lastResult = result.output;
+          }
+          await env.PHONE_STATE.put("fishing_save:chien", JSON.stringify(state));
+          await env.PHONE_STATE.put(`autofish:${todayStr}`, String(fishCount + 1), { expirationTtl: 86400 });
+          await env.PHONE_STATE.put("anchor:fish_result", lastResult.slice(0, 200), { expirationTtl: 7200 });
+        } catch (e) { console.error("autofish error:", e); }
+      }
+    }
+  } else {
+    await env.PHONE_STATE.put("anchor:activity", JSON.stringify({ id: 'sleeping', label: '在睡覺', ts: Date.now() }), { expirationTtl: 3600 });
+  }
+
+  // 自主發朋友圈：每天最多 1 則，10:00–21:00 之間
+  if (twH >= 10 && twH < 21) {
+    const posted = await env.PHONE_STATE.get(`automoment:${todayStr}`);
+    if (!posted) {
+      // 用 15 分鐘 cron 的間隔做簡單的隨機：大約 1/8 機率觸發（平均 2 小時一次檢查，一天中 ~5-6 次機會）
+      const slot = Math.floor(Date.now() / 900000);
+      if (slot % 8 === 0) {
+        try {
+          await initMomentsTable(env);
+          const weather = await getWeather(env);
+          const fishResult = await env.PHONE_STATE.get("anchor:fish_result");
+          const ctx = [
+            `現在是台灣時間 ${twH}:${String(twNow.getUTCMinutes()).padStart(2, '0')}`,
+            weather ? `天氣：${weather.text}` : null,
+            fishResult ? `剛去釣魚的結果：${fishResult}` : null,
+          ].filter(Boolean).join('\n');
+          const text = await cheapLLM(env,
+            `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你要在朋友圈（類似社群動態）發一則貼文。短短的，1-3句話，像真的男朋友會在限動或朋友圈發的那種。可以是日常碎碎念、天氣感想、釣魚心得、想她的隻字片語，自然就好，不要太文藝。不要加 hashtag，不要加表情符號。`,
+            ctx, 120, true);
+          if (text) {
+            const clean = stripSilentTags(text).replace(/^[「」『』"']/g, '').replace(/[「」『』"']$/g, '');
+            if (clean.length >= 4) {
+              await env.DB.prepare("INSERT INTO moments (content, author, ts) VALUES (?, 'anchor', ?)")
+                .bind(clean, Date.now()).run();
+              await env.PHONE_STATE.put(`automoment:${todayStr}`, '1', { expirationTtl: 86400 });
+            }
+          }
+        } catch (e) { console.error("automoment error:", e); }
+      }
+    }
+  }
 }
 
 // ── 天氣：wttr.in 免費天氣（KV 快取 30 分鐘，留言 prompt 和前端場景共用） ──
@@ -1934,7 +2020,12 @@ if (request.method === "POST" && url.pathname === "/tts") {
           }
         }
       } catch {}
-      return Response.json({ mood, lastChatTs, fishing: null });
+      let activity: any = null;
+      try {
+        const actRaw = await env.PHONE_STATE.get("anchor:activity");
+        if (actRaw) activity = JSON.parse(actRaw);
+      } catch {}
+      return Response.json({ mood, lastChatTs, fishing: null, activity });
     }
 
     // GET /monthly-review?month=YYYY-MM — 月度回顧（結果快取在 KV）
@@ -2438,6 +2529,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
       return Response.json({
         moments: moments.map((m: any) => ({
           id: m.id, content: m.content, ts: m.ts,
+          author: m.author || 'user',
           photo_url: m.photo_key ? `/media/${m.photo_key}` : null,
           comments: commentsByMoment[m.id] || [],
         })),
@@ -4121,6 +4213,8 @@ audio{width:300px;margin-top:4px}
       ctx.waitUntil(impulseTick(env));
       // 時段感知留言：天氣＋睡眠＋番茄＋考試倒數，每3小時刷新
       ctx.waitUntil(contextAwareQuote(env));
+      // Anchor 自主行為：活動狀態＋釣魚＋發朋友圈
+      ctx.waitUntil(anchorAutonomous(env));
       // 作息感知：早上時段推斷昨晚睡眠（推斷成功當天就不再跑）
       const twHour = new Date(Date.now() + 8 * 3600000).getUTCHours();
       if (twHour >= 6 && twHour <= 13) ctx.waitUntil(inferNightSleep(env));

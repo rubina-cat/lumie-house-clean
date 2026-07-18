@@ -2703,10 +2703,20 @@ textarea::placeholder { color: var(--light-text); }
   border-radius: 16px;
   padding: 14px;
 }
+.mo-card.mo-anchor {
+  border-left: 3px solid var(--accent, #c89a94);
+}
+.mo-author {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #c89a94);
+  margin-right: auto;
+}
 .mo-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   margin-bottom: 8px;
 }
 .mo-time {
