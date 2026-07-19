@@ -2299,16 +2299,26 @@ function _roomArtByTime() {
   if (h < 18) return 'laptop';
   return 'portrait';
 }
-function _setRoomArt(moodId, forceName) {
+const ACT_ART_MAP = { coffee: 'coffee', thinking: 'thinking', reading: 'reading', relaxing: 'relaxing', music: 'relaxing', cooking: 'coffee', walking: 'thinking', stretching: 'coffee', sleeping: null };
+function _isDayHour() { const h = new Date().getHours(); return h >= 6 && h < 18; }
+function _setRoomArt(moodId, forceName, activityId) {
   const img = document.getElementById('roomArt');
   const scene = document.querySelector('.room-scene');
   if (!img || !scene) return;
-  const name = forceName || (moodId && ROOM_MOOD_ART[moodId]) || _roomArtByTime();
-  if (img.dataset.art === name && scene.classList.contains('has-art')) return;
+  const actArt = activityId && ACT_ART_MAP[activityId];
+  let src;
+  if (actArt) {
+    const tod = _isDayHour() ? 'day' : 'night';
+    src = '/room/act-' + actArt + '-' + tod + '.jpg';
+  } else {
+    const name = forceName || (moodId && ROOM_MOOD_ART[moodId]) || _roomArtByTime();
+    src = '/room/' + name + '.png';
+  }
+  if (img.src.endsWith(src) && scene.classList.contains('has-art')) return;
   img.onload = () => { img.style.display = ''; scene.classList.add('has-art'); };
   img.onerror = () => { img.style.display = 'none'; scene.classList.remove('has-art'); };
-  img.dataset.art = name;
-  img.src = '/room/' + name + '.png';
+  img.dataset.art = activityId || forceName || moodId || '';
+  img.src = src;
 }
 
 function _roomRelTime(ts) {
@@ -2339,13 +2349,17 @@ async function openRoom() {
     const r = await fetch(BASE + '/room', { headers: { Authorization: 'Bearer ' + TOKEN } });
     const d = await r.json();
     let html = '';
+    const actId = d.activity?.id || null;
     if (d.fishing) {
-      // 正在釣魚：整個場景切到夜釣碼頭
       _setRoomArt(null, 'fishing');
       document.getElementById('roomAmbient').textContent = '湖邊夜風很輕，浮標一動不動。';
+    } else if (actId && ACT_ART_MAP[actId]) {
+      _setRoomArt(null, null, actId);
+      document.getElementById('roomAmbient').textContent = _roomAmbientLine();
+    } else if (d.mood && d.mood.id) {
+      _setRoomArt(d.mood.id);
     }
     if (d.mood && d.mood.id) {
-      if (!d.fishing) _setRoomArt(d.mood.id);
       const md = MOODS[d.mood.id] || { icon: '✦', title: d.mood.id, color: '#8090a0' };
       const chibi = ROOM_CHIBI[d.mood.id];
       const moodIcon = chibi ? `<img class="room-chibi" src="/room/${chibi}.png" alt="">` : `<span class="room-mood-icon">${md.icon}</span>`;
