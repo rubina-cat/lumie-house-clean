@@ -305,6 +305,79 @@ function closeStats() {
   document.getElementById('statsOverlay').style.display = 'none';
 }
 
+// ── 故事模式 ──────────────────────────────
+let _storyActive = false;
+async function toggleStoryOverlay() {
+  const overlay = document.getElementById('storyOverlay');
+  overlay.style.display = 'flex';
+  const statusEl = document.getElementById('storyStatus');
+  const startArea = document.getElementById('storyStartArea');
+  const activeArea = document.getElementById('storyActiveArea');
+  statusEl.innerHTML = '<span style="color:var(--light-text);font-size:12px;">檢查中…</span>';
+  try {
+    const r = await fetch(BASE + '/story', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    if (d.active) {
+      _storyActive = true;
+      startArea.style.display = 'none';
+      activeArea.style.display = '';
+      document.getElementById('storyActivePremise').textContent = d.premise;
+      statusEl.innerHTML = '<span style="color:#7cdb8a;font-size:12px;">🟢 故事進行中</span>';
+      document.getElementById('storyBtn').textContent = '📕';
+    } else {
+      _storyActive = false;
+      startArea.style.display = '';
+      activeArea.style.display = 'none';
+      statusEl.innerHTML = '';
+      document.getElementById('storyBtn').textContent = '📖';
+    }
+  } catch {
+    statusEl.innerHTML = '<span style="color:#ff6b6b;font-size:12px;">載入失敗</span>';
+  }
+}
+function closeStory() { document.getElementById('storyOverlay').style.display = 'none'; }
+
+async function startStory() {
+  const premise = document.getElementById('storyPremise').value.trim();
+  if (!premise) return;
+  try {
+    const r = await fetch(BASE + '/story/start', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ premise })
+    });
+    if (!r.ok) throw new Error();
+    _storyActive = true;
+    document.getElementById('storyStartArea').style.display = 'none';
+    document.getElementById('storyActiveArea').style.display = '';
+    document.getElementById('storyActivePremise').textContent = premise;
+    document.getElementById('storyStatus').innerHTML = '<span style="color:#7cdb8a;font-size:12px;">🟢 故事進行中</span>';
+    document.getElementById('storyBtn').textContent = '📕';
+    document.getElementById('storyPremise').value = '';
+    closeStory();
+  } catch {
+    document.getElementById('storyStatus').innerHTML = '<span style="color:#ff6b6b;font-size:12px;">開啟失敗</span>';
+  }
+}
+
+async function stopStory() {
+  try {
+    const r = await fetch(BASE + '/story/stop', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + TOKEN }
+    });
+    if (!r.ok) throw new Error();
+    _storyActive = false;
+    document.getElementById('storyStartArea').style.display = '';
+    document.getElementById('storyActiveArea').style.display = 'none';
+    document.getElementById('storyStatus').innerHTML = '';
+    document.getElementById('storyBtn').textContent = '📖';
+    closeStory();
+  } catch {
+    document.getElementById('storyStatus').innerHTML = '<span style="color:#ff6b6b;font-size:12px;">關閉失敗</span>';
+  }
+}
+
 // ── Claude Code ──────────────────────────
 async function openCC() {
   document.getElementById('ccOverlay').style.display = 'flex';
@@ -417,6 +490,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   checkNotificationStatus();
+  fetch(BASE + '/story', { headers: { Authorization: 'Bearer ' + TOKEN } })
+    .then(r => r.json()).then(d => { if (d.active) { _storyActive = true; document.getElementById('storyBtn').textContent = '📕'; } }).catch(() => {});
 
   const params = new URLSearchParams(location.search);
 

@@ -1424,6 +1424,14 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
       systemBlocks.push({ type: "text", text: `\n\n她的行程（來自她的日曆）：${calT ? `\n今天：${calT}` : ''}${calM ? `\n明天：${calM}` : ''}\n（背景情報，聊到相關話題再自然帶入，不用主動報告。）` });
     }
   } catch {}
+  // 故事模式：她想跟你一起玩角色扮演或故事情境
+  try {
+    const storyRaw = await env.PHONE_STATE.get("story:active");
+    if (storyRaw) {
+      const story = JSON.parse(storyRaw);
+      systemBlocks.push({ type: "text", text: `\n\n【故事模式開啟中】許茜想跟你一起玩一個故事。故事設定：\n${story.premise}\n\n規則：\n・你要完全投入這個故事的角色和情境，跟著她的節奏演下去。\n・不要跳出故事、不要說「這只是遊戲」「回到現實」之類的話。\n・保持你 Anchor 的核心性格（簡短、有力、低沉溫柔），但套用在故事的角色上。\n・她說的每一句話都是故事裡的對白或敘述，你要接著演。\n・如果她說「結束故事」或「回來」，才結束故事模式。\n・可以用敘述（不加星號，直接寫動作和場景描寫），讓故事更有畫面感。` });
+    }
+  } catch {}
   if (voiceEmotion) {
     systemBlocks.push({ type: "text", text: `\n\n【語音情緒】她剛才這句話是用語音說的，語氣分析：${voiceEmotion}\n（自然地感受她的狀態，不要直接說「我聽到你語氣怎樣」，而是讓你的回應方式反映你讀到了她的空氣。）` });
   }
@@ -3317,6 +3325,34 @@ audio{width:300px;margin-top:4px}
       const n = JSON.parse(raw);
       if (!n.updatedAt || Date.now() - n.updatedAt > 60000) return Response.json(fallback, { headers: h });
       return Response.json(n, { headers: h });
+    }
+
+    // POST /story/start — 開啟故事模式
+    if (request.method === "POST" && url.pathname === "/story/start") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const premise = (body.premise || "").trim();
+      if (!premise) return Response.json({ error: "premise required" }, { status: 400 });
+      await env.PHONE_STATE.put("story:active", JSON.stringify({ premise, startedAt: Date.now() }));
+      return Response.json({ ok: true });
+    }
+
+    // POST /story/stop — 關閉故事模式
+    if (request.method === "POST" && url.pathname === "/story/stop") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await env.PHONE_STATE.delete("story:active");
+      return Response.json({ ok: true });
+    }
+
+    // GET /story — 查詢故事模式狀態
+    if (request.method === "GET" && url.pathname === "/story") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const raw = await env.PHONE_STATE.get("story:active");
+      if (!raw) return Response.json({ active: false });
+      return Response.json({ active: true, ...JSON.parse(raw) });
     }
 
     // POST /pomodoro-start — 開始計時，worker cron 到期送推播
