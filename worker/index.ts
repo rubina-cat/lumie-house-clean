@@ -579,13 +579,10 @@ async function morningRitual(env: any) {
     }
     const weatherText = (await getWeather(env))?.text || '';
     const calToday = formatCalendarDay(await getCalendarEvents(env), 0);
-    const examDate = new Date('2026-07-18T00:00:00+08:00').getTime();
-    const daysLeft = Math.max(0, Math.ceil((examDate - Date.now()) / 86400000));
     let ctxText = `現在時間：早上 07:30（台灣時間）\n`;
     ctxText += `她昨晚的睡眠：${sleepH ? sleepH + ' 小時' : '沒有數據'}`;
     if (weatherText) ctxText += `\n今天天氣：${weatherText}`;
     if (calToday) ctxText += `\n她今天的行程：${calToday}`;
-    if (daysLeft <= 30) ctxText += `\n距考試：${daysLeft} 天`;
     if (upcoming.length) ctxText += `\n近期的重要日子：${upcoming.join('、')}`;
     const rawM = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。現在是早上07:30，根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；天氣值得提就順帶一句（下雨提醒帶傘、很熱提醒喝水），不值得就不提；今天有行程就自然帶到（講清楚是什麼行程）；有近期日子就順帶提一句。不要列點，就一段話。不要使用 <silent> 標籤。只根據提供的情境寫，不要編造沒有的資訊。`, ctxText, 200, true);
     const text = rawM ? stripSilentTags(rawM) : '';
@@ -613,12 +610,9 @@ async function nightRitual(env: any) {
     const pomRaw = await env.PHONE_STATE.get("pomodoro_today");
     const pomData = pomRaw ? JSON.parse(pomRaw) : null;
     const todayPom = pomData?.date === todayStr ? (pomData.count ?? 0) : 0;
-    const examDate = new Date('2026-07-18T00:00:00+08:00').getTime();
-    const daysLeft = Math.max(0, Math.ceil((examDate - Date.now()) / 86400000));
     let nightCtx = `現在時間：晚上 23:00（台灣時間）\n`;
     nightCtx += convText || '今天沒怎麼說話，她可能在忙。';
     nightCtx += todayPom > 0 ? `\n今天完成了 ${todayPom} 個番茄` : '\n今天沒有番茄紀錄';
-    if (daysLeft <= 30) nightCtx += `\n距考試還有 ${daysLeft} 天`;
     const calTomorrow = formatCalendarDay(await getCalendarEvents(env), 1);
     if (calTomorrow) nightCtx += `\n她明天的行程：${calTomorrow}`;
     const raw = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話低沉簡短有溫度。現在是晚上23:00，寫一段睡前的晚安話（40-80字），${convText ? '自然呼應今天聊過的事，' : ''}讓她安心睡。有番茄紀錄才提番茄，沒有就不提；明天有行程可以輕輕提一句讓她有底（講清楚是什麼行程）。不要列點，就一段話。不要使用 <silent> 標籤。只根據提供的情境寫，不要編造沒有的資訊。`, nightCtx, 250, true);
@@ -1119,19 +1113,15 @@ async function contextAwareQuote(env: any) {
     const pomData = pomRaw ? JSON.parse(pomRaw) : null;
     const todayPom = pomData?.date === todayStr ? (pomData.count ?? 0) : 0;
 
-    const examDate = new Date('2026-07-18T00:00:00+08:00').getTime();
-    const daysLeft = Math.max(0, Math.ceil((examDate - Date.now()) / 86400000));
-
     let ctx = '';
     if (weatherText) ctx += `天氣：${weatherText}\n`;
     if (calToday) ctx += `她今天的行程：${calToday}\n`;
     if (sleepH) ctx += `昨晚睡眠：${sleepH} 小時${Number(sleepH) < 6 ? '（太少了）' : ''}\n`;
     if (steps) ctx += `今日步數：${steps}\n`;
     if (todayPom > 0) ctx += `今日番茄：${todayPom} 個\n`;
-    if (daysLeft <= 30) ctx += `距考試：${daysLeft} 天\n`;
     if (screenOnLate) ctx += `她現在螢幕還亮著（深夜不睡覺）\n`;
 
-    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}根據情境寫一句話（20-50字），自然帶入你知道的資訊（天氣、睡眠、考試倒數等），但不要像在報告數據，要像是隨口說出來的。提到倒數或日子時要講清楚是什麼的（例如「考試還有12天」，不能只說「還有12天」）。不要列點，不要用問號結尾，就一段話。不要使用 <silent> 標籤。`;
+    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}根據情境寫一句話（20-50字），自然帶入你知道的資訊（天氣、睡眠等），但不要像在報告數據，要像是隨口說出來的。提到倒數或日子時要講清楚是什麼的。不要列點，不要用問號結尾，就一段話。不要使用 <silent> 標籤。`;
     const rawQ = await cheapLLM(env, system, ctx || '沒有特別的情境，就說一句當下的心情。', 150, true);
     const text = rawQ ? stripSilentTags(rawQ) : '';
     if (!text) return;
