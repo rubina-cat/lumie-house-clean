@@ -916,7 +916,7 @@ async function anchorAutonomous(env: any) {
 
 // ── 花園與貓咪：呼叫外部 Garden-Cat-Engine API ──
 const GARDEN_URL = "https://garden-cat-engine-8ec9.onrender.com";
-const GARDEN_SESSION = "web_2e34722903484f23";
+const GARDEN_SESSION = "web_b854caeddf374620";
 
 async function gardenCmd(env: any, command: string): Promise<string> {
   const r = await fetch(`${GARDEN_URL}/api/cmd`, {
