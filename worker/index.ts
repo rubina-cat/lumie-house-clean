@@ -4523,6 +4523,17 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
           },
           required: ["cmd"]
         }
+      },
+      {
+        name: "garden_cmd",
+        description: "操作你和許茜共享的花園與貓咪遊戲。你可以澆花、摸貓、種花、收成、逛商店、買東西。\n\n常用指令：\n- status：查看花園狀態（花盆、貓咪、金幣）\n- water：澆水\n- plant：種花\n- harvest：收成花朵\n- pet：摸摸貓咪\n- adopt [名字]：收養貓咪並取名\n- shop：逛商店\n- buy [商品]：購買商品\n- vase：查看花瓶\n- arrange：插花\n- notes：查看便簽\n- note [內容]：留一張便簽（1-20字）\n- help：顯示完整指令",
+        inputSchema: {
+          type: "object",
+          properties: {
+            cmd: { type: "string", description: "要執行的花園指令，如 water 或 pet 或 status" }
+          },
+          required: ["cmd"]
+        }
       }
     ]}});
   }
@@ -4871,6 +4882,34 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
         env.PHONE_STATE.put("fishing_log:chien", JSON.stringify(log)),
       ]);
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: result.output }] } });
+    }
+
+    if (toolName === "garden_cmd") {
+      if (!env.GARDEN_API_KEY) {
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "花園未設定" }] } });
+      }
+      const cmd = (params?.arguments?.cmd ?? "status").trim();
+      try {
+        if (cmd.startsWith("note ")) {
+          const content = cmd.slice(5).trim();
+          if (!content || content.length > 20) {
+            return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "便簽內容需要 1-20 字" }] } });
+          }
+          await gardenNote(env, content);
+          return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `便簽已留：「${content}」` }] } });
+        }
+        if (cmd === "notes") {
+          const r = await fetch(`${GARDEN_URL}/api/notes?session_id=${GARDEN_SESSION}&page=1`, {
+            headers: { "X-API-Key": env.GARDEN_API_KEY },
+          });
+          const d = await r.json() as any;
+          return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(d, null, 2) }] } });
+        }
+        const output = await gardenCmd(env, cmd);
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: output }] } });
+      } catch (e: any) {
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `花園錯誤：${e.message}` }] } });
+      }
     }
 
     return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Tool not found" }});
