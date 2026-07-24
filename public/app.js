@@ -378,6 +378,11 @@ async function stopStory() {
   }
 }
 
+// ── 花園與貓咪 ──────────────────────────
+function openGardenCat() {
+  window.open('https://garden-cat-engine-8ec9.onrender.com', '_blank');
+}
+
 // ── Claude Code ──────────────────────────
 async function openCC() {
   document.getElementById('ccOverlay').style.display = 'flex';

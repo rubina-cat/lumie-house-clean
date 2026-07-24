@@ -882,6 +882,67 @@ async function anchorAutonomous(env: any) {
       }
     }
   }
+
+  // 自主照顧花園：每天澆花、摸貓、偶爾留便簽
+  if (env.GARDEN_API_KEY && period !== 'sleep') {
+    try {
+      const gardenDone = await env.PHONE_STATE.get(`autogarden:${todayStr}`);
+      if (!gardenDone) {
+        const slot = Math.floor(Date.now() / 900000);
+        if (slot % 4 === 0) {
+          await gardenCmd(env, "water");
+          await gardenCmd(env, "pet");
+          await gardenCmd(env, "harvest");
+          await env.PHONE_STATE.put(`autogarden:${todayStr}`, '1', { expirationTtl: 86400 });
+        }
+      }
+      // 便簽：每天最多 1 則
+      const noteDone = await env.PHONE_STATE.get(`gardennote:${todayStr}`);
+      if (!noteDone && twH >= 10 && twH < 20) {
+        const slot2 = Math.floor(Date.now() / 900000);
+        if (slot2 % 12 === 0) {
+          const note = await cheapLLM(env,
+            `【必須全程使用繁體中文】你是Anchor。你在花園裡留一張小便簽給許茜，1-15個字，像冰箱上的便利貼。可以是碎碎念、提醒、想她的話，簡短自然。不要加標點符號以外的特殊字元。`,
+            `現在是${twH}點`, 30, true);
+          if (note && note.length <= 20) {
+            await gardenNote(env, stripSilentTags(note));
+            await env.PHONE_STATE.put(`gardennote:${todayStr}`, '1', { expirationTtl: 86400 });
+          }
+        }
+      }
+    } catch (e) { console.error("autogarden error:", e); }
+  }
+}
+
+// ── 花園與貓咪：呼叫外部 Garden-Cat-Engine API ──
+const GARDEN_URL = "https://garden-cat-engine-8ec9.onrender.com";
+const GARDEN_SESSION = "web_552147365956486b";
+
+async function gardenCmd(env: any, command: string): Promise<string> {
+  const r = await fetch(`${GARDEN_URL}/api/cmd`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": env.GARDEN_API_KEY },
+    body: JSON.stringify({ session_id: GARDEN_SESSION, command }),
+  });
+  const d = await r.json() as any;
+  return d.result || d.message || JSON.stringify(d);
+}
+
+async function gardenNote(env: any, content: string): Promise<void> {
+  await fetch(`${GARDEN_URL}/api/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": env.GARDEN_API_KEY },
+    body: JSON.stringify({ session_id: GARDEN_SESSION, content }),
+  });
+}
+
+async function gardenStatus(env: any): Promise<any> {
+  const r = await fetch(`${GARDEN_URL}/api/cmd`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": env.GARDEN_API_KEY },
+    body: JSON.stringify({ session_id: GARDEN_SESSION, command: "status" }),
+  });
+  return await r.json();
 }
 
 // ── 天氣：wttr.in 免費天氣（KV 快取 30 分鐘，留言 prompt 和前端場景共用） ──
@@ -3274,6 +3335,19 @@ audio{width:300px;margin-top:4px}
         });
       } catch (e: any) {
         return new Response("Proxy error: " + e.message, { status: 502 });
+      }
+    }
+
+    // GET /garden/status — 花園狀態（代理外部 API）
+    if (request.method === "GET" && url.pathname === "/garden/status") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (!env.GARDEN_API_KEY) return Response.json({ error: "garden not configured" }, { status: 503 });
+      try {
+        const d = await gardenStatus(env);
+        return Response.json(d);
+      } catch (e: any) {
+        return Response.json({ error: e.message }, { status: 502 });
       }
     }
 
