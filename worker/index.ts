@@ -1940,8 +1940,13 @@ if (request.method === "POST" && url.pathname === "/tts") {
         loc: body.loc ?? null,
         atHome: body.atHome ?? null,
       };
-      await env.PHONE_STATE.put("latest", JSON.stringify(state));
-      // 螢幕開關的變化點直接記進時軸——作息感知的原料，時間戳比等 cron 撿準
+      const prevLatestRaw = await env.PHONE_STATE.get("latest");
+      const prevLatest = prevLatestRaw ? JSON.parse(prevLatestRaw) : null;
+      const latestChanged = !prevLatest
+        || Math.abs((state.batteryPercent ?? 0) - (prevLatest.batteryPercent ?? 0)) >= 2
+        || state.screenOn !== prevLatest.screenOn
+        || state.loc !== prevLatest.loc;
+      if (latestChanged) await env.PHONE_STATE.put("latest", JSON.stringify(state));
       if (state.screenOn !== null) {
         const tlRaw = await env.PHONE_STATE.get("screen_timeline");
         const timeline = tlRaw ? JSON.parse(tlRaw) : [];
@@ -1994,7 +1999,11 @@ if (request.method === "POST" && url.pathname === "/tts") {
         sleep_ms: body.sleep?.longValues?.SleepSession_duration ?? null,
         updated_at: Date.now(),
       };
-      await env.PHONE_STATE.put("health:latest", JSON.stringify(health));
+      const changed = !prevHealth
+        || health.steps !== prevHealth.steps
+        || health.heart_rate_avg !== prevHealth.heart_rate_avg
+        || health.sleep_ms !== prevHealth.sleep_ms;
+      if (changed) await env.PHONE_STATE.put("health:latest", JSON.stringify(health));
       // 衝動值：跨過門檻的那一刻才加分（每天各觸發一次）
       ctx.waitUntil((async () => {
         try {
@@ -3673,7 +3682,7 @@ audio{width:300px;margin-top:4px}
       const existing = await env.PHONE_STATE.get(`diet:${date}`);
       const prev = existing ? JSON.parse(existing) : { meals: [], water_cups: 0, protein_level: null, weight: null };
       const merged = { ...prev, ...body, date };
-      await env.PHONE_STATE.put(`diet:${date}`, JSON.stringify(merged));
+      await env.PHONE_STATE.put(`diet:${date}`, JSON.stringify(merged), { expirationTtl: 86400 * 120 });
 
       if (body.weight != null) {
         const [histRaw, confRaw] = await Promise.all([
