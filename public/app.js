@@ -485,6 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDates();
   loadGoals();
   loadHealthSnapshot();
+  loadDietSnapshot();
   const _h = new Date().getHours();
   if (_h >= 22 || _h < 4) document.getElementById('nightCard').style.display = '';
   const sr = document.getElementById('historySearch');
@@ -2197,6 +2198,281 @@ async function openHealthTrend() {
 function closeHealthTrend() {
   document.getElementById('healthOverlay').style.display = 'none';
   document.querySelector('.nav').style.display = '';
+}
+
+// ── 減脂挑戰 🍎 ──────────────────────────────────
+let _dietData = null;
+let _dietLog = { meals: [], water_cups: 0, protein_level: null, weight: null };
+
+async function loadDietSnapshot() {
+  try {
+    const r = await fetch(BASE + '/diet/today', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    if (!d.ok) return;
+    _dietData = d;
+    _dietLog = d.log || { meals: [], water_cups: 0, protein_level: null, weight: null };
+    const card = document.getElementById('dietHomeCard');
+    if (d.configured && card) {
+      card.style.display = '';
+      const c = d.competition;
+      if (c) {
+        document.getElementById('dietHomeTitle').textContent = `−${c.loss_percent}%`;
+        document.getElementById('dietHomeSub').textContent = `第 ${c.days_elapsed} 天・剩 ${c.days_remaining} 天`;
+      }
+    } else if (card) {
+      card.style.display = '';
+      document.getElementById('dietHomeTitle').textContent = '減脂挑戰';
+      document.getElementById('dietHomeSub').textContent = '點這裡開始設定';
+    }
+  } catch {}
+}
+
+function openDiet() {
+  document.getElementById('dietOverlay').style.display = 'flex';
+  document.querySelector('.nav').style.display = 'none';
+  dietRender();
+}
+
+function closeDiet() {
+  document.getElementById('dietOverlay').style.display = 'none';
+  document.querySelector('.nav').style.display = '';
+}
+
+async function dietRender() {
+  if (!_dietData) {
+    try {
+      const r = await fetch(BASE + '/diet/today', { headers: { Authorization: 'Bearer ' + TOKEN } });
+      _dietData = await r.json();
+      _dietLog = _dietData.log || { meals: [], water_cups: 0, protein_level: null, weight: null };
+    } catch { return; }
+  }
+
+  const setup = document.getElementById('dietSetup');
+  const main = document.getElementById('dietMain');
+
+  if (!_dietData.configured) {
+    setup.style.display = 'block';
+    main.style.display = 'none';
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+    const startEl = document.getElementById('dietInitStart');
+    if (startEl && !startEl.value) startEl.value = today;
+    return;
+  }
+
+  setup.style.display = 'none';
+  main.style.display = 'block';
+
+  const c = _dietData.competition;
+  if (c) {
+    document.getElementById('dietDaysLabel').textContent = `第 ${c.days_elapsed} 天`;
+    document.getElementById('dietLossPct').textContent = `${c.loss_percent >= 0 ? '−' : '+'}${Math.abs(c.loss_percent)}%`;
+    const pct = Math.min(100, c.days_elapsed / c.days_total * 100);
+    document.getElementById('dietProgressFill').style.width = pct + '%';
+    document.getElementById('dietProgressSub').textContent =
+      `${c.start_weight} → ${c.current_weight} kg ・ 目標 ${c.target_weight ?? '—'} kg ・ 剩 ${c.days_remaining} 天`;
+
+    if (c.loss_percent > 0) {
+      document.getElementById('dietWeightChange').textContent = `已減 ${(c.start_weight - c.current_weight).toFixed(1)} kg`;
+    }
+  }
+
+  if (_dietLog.weight) {
+    document.getElementById('dietWeightInput').value = _dietLog.weight;
+  }
+
+  // Steps
+  const steps = _dietData.steps;
+  document.getElementById('dietStepsVal').textContent = steps != null ? steps.toLocaleString() : '—';
+  const stepPct = steps != null ? Math.min(100, steps / 6000 * 100) : 0;
+  document.getElementById('dietStepsFill').style.width = stepPct + '%';
+  if (steps != null && steps >= 6000) {
+    document.getElementById('dietStepsFill').style.background = 'linear-gradient(90deg, var(--sage), #7ac47a)';
+  }
+
+  // Load weekly step average
+  dietLoadStepsAvg();
+
+  // Meals
+  dietRenderMeals();
+
+  // Water
+  document.getElementById('dietWaterVal').textContent = _dietLog.water_cups || 0;
+
+  // Protein
+  document.querySelectorAll('.diet-pill').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.val === _dietLog.protein_level);
+  });
+
+  // Phase tip
+  const tipEl = document.getElementById('dietPhaseTip');
+  if (c && c.phase_tip) {
+    tipEl.style.display = 'flex';
+    const icons = { menstrual: '🩸', follicular: '🌱', ovulation: '🌕', luteal: '🌙' };
+    document.getElementById('dietPhaseIcon').textContent = icons[_dietData.phase] || '🍎';
+    document.getElementById('dietPhaseText').textContent = c.phase_tip;
+    document.getElementById('dietPhaseCal').textContent = c.phase_calories + ' kcal';
+  } else {
+    tipEl.style.display = 'none';
+  }
+
+  // Weight chart
+  dietLoadChart();
+}
+
+function dietRenderMeals() {
+  const list = document.getElementById('dietMealsList');
+  const meals = _dietLog.meals || [];
+  if (!meals.length) {
+    list.innerHTML = '<div style="font-size:13px;color:var(--light-text);text-align:center;padding:8px;">還沒有記錄</div>';
+    return;
+  }
+  list.innerHTML = meals.map((m, i) => `
+    <div class="diet-meal-item">
+      <span>${m.desc}</span>
+      <span class="diet-meal-time">${m.time || ''}</span>
+      <button class="diet-meal-del" onclick="dietDelMeal(${i})">×</button>
+    </div>
+  `).join('');
+}
+
+async function dietAddMeal() {
+  const input = document.getElementById('dietMealInput');
+  const desc = input.value.trim();
+  if (!desc) return;
+  const now = new Date(Date.now() + 8 * 3600000);
+  const time = String(now.getUTCHours()).padStart(2, '0') + ':' + String(now.getUTCMinutes()).padStart(2, '0');
+  if (!_dietLog.meals) _dietLog.meals = [];
+  _dietLog.meals.push({ desc, time });
+  input.value = '';
+  dietRenderMeals();
+  await dietSave({ meals: _dietLog.meals });
+}
+
+function dietQuickMeal(desc) {
+  document.getElementById('dietMealInput').value = desc;
+  dietAddMeal();
+}
+
+async function dietDelMeal(idx) {
+  _dietLog.meals.splice(idx, 1);
+  dietRenderMeals();
+  await dietSave({ meals: _dietLog.meals });
+}
+
+async function dietSaveWeight() {
+  const val = parseFloat(document.getElementById('dietWeightInput').value);
+  if (!val || val < 20 || val > 200) return;
+  _dietLog.weight = val;
+  await dietSave({ weight: val });
+  _dietData = null;
+  await dietRender();
+  loadDietSnapshot();
+}
+
+async function dietWater(delta) {
+  _dietLog.water_cups = Math.max(0, (_dietLog.water_cups || 0) + delta);
+  document.getElementById('dietWaterVal').textContent = _dietLog.water_cups;
+  await dietSave({ water_cups: _dietLog.water_cups });
+}
+
+async function dietProtein(level) {
+  _dietLog.protein_level = level;
+  document.querySelectorAll('.diet-pill').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.val === level);
+  });
+  await dietSave({ protein_level: level });
+}
+
+async function dietSave(partial) {
+  try {
+    await fetch(BASE + '/diet/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+      body: JSON.stringify(partial),
+    });
+  } catch {}
+}
+
+async function dietInit() {
+  const weight = parseFloat(document.getElementById('dietInitWeight').value);
+  if (!weight) { alert('請輸入起始體重'); return; }
+  const target = parseFloat(document.getElementById('dietInitTarget').value) || null;
+  const cal = parseInt(document.getElementById('dietInitCal').value) || 1400;
+  const start = document.getElementById('dietInitStart').value;
+  const end = document.getElementById('dietInitEnd').value;
+  try {
+    await fetch(BASE + '/diet/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+      body: JSON.stringify({ start_weight: weight, target_weight: target, base_calories: cal, start_date: start, end_date: end }),
+    });
+    _dietData = null;
+    await dietRender();
+    loadDietSnapshot();
+  } catch { alert('設定失敗，請重試'); }
+}
+
+async function dietLoadChart() {
+  try {
+    const r = await fetch(BASE + '/diet/trend', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    if (!d.ok || !d.weights?.length) return;
+    const svg = document.getElementById('dietChart');
+    const pts = d.weights.slice(-14);
+    if (pts.length < 2) { svg.innerHTML = ''; return; }
+
+    const W = 320, H = 140, pad = { t: 20, r: 10, b: 28, l: 38 };
+    const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+    const weights = pts.map(p => p.weight);
+    const minW = Math.min(...weights) - 0.5;
+    const maxW = Math.max(...weights) + 0.5;
+    const range = maxW - minW || 1;
+
+    const x = i => pad.l + (i / (pts.length - 1)) * cW;
+    const y = w => pad.t + (1 - (w - minW) / range) * cH;
+
+    const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.weight).toFixed(1)}`).join(' ');
+    const area = line + ` L${x(pts.length - 1).toFixed(1)},${(H - pad.b)} L${pad.l},${(H - pad.b)} Z`;
+
+    let targetLine = '';
+    if (d.target_weight && d.target_weight >= minW && d.target_weight <= maxW) {
+      const ty = y(d.target_weight);
+      targetLine = `<line x1="${pad.l}" y1="${ty}" x2="${W - pad.r}" y2="${ty}" stroke="var(--rose)" stroke-dasharray="4,3" stroke-width="1" opacity="0.5"/>
+        <text x="${W - pad.r}" y="${ty - 4}" fill="var(--rose)" font-size="9" text-anchor="end" opacity="0.7">目標</text>`;
+    }
+
+    const dots = pts.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.weight).toFixed(1)}" r="3" fill="var(--sage)"/>`).join('');
+    const labels = pts.filter((_, i) => i === 0 || i === pts.length - 1 || i % 3 === 0).map((p, _, arr) => {
+      const i = pts.indexOf(p);
+      return `<text x="${x(i).toFixed(1)}" y="${H - pad.b + 14}" fill="var(--light-text)" font-size="9" text-anchor="middle">${p.date.slice(5)}</text>`;
+    }).join('');
+    const valLabels = pts.filter((_, i) => i === 0 || i === pts.length - 1).map(p => {
+      const i = pts.indexOf(p);
+      return `<text x="${x(i).toFixed(1)}" y="${y(p.weight).toFixed(1) - 8}" fill="var(--deep)" font-size="10" text-anchor="middle" font-family="Cormorant Garamond">${p.weight}</text>`;
+    }).join('');
+
+    svg.innerHTML = `
+      <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--sage)" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="var(--sage)" stop-opacity="0.02"/>
+      </linearGradient></defs>
+      <path d="${area}" fill="url(#areaGrad)"/>
+      <path d="${line}" fill="none" stroke="var(--sage)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      ${targetLine}${dots}${labels}${valLabels}
+    `;
+  } catch {}
+}
+
+async function dietLoadStepsAvg() {
+  try {
+    const r = await fetch(BASE + '/diet/steps-weekly', { headers: { Authorization: 'Bearer ' + TOKEN } });
+    const d = await r.json();
+    if (!d.ok) return;
+    const el = document.getElementById('dietStepsAvg');
+    const ok = d.average >= 6000;
+    el.textContent = `近 ${d.days} 天平均 ${d.average.toLocaleString()} 步${ok ? ' ✓' : ''}`;
+    el.style.color = ok ? 'var(--sage)' : 'var(--light-text)';
+  } catch {}
 }
 
 // ── 語音輸入 🎙️ ──────────────────────────────────

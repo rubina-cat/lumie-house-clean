@@ -90,6 +90,12 @@
         <div class="mini-card-title" id="periodHomeTitle">週期追蹤</div>
         <div class="mini-card-sub" id="periodHomeSub"></div>
       </div>
+      <div class="mini-card" id="dietHomeCard" style="display:none" onclick="openDiet()">
+        <span class="card-icon">🍎</span>
+        <div class="mini-card-label">減脂</div>
+        <div class="mini-card-title" id="dietHomeTitle">減脂挑戰</div>
+        <div class="mini-card-sub" id="dietHomeSub"></div>
+      </div>
       <div class="mini-card" id="nightCard" style="display:none" onclick="openNight()">
         <span class="card-icon">🌙</span>
         <div class="mini-card-label">晚安</div>
@@ -499,6 +505,117 @@
     <div class="ht-content">
       <div class="ht-title">最近 7 天</div>
       <div id="htBody"><div class="ht-loading">載入中…</div></div>
+    </div>
+  </div>
+
+  <!-- 減脂挑戰 🍎 -->
+  <div class="overlay" id="dietOverlay" style="display:none">
+    <button class="overlay-back" onclick="closeDiet()">←</button>
+    <div class="diet-content">
+
+      <!-- 初始設定（未設定時顯示）-->
+      <div id="dietSetup" style="display:none">
+        <div class="diet-setup-title">開始減脂挑戰</div>
+        <div class="diet-setup-form">
+          <label class="diet-label">起始體重 (kg)<input type="number" id="dietInitWeight" step="0.1" placeholder="55.0" class="diet-input"></label>
+          <label class="diet-label">目標體重 (kg)<input type="number" id="dietInitTarget" step="0.1" placeholder="50.0" class="diet-input"></label>
+          <label class="diet-label">每日基礎熱量 (kcal)<input type="number" id="dietInitCal" value="1400" class="diet-input"></label>
+          <label class="diet-label">開始日期<input type="date" id="dietInitStart" class="diet-input"></label>
+          <label class="diet-label">結束日期<input type="date" id="dietInitEnd" value="2026-10-23" class="diet-input"></label>
+          <button class="diet-btn" onclick="dietInit()">開始挑戰</button>
+        </div>
+      </div>
+
+      <!-- 主畫面（設定後顯示）-->
+      <div id="dietMain" style="display:none">
+        <!-- 比賽進度 -->
+        <div class="diet-section">
+          <div class="diet-progress-header">
+            <span class="diet-progress-label" id="dietDaysLabel">第 — 天</span>
+            <span class="diet-progress-pct" id="dietLossPct">—%</span>
+          </div>
+          <div class="diet-progress-bar"><div class="diet-progress-fill" id="dietProgressFill"></div></div>
+          <div class="diet-progress-sub" id="dietProgressSub"></div>
+        </div>
+
+        <!-- 今日體重 -->
+        <div class="diet-section">
+          <div class="diet-section-title">今日體重</div>
+          <div class="diet-weight-row">
+            <input type="number" id="dietWeightInput" step="0.1" placeholder="—" class="diet-weight-input">
+            <span class="diet-weight-unit">kg</span>
+            <button class="diet-save-btn" onclick="dietSaveWeight()">記錄</button>
+          </div>
+          <div class="diet-weight-change" id="dietWeightChange"></div>
+        </div>
+
+        <!-- 體重趨勢 -->
+        <div class="diet-section">
+          <div class="diet-section-title">體重趨勢</div>
+          <div class="diet-chart-wrap" id="dietChartWrap">
+            <svg id="dietChart" viewBox="0 0 320 140" preserveAspectRatio="xMidYMid meet"></svg>
+          </div>
+        </div>
+
+        <!-- 步數 -->
+        <div class="diet-section">
+          <div class="diet-section-title">今日步數</div>
+          <div class="diet-steps-row">
+            <span class="diet-steps-val" id="dietStepsVal">—</span>
+            <span class="diet-steps-target">/ 6,000</span>
+          </div>
+          <div class="diet-steps-bar"><div class="diet-steps-fill" id="dietStepsFill"></div></div>
+          <div class="diet-steps-avg" id="dietStepsAvg"></div>
+        </div>
+
+        <!-- 飲食記錄 -->
+        <div class="diet-section">
+          <div class="diet-section-title">飲食記錄</div>
+          <div class="diet-meals" id="dietMealsList"></div>
+          <div class="diet-meal-add">
+            <input type="text" id="dietMealInput" placeholder="吃了什麼…" class="diet-meal-input">
+            <button class="diet-save-btn" onclick="dietAddMeal()">＋</button>
+          </div>
+          <div class="diet-quick-tags" id="dietMealTags">
+            <button class="diet-tag" onclick="dietQuickMeal('水煮蛋')">水煮蛋</button>
+            <button class="diet-tag" onclick="dietQuickMeal('雞胸肉')">雞胸肉</button>
+            <button class="diet-tag" onclick="dietQuickMeal('沙拉')">沙拉</button>
+            <button class="diet-tag" onclick="dietQuickMeal('燕麥')">燕麥</button>
+            <button class="diet-tag" onclick="dietQuickMeal('水果')">水果</button>
+            <button class="diet-tag" onclick="dietQuickMeal('豆漿')">豆漿</button>
+          </div>
+        </div>
+
+        <!-- 水 + 蛋白質 -->
+        <div class="diet-section diet-row-2">
+          <div class="diet-half">
+            <div class="diet-section-title">喝水</div>
+            <div class="diet-cups-row">
+              <button class="diet-cup-btn" onclick="dietWater(-1)">−</button>
+              <span class="diet-cups-val" id="dietWaterVal">0</span>
+              <span class="diet-cups-unit">杯</span>
+              <button class="diet-cup-btn" onclick="dietWater(1)">＋</button>
+            </div>
+            <div class="diet-cups-hint">250ml / 杯</div>
+          </div>
+          <div class="diet-half">
+            <div class="diet-section-title">蛋白質</div>
+            <div class="diet-protein-pills">
+              <button class="diet-pill" data-val="不足" onclick="dietProtein('不足')">不足</button>
+              <button class="diet-pill" data-val="剛好" onclick="dietProtein('剛好')">剛好</button>
+              <button class="diet-pill" data-val="充足" onclick="dietProtein('充足')">充足</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 週期提示 -->
+        <div class="diet-section diet-phase-tip" id="dietPhaseTip" style="display:none">
+          <span class="diet-phase-icon" id="dietPhaseIcon"></span>
+          <span class="diet-phase-text" id="dietPhaseText"></span>
+          <span class="diet-phase-cal" id="dietPhaseCal"></span>
+        </div>
+      </div>
+
     </div>
   </div>
 

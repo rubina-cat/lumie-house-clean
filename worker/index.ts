@@ -3589,6 +3589,171 @@ audio{width:300px;margin-top:4px}
       return Response.json({ days: records.filter(Boolean) }, { headers: h });
     }
 
+    // ── 減脂挑戰 🍎 ──────────────────────────────
+
+    // GET /diet/today — 今日飲食記錄 + 比賽進度 + 週期階段
+    if (request.method === "GET" && url.pathname === "/diet/today") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const [logRaw, configRaw, healthRaw, periodRaw] = await Promise.all([
+        env.PHONE_STATE.get(`diet:${today}`),
+        env.PHONE_STATE.get("diet:config"),
+        env.PHONE_STATE.get("health:latest"),
+        env.PHONE_STATE.get("period:current")
+      ]);
+      const log = logRaw ? JSON.parse(logRaw) : { meals: [], water_cups: 0, protein_level: null, weight: null };
+      const config = configRaw ? JSON.parse(configRaw) : null;
+      const health = healthRaw ? JSON.parse(healthRaw) : null;
+
+      let phase: string | null = null;
+      if (periodRaw) {
+        const period = JSON.parse(periodRaw);
+        if (period.cycle_start) {
+          const start = new Date(period.cycle_start + 'T00:00:00+08:00');
+          const nowLocal = new Date(Date.now() + 8 * 3600000);
+          const cycleDay = Math.max(1, Math.floor((nowLocal.getTime() - start.getTime()) / 86400000) + 1);
+          const avgCycle = period.average_cycle ?? 28;
+          const avgPeriod = period.average_period ?? 5;
+          const ovDay = avgCycle - 14;
+          if (cycleDay <= avgPeriod) phase = 'menstrual';
+          else if (cycleDay < ovDay - 1) phase = 'follicular';
+          else if (cycleDay <= ovDay + 1) phase = 'ovulation';
+          else phase = 'luteal';
+        }
+      }
+
+      let competition: any = null;
+      if (config) {
+        const startDate = new Date(config.start_date + 'T00:00:00+08:00');
+        const endDate = new Date(config.end_date + 'T00:00:00+08:00');
+        const nowLocal = new Date(Date.now() + 8 * 3600000);
+        const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / 86400000);
+        const elapsed = Math.max(0, Math.ceil((nowLocal.getTime() - startDate.getTime()) / 86400000));
+        const currentWeight = log.weight ?? config.latest_weight ?? config.start_weight;
+        const lossPercent = config.start_weight ? +((config.start_weight - currentWeight) / config.start_weight * 100).toFixed(2) : 0;
+        const baseCalories = config.base_calories ?? 1400;
+        let phaseCalories = baseCalories;
+        let phaseTip = '';
+        if (phase === 'menstrual') { phaseCalories = baseCalories + 100; phaseTip = '月經期，多補100大卡，別餓著'; }
+        else if (phase === 'follicular') { phaseTip = '卵泡期，減脂黃金期，加油'; }
+        else if (phase === 'ovulation') { phaseTip = '排卵期，維持穩定就好'; }
+        else if (phase === 'luteal') { phaseCalories = baseCalories + 50; phaseTip = '黃體期，別壓太低容易暴食'; }
+        competition = {
+          start_weight: config.start_weight,
+          current_weight: currentWeight,
+          target_weight: config.target_weight,
+          loss_percent: lossPercent,
+          days_elapsed: elapsed,
+          days_total: totalDays,
+          days_remaining: Math.max(0, totalDays - elapsed),
+          start_date: config.start_date,
+          end_date: config.end_date,
+          base_calories: baseCalories,
+          phase_calories: phaseCalories,
+          phase_tip: phaseTip,
+        };
+      }
+
+      return Response.json({
+        ok: true, today, log, configured: config != null,
+        steps: health?.steps ?? null,
+        phase,
+        competition,
+      });
+    }
+
+    // POST /diet/save — 儲存當日飲食記錄
+    if (request.method === "POST" && url.pathname === "/diet/save") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+      const date = body.date ?? today;
+      const existing = await env.PHONE_STATE.get(`diet:${date}`);
+      const prev = existing ? JSON.parse(existing) : { meals: [], water_cups: 0, protein_level: null, weight: null };
+      const merged = { ...prev, ...body, date };
+      await env.PHONE_STATE.put(`diet:${date}`, JSON.stringify(merged));
+
+      if (body.weight != null) {
+        const [histRaw, confRaw] = await Promise.all([
+          env.PHONE_STATE.get("diet:weights"),
+          env.PHONE_STATE.get("diet:config")
+        ]);
+        const hist: any[] = histRaw ? JSON.parse(histRaw) : [];
+        const idx = hist.findIndex((w: any) => w.date === date);
+        if (idx >= 0) hist[idx].weight = body.weight;
+        else hist.push({ date, weight: body.weight });
+        hist.sort((a: any, b: any) => a.date.localeCompare(b.date));
+        const puts: Promise<void>[] = [env.PHONE_STATE.put("diet:weights", JSON.stringify(hist))];
+        if (confRaw) {
+          const conf = JSON.parse(confRaw);
+          conf.latest_weight = body.weight;
+          puts.push(env.PHONE_STATE.put("diet:config", JSON.stringify(conf)));
+        }
+        await Promise.all(puts);
+      }
+
+      return Response.json({ ok: true, date });
+    }
+
+    // POST /diet/init — 初始化比賽設定
+    if (request.method === "POST" && url.pathname === "/diet/init") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      if (!body.start_weight) return Response.json({ error: "start_weight required" }, { status: 400 });
+      const config = {
+        start_weight: body.start_weight,
+        target_weight: body.target_weight ?? null,
+        start_date: body.start_date ?? new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0],
+        end_date: body.end_date ?? '2026-10-23',
+        base_calories: body.base_calories ?? 1400,
+        latest_weight: body.start_weight,
+      };
+      const histRaw = await env.PHONE_STATE.get("diet:weights");
+      const hist: any[] = histRaw ? JSON.parse(histRaw) : [];
+      hist.push({ date: config.start_date, weight: config.start_weight });
+      await Promise.all([
+        env.PHONE_STATE.put("diet:config", JSON.stringify(config)),
+        env.PHONE_STATE.put("diet:weights", JSON.stringify(hist)),
+      ]);
+      return Response.json({ ok: true, config });
+    }
+
+    // GET /diet/trend — 體重趨勢
+    if (request.method === "GET" && url.pathname === "/diet/trend") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const [weightsRaw, configRaw] = await Promise.all([
+        env.PHONE_STATE.get("diet:weights"),
+        env.PHONE_STATE.get("diet:config")
+      ]);
+      const weights: any[] = weightsRaw ? JSON.parse(weightsRaw) : [];
+      const config = configRaw ? JSON.parse(configRaw) : null;
+      return Response.json({ ok: true, weights, start_weight: config?.start_weight, target_weight: config?.target_weight });
+    }
+
+    // GET /diet/steps-weekly — 近7天步數均值
+    if (request.method === "GET" && url.pathname === "/diet/steps-weekly") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      try {
+        const since = Date.now() - 7 * 86400000;
+        const rows = await env.DB.prepare("SELECT ts, steps FROM health_log WHERE ts >= ? ORDER BY ts ASC").bind(since).all();
+        const byDay: Record<string, number> = {};
+        for (const r of (rows.results ?? []) as any[]) {
+          const day = new Date(r.ts + 8 * 3600000).toISOString().split('T')[0];
+          if (r.steps != null && (!byDay[day] || r.steps > byDay[day])) byDay[day] = r.steps;
+        }
+        const dailySteps = Object.values(byDay);
+        const avg = dailySteps.length ? Math.round(dailySteps.reduce((a, b) => a + b, 0) / dailySteps.length) : 0;
+        return Response.json({ ok: true, daily: byDay, average: avg, days: dailySteps.length });
+      } catch {
+        return Response.json({ ok: false, average: 0, days: 0 });
+      }
+    }
+
     // ── New Chat API (KV-based) ──────────────────────────────
 
     // GET /api/chat/sessions

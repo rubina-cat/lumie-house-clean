@@ -2066,6 +2066,328 @@ textarea::placeholder { color: var(--light-text); }
   letter-spacing: 0.05em;
 }
 
+/* ===== 減脂挑戰 🍎 ===== */
+#dietOverlay {
+  background: var(--cream);
+  display: flex;
+  flex-direction: column;
+}
+#dietOverlay .overlay-back { color: var(--deep); opacity: 0.5; }
+.diet-content {
+  flex: 1;
+  padding: 64px 20px 40px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.diet-setup-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 300;
+  color: var(--deep);
+  text-align: center;
+  margin-bottom: 24px;
+}
+.diet-setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 300px;
+  margin: 0 auto;
+}
+.diet-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--light-text);
+}
+.diet-input {
+  padding: 10px 12px;
+  font-size: 16px;
+  background: rgba(255,255,255,0.7);
+  border: 1px solid rgba(200,154,148,0.25);
+  border-radius: 10px;
+  color: var(--deep);
+  font-family: inherit;
+}
+.diet-btn {
+  padding: 12px;
+  font-size: 15px;
+  background: var(--sage);
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  margin-top: 8px;
+  font-family: inherit;
+}
+.diet-section {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+}
+.diet-section-title {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--light-text);
+  margin-bottom: 10px;
+}
+.diet-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.diet-progress-label {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--deep);
+}
+.diet-progress-pct {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px;
+  font-weight: 300;
+  color: var(--sage);
+}
+.diet-progress-bar {
+  height: 6px;
+  background: rgba(200,154,148,0.15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.diet-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--sage), #9ab89a);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+.diet-progress-sub {
+  font-size: 12px;
+  color: var(--light-text);
+  margin-top: 6px;
+}
+.diet-weight-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diet-weight-input {
+  width: 100px;
+  padding: 8px 10px;
+  font-size: 22px;
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(200,154,148,0.25);
+  border-radius: 10px;
+  color: var(--deep);
+  text-align: center;
+}
+.diet-weight-unit {
+  font-size: 14px;
+  color: var(--light-text);
+}
+.diet-save-btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  background: var(--sage);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+}
+.diet-weight-change {
+  font-size: 13px;
+  color: var(--sage);
+  margin-top: 6px;
+}
+.diet-chart-wrap {
+  width: 100%;
+  overflow: hidden;
+}
+#dietChart {
+  width: 100%;
+  height: auto;
+}
+.diet-steps-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.diet-steps-val {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 30px;
+  font-weight: 300;
+  color: var(--deep);
+}
+.diet-steps-target {
+  font-size: 14px;
+  color: var(--light-text);
+}
+.diet-steps-bar {
+  height: 6px;
+  background: rgba(200,154,148,0.15);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.diet-steps-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mist), var(--sage));
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+.diet-steps-avg {
+  font-size: 12px;
+  color: var(--light-text);
+  margin-top: 6px;
+}
+.diet-meals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.diet-meal-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.5);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--deep);
+}
+.diet-meal-time {
+  font-size: 11px;
+  color: var(--light-text);
+}
+.diet-meal-del {
+  background: none;
+  border: none;
+  color: var(--light-text);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+.diet-meal-add {
+  display: flex;
+  gap: 8px;
+}
+.diet-meal-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(200,154,148,0.2);
+  border-radius: 8px;
+  color: var(--deep);
+  font-family: inherit;
+}
+.diet-quick-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.diet-tag {
+  padding: 5px 12px;
+  font-size: 12px;
+  background: rgba(184,201,192,0.2);
+  border: 1px solid rgba(184,201,192,0.35);
+  border-radius: 20px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+}
+.diet-tag:active { background: rgba(184,201,192,0.45); }
+.diet-row-2 {
+  display: flex;
+  gap: 12px;
+}
+.diet-half {
+  flex: 1;
+}
+.diet-cups-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.diet-cup-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(200,154,148,0.25);
+  background: rgba(255,255,255,0.5);
+  font-size: 18px;
+  color: var(--deep);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.diet-cups-val {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--deep);
+}
+.diet-cups-unit {
+  font-size: 13px;
+  color: var(--light-text);
+}
+.diet-cups-hint {
+  font-size: 11px;
+  color: var(--light-text);
+  margin-top: 4px;
+}
+.diet-protein-pills {
+  display: flex;
+  gap: 6px;
+}
+.diet-pill {
+  flex: 1;
+  padding: 8px 4px;
+  font-size: 12px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid rgba(200,154,148,0.25);
+  border-radius: 20px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.diet-pill.active {
+  background: var(--sage);
+  color: #fff;
+  border-color: var(--sage);
+}
+.diet-phase-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(184,201,192,0.15) !important;
+  border-color: rgba(184,201,192,0.3) !important;
+}
+.diet-phase-icon { font-size: 18px; }
+.diet-phase-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+}
+.diet-phase-cal {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--sage);
+  white-space: nowrap;
+}
+
 /* ===== 記憶時間軸 ===== */
 .memory-timeline {
   position: relative;
