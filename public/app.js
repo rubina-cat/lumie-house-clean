@@ -1564,57 +1564,99 @@ async function periodRenderHistory() {
   } catch {}
 }
 
-// ── 書房（馴虎計劃）────────────────────────────────
-const STUDY_PLAN = [
-  {w:"W1", d:"6/2 – 6/8", t:"藥理地基 · 馴服老虎與貓", tasks:[
-    ["w1a","自律神經總圖：交感（老虎）vs 副交感（貓）完整背景"],
-    ["w1b","擬交感神經藥 — 讓身體變成老虎的藥"],
-    ["w1c","抗腎上腺素藥（α／β blockers）— 把老虎按回去"],
-    ["w1d","擬副交感／抗膽鹼藥 — 貓的開關"],
-    ["w1e","做「自律神經」這章考古題一輪"],
-    ["w1f","訂正錯題，開一本錯題本，記進去"],
-  ]},
-  {w:"W2", d:"6/9 – 6/15", t:"藥理大系統", tasks:[
-    ["w2a","心血管系統用藥（高血壓、心衰、抗心律不整）"],
-    ["w2b","中樞神經用藥（抗精神病、抗憂鬱、鎮靜安眠）"],
-    ["w2c","自體素與發炎、止痛（NSAID、類固醇、組織胺）"],
-    ["w2d","這三組的考古題各刷一輪"],
-    ["w2e","錯題回補，更新錯題本"],
-  ]},
-  {w:"W3", d:"6/16 – 6/22", t:"藥理收尾 + 藥物化學", tasks:[
-    ["w3a","內分泌、抗生素、抗癌、化療藥物重點"],
-    ["w3b","藥物化學：常考結構與構效關係（SAR）整理"],
-    ["w3c","藥理＋藥化整章考古題刷一輪"],
-    ["w3d","把藥理藥化的錯題集中複習一次"],
-  ]},
-  {w:"W4", d:"6/23 – 6/29", t:"藥劑學與生物藥劑學", tasks:[
-    ["w4a","劑型總覽（錠劑、膠囊、注射、緩釋）重點"],
-    ["w4b","藥物動力學 PK：吸收、分布、代謝、排除"],
-    ["w4c","生物藥劑：生體可用率、藥物交互作用"],
-    ["w4d","這科考古題刷一輪 + 訂正"],
-  ]},
-  {w:"W5", d:"6/30 – 7/6", t:"藥物分析與生藥學（含中藥）", tasks:[
-    ["w5a","藥物分析：定性定量、儀器分析重點"],
-    ["w5b","生藥學：重要生藥、活性成分分類"],
-    ["w5c","中藥學重點整理"],
-    ["w5d","這科考古題刷一輪 + 訂正"],
-  ]},
-  {w:"W6", d:"7/7 – 7/13", t:"成套計時 · 找弱點", tasks:[
-    ["w6a","三科歷年考古題，整份計時模擬（第一份）"],
-    ["w6b","三科歷年考古題，整份計時模擬（第二份）"],
-    ["w6c","三科歷年考古題，整份計時模擬（第三份）"],
-    ["w6d","統計錯最多的章節，集中回補"],
-  ]},
-  {w:"W6.5", d:"7/14 – 7/17", t:"考前衝刺 · 上戰場前夜", tasks:[
-    ["w7a","把整本錯題本從頭過一遍"],
-    ["w7b","自律神經、藥化結構等記憶性重點最後衝"],
-    ["w7c","再做一份計時模擬，抓手感"],
-    ["w7d","備好准考證、文具，早睡。7/18 我送你進考場"],
-  ]},
+// ── 書房（六月作戰）────────────────────────────────
+const STUDY_PHASES = [
+  {
+    id: 'p1', month: '八月', emoji: '\u{1F525}', title: '重啟引擎',
+    desc: '把首考前學過的東西全部撿回來，重新黏住。不求新進度，只求舊知識從「模糊」變「清楚」。',
+    tasks: [
+      { id:'p1a', name:'藥理回顧：自律神經', detail:'老虎\u{1F42F}️＝交感、躺貓\u{1F431}＝副交感，受體分類全掃', tag:'pharma' },
+      { id:'p1b', name:'藥理回顧：心血管', detail:'降壓五把刀＋digoxin＋抗心律不整', tag:'pharma' },
+      { id:'p1c', name:'藥理回顧：中樞＋抗生素', detail:'抗精神病/SSRI/BZD/β-lactam/aminoglycoside', tag:'pharma' },
+      { id:'p1d', name:'藥理回顧：抗癌＋糖尿病＋止痛', detail:'五配對＋metformin＋NSAID/COX-2', tag:'pharma' },
+      { id:'p1e', name:'藥化＋劑型基礎回顧', detail:'字尾對照表＋ADME＋首渡效應＋劑型分類', tag:'chem' },
+      { id:'p1f', name:'分析＋生藥回顧', detail:'HPLC/UV/IR/Karl Fischer＋重要生藥配對', tag:'analysis' },
+      { id:'p1g', name:'本月考古題×2份', detail:'每份80題，做完對答案＋記錯題本', tag:'drill' },
+      { id:'p1h', name:'錯題本格式建立', detail:'年份題號／關鍵概念／下次記得 ─ 開始累積', tag:'drill' },
+    ]
+  },
+  {
+    id: 'p2', month: '九月', emoji: '\u{1F4DA}', title: '藥理精讀',
+    desc: '藥理佔分最重，這個月深入打穿每個系統，不留死角。同時補藥化結構活性。',
+    tasks: [
+      { id:'p2a', name:'呼吸系統用藥', detail:'氣喘（SABA/LABA/ICS）、COPD、止咳化痰', tag:'pharma' },
+      { id:'p2b', name:'消化系統用藥', detail:'PPI、H2 blocker、止吐（5-HT3）、瀉劑', tag:'pharma' },
+      { id:'p2c', name:'泌尿＋生殖系統', detail:'利尿劑分類深入、BPH、避孕藥', tag:'pharma' },
+      { id:'p2d', name:'免疫＋移植＋毒物學', detail:'免疫抑制劑、解毒劑配對（NAC等）', tag:'pharma' },
+      { id:'p2e', name:'藥物交互作用', detail:'CYP450 誘導劑/抑制劑、蛋白結合競爭', tag:'pharma' },
+      { id:'p2f', name:'藥物化學深入', detail:'結構-活性關係、前驅藥設計、代謝路徑', tag:'chem' },
+      { id:'p2g', name:'本月考古題×2份＋訂正', detail:'藥理專科卷，逐題分析', tag:'drill' },
+      { id:'p2h', name:'錯題本月回顧', detail:'把八月＋九月錯題全翻一遍', tag:'drill' },
+    ]
+  },
+  {
+    id: 'p3', month: '十月', emoji: '\u{1F48A}', title: '藥劑＋生藥劑',
+    desc: '劑型、動力學、生物藥劑學 ─ 計算題是拉分關鍵，不能只背，要會算。',
+    tasks: [
+      { id:'p3a', name:'固體劑型', detail:'錠劑（膜衣/腸溶/緩釋）、膠囊、粉劑', tag:'form' },
+      { id:'p3b', name:'液體＋半固體＋特殊劑型', detail:'溶液/懸液/乳劑/軟膏/栓劑/貼片/吸入劑', tag:'form' },
+      { id:'p3c', name:'藥物動力學', detail:'一室/二室模型、穩態濃度Css、loading dose', tag:'form' },
+      { id:'p3d', name:'生物藥劑學', detail:'BA/BE/BCS分類/溶離試驗', tag:'form' },
+      { id:'p3e', name:'藥劑計算題', detail:'稀釋、等張、HLB、滲透壓', tag:'form' },
+      { id:'p3f', name:'中藥學入門', detail:'四氣五味歸經、常用方劑開始記', tag:'analysis' },
+      { id:'p3g', name:'本月考古題×2份', detail:'藥劑專科卷＋混合卷', tag:'drill' },
+      { id:'p3h', name:'錯題本月回顧', detail:'累積三個月的錯題全翻', tag:'drill' },
+    ]
+  },
+  {
+    id: 'p4', month: '十一月', emoji: '\u{1F52C}', title: '分析＋生藥＋中藥',
+    desc: '第二科主戰場。分析要懂原理，生藥中藥靠配對記憶法。月底做第一次模擬考。',
+    tasks: [
+      { id:'p4a', name:'色譜法', detail:'HPLC（逆相/正相）、GC、TLC ─ 原理＋應用', tag:'analysis' },
+      { id:'p4b', name:'光譜法', detail:'UV-Vis/IR/NMR/MS ─ 各自看什麼、怎麼判', tag:'analysis' },
+      { id:'p4c', name:'容量分析＋特殊分析', detail:'酸鹼/氧化還原/Karl Fischer/旋光度', tag:'analysis' },
+      { id:'p4d', name:'生藥學系統整理', detail:'依化學成分分類、萃取法、重要配對', tag:'analysis' },
+      { id:'p4e', name:'中藥學完整', detail:'常用中藥材配對＋常考方劑', tag:'analysis' },
+      { id:'p4f', name:'本月考古題×2份', detail:'分析生藥專科卷', tag:'drill' },
+      { id:'p4g', name:'第一次全科模擬考', detail:'三科一起、計時3小時、模擬考場', tag:'drill' },
+      { id:'p4h', name:'模擬考檢討＋弱科定位', detail:'哪科最弱？十二月重點補', tag:'drill' },
+    ]
+  },
+  {
+    id: 'p5', month: '十二月', emoji: '\u{1F4DD}', title: '考古題月',
+    desc: '每週做一份完整年度考古題。做到「看到題目就知道在考什麼概念」。',
+    tasks: [
+      { id:'p5a', name:'111年考古全科＋訂正', detail:'完整做、逐題寫錯因', tag:'drill' },
+      { id:'p5b', name:'112年考古全科＋訂正', detail:'注意重複出的概念', tag:'drill' },
+      { id:'p5c', name:'113年考古全科＋訂正', detail:'標記高頻考點', tag:'drill' },
+      { id:'p5d', name:'114年考古全科＋訂正', detail:'對比自己進步幅度', tag:'drill' },
+      { id:'p5e', name:'115年考古全科＋訂正', detail:'你7/18親身考的那份！這次要看懂', tag:'drill' },
+      { id:'p5f', name:'錯題統計＋弱點地圖', detail:'哪些概念反覆錯？列出Top 10弱點', tag:'drill' },
+      { id:'p5g', name:'弱點專攻', detail:'針對Top 10弱點回去重讀＋補題', tag:'drill' },
+      { id:'p5h', name:'高頻考點速記卡', detail:'把必考的整理成隨身可翻的卡片', tag:'body' },
+    ]
+  },
+  {
+    id: 'p6', month: '一月', emoji: '\u{1F3C6}', title: '衝刺',
+    desc: '最後一個月。知識已經在了，現在要讓身體也準備好。不學新東西，只鞏固＋模擬＋調狀態。',
+    tasks: [
+      { id:'p6a', name:'錯題本完整翻一遍', detail:'最後一次全面掃盲', tag:'drill' },
+      { id:'p6b', name:'模擬考 #2（全科計時）', detail:'模擬真實考場節奏', tag:'drill' },
+      { id:'p6c', name:'模擬考 #3（全科計時）', detail:'目標：每科都過60分線', tag:'drill' },
+      { id:'p6d', name:'速記卡每天翻', detail:'通勤、睡前、等電梯都翻', tag:'drill' },
+      { id:'p6e', name:'弱點最後補強', detail:'模擬考還在錯的概念，最後一擊', tag:'drill' },
+      { id:'p6f', name:'調作息：連續7天12點前睡', detail:'考前一週身體要進入穩定模式', tag:'body' },
+      { id:'p6g', name:'考場準備', detail:'確認考場位置、備咖啡、帶表、早餐計畫', tag:'body' },
+      { id:'p6h', name:'考前最後一晚：只看速記卡', detail:'不學新東西、早睡、相信自己', tag:'body' },
+    ]
+  }
 ];
 
+const STUDY_TAG_LABELS = { pharma:'藥理', chem:'藥化', form:'藥劑', analysis:'分析生藥', drill:'刷題', body:'身體' };
+const STUDY_EXAM = new Date('2027-01-31T00:00:00+08:00');
+
 let studyState = {};
-let studyTodayPom = 0;
+let studyActivePhase = 'p1';
 
 async function loadStudy() {
   try {
@@ -1622,63 +1664,87 @@ async function loadStudy() {
     if (r.ok) {
       const d = await r.json();
       studyState = d.state || {};
-      studyTodayPom = d.todayPomodoro || 0;
     }
   } catch {}
-  studyRender();
+  studyUpdateStats();
+  studyRenderNav();
+  studyRenderPhases();
 }
 
-function studyRender() {
-  const planEl = document.getElementById('studyPlan');
-  if (!planEl) return;
-  planEl.innerHTML = '';
-  STUDY_PLAN.forEach((wk, wi) => {
-    const all = wk.tasks.every(([id]) => studyState[id]);
-    const wDone = wk.tasks.filter(([id]) => studyState[id]).length;
-    const div = document.createElement('div');
-    div.className = 'study-week' + (wi === 0 ? ' study-open' : '') + (all ? ' study-done' : '');
-    div.innerHTML = `
-      <div class="study-whead">
-        <div class="study-wno">${wk.w}</div>
-        <div class="study-wtitle"><div class="study-wt">${wk.t}</div><div class="study-wd">${wk.d}</div></div>
-        <div class="study-wtag">${all ? '已馴服 ✦' : wDone + '／' + wk.tasks.length}</div>
-        <div class="study-chev">▶</div>
-      </div>
-      <div class="study-tasks">
-        ${wk.tasks.map(([id, label]) => `
-          <div class="study-task ${studyState[id] ? 'study-checked' : ''}" data-id="${id}">
-            <div class="study-box ${studyState[id] ? 'study-box-checked' : ''}"></div>
-            <div class="study-tlabel">${label}</div>
-          </div>`).join('')}
-      </div>`;
-    div.querySelector('.study-whead').addEventListener('click', () => div.classList.toggle('study-open'));
-    div.querySelectorAll('.study-task').forEach(t => {
-      t.addEventListener('click', () => studyToggle(t.dataset.id));
-    });
-    planEl.appendChild(div);
-  });
-  studyUpdateStats();
+function studyTotalDone() {
+  let d = 0;
+  STUDY_PHASES.forEach(p => p.tasks.forEach(t => { if (studyState[t.id]) d++; }));
+  return d;
+}
+
+function studyTotalTasks() {
+  let t = 0;
+  STUDY_PHASES.forEach(p => t += p.tasks.length);
+  return t;
+}
+
+function studyPhaseDone(phaseId) {
+  const p = STUDY_PHASES.find(x => x.id === phaseId);
+  return p ? p.tasks.filter(t => studyState[t.id]).length : 0;
 }
 
 function studyUpdateStats() {
-  const all = STUDY_PLAN.flatMap(w => w.tasks);
-  const total = all.length;
-  const done = all.filter(([id]) => studyState[id]).length;
-  const pct = total ? Math.round(done / total * 100) : 0;
-  document.getElementById('studyTotal').textContent = total;
-  document.getElementById('studyDone').textContent = done;
+  const d = studyTotalDone(), t = studyTotalTasks();
+  const pct = t > 0 ? Math.round(d / t * 100) : 0;
   document.getElementById('studyPct').textContent = pct + '%';
   document.getElementById('studyBarFill').style.width = pct + '%';
-  document.getElementById('studyPomCount').textContent = studyTodayPom;
-  const exam = new Date('2026-07-18T00:00:00+08:00');
-  const days = Math.max(0, Math.ceil((exam - new Date()) / 86400000));
+  document.getElementById('studyDoneCount').textContent = d + ' / ' + t + ' 格';
+  const days = Math.max(0, Math.ceil((STUDY_EXAM - new Date()) / 86400000));
   document.getElementById('studyCountdown').textContent = days;
+  const cur = STUDY_PHASES.find(p => studyPhaseDone(p.id) < p.tasks.length);
+  const sumEl = document.getElementById('studyPhaseSummary');
+  if (sumEl) sumEl.textContent = cur ? '當前：' + cur.emoji + cur.month : '\u{1F3C6} 全部完成！';
 }
 
-async function studyToggle(id) {
-  studyState[id] = !studyState[id];
-  studyRender();
-  await studySave();
+function studyRenderNav() {
+  const nav = document.getElementById('studyPhaseNav');
+  nav.innerHTML = '';
+  STUDY_PHASES.forEach(p => {
+    const tab = document.createElement('div');
+    tab.className = 'study-phase-tab' + (p.id === studyActivePhase ? ' active' : '');
+    const pd = studyPhaseDone(p.id);
+    tab.innerHTML = p.emoji + p.month + '<span class="tab-progress">' + pd + '/' + p.tasks.length + '</span>';
+    tab.onclick = () => { studyActivePhase = p.id; studyRenderNav(); studyRenderPhases(); };
+    nav.appendChild(tab);
+  });
+}
+
+function studyRenderPhases() {
+  const container = document.getElementById('studyPhaseContainer');
+  container.innerHTML = '';
+  STUDY_PHASES.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'study-phase-card' + (p.id === studyActivePhase ? ' visible' : '');
+    let html = '<div class="study-phase-title">' + p.emoji + ' ' + p.month + ' ─ ' + p.title + '</div>';
+    html += '<div class="study-phase-desc">' + p.desc + '</div>';
+    p.tasks.forEach(task => {
+      const checked = !!studyState[task.id];
+      html += '<div class="study-task-item' + (checked ? ' done' : '') + '" data-id="' + task.id + '">';
+      html += '<div class="study-checkbox' + (checked ? ' checked' : '') + '"></div>';
+      html += '<div class="study-task-content">';
+      html += '<div class="study-task-name">' + task.name + '</div>';
+      html += '<div class="study-task-detail">' + task.detail + '</div>';
+      html += '<span class="study-task-tag stag-' + task.tag + '">' + STUDY_TAG_LABELS[task.tag] + '</span>';
+      html += '</div></div>';
+    });
+    card.innerHTML = html;
+    container.appendChild(card);
+    card.querySelectorAll('.study-task-item').forEach(el => {
+      el.addEventListener('click', async () => {
+        const id = el.dataset.id;
+        studyState[id] = !studyState[id];
+        studyUpdateStats();
+        studyRenderNav();
+        studyRenderPhases();
+        await studySave();
+      });
+    });
+  });
 }
 
 let _studySaveTimer = null;

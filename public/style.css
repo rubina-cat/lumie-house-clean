@@ -960,282 +960,257 @@ textarea::placeholder { color: var(--light-text); }
 .nav-item.active .nav-dark-text { color: var(--mauve); }
 .nav-item.active .nav-icon { transform: scale(1.1); }
 
-/* ===== 書房（馴虎計劃）===== */
+/* ===== 書房（六月作戰）===== */
 #study {
-  background: linear-gradient(160deg, #221a14 0%, #1a1512 60%);
-  color: #f3e9da;
+  --s-bg: #1a1410;
+  --s-card: #241e17;
+  --s-card-hover: #2e261d;
+  --s-amber: #f5a623;
+  --s-amber-dim: #b87a1a;
+  --s-green: #4cd964;
+  --s-text: #e8ddd0;
+  --s-text-dim: #9a8e80;
+  --s-danger: #ff6b6b;
+  --s-border: rgba(245,166,35,0.12);
+  background: var(--s-bg);
+  color: var(--s-text);
   font-family: 'Noto Sans TC', sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }
-
 .study-wrap {
-  padding: 40px 20px 100px;
+  padding: 40px 16px 100px;
   max-width: 480px;
   margin: 0 auto;
 }
-
-.study-header { margin-bottom: 24px; }
-
-.study-kicker {
-  font-size: 11px;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-  color: #df8338;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-
+.study-header { text-align: center; padding-bottom: 12px; }
 .study-h1 {
-  font-family: 'Fraunces', 'Noto Serif TC', serif;
+  font-size: 22px;
   font-weight: 900;
-  font-size: clamp(28px, 7vw, 44px);
-  line-height: 1.05;
-  color: #f3e9da;
-  letter-spacing: -0.01em;
+  color: var(--s-amber);
+  letter-spacing: 1px;
 }
-
-.study-accent {
-  color: #df8338;
-  font-style: italic;
+.study-sub {
+  font-size: 13px;
+  color: var(--s-text-dim);
+  margin-top: 4px;
 }
-
 .study-from {
   margin-top: 12px;
   font-family: 'Fraunces', serif;
   font-style: italic;
   font-size: 14px;
   color: #e7b06b;
-  border-left: 2px solid #df8338;
+  border-left: 2px solid var(--s-amber);
   padding-left: 12px;
   line-height: 1.6;
+  text-align: left;
 }
-
-.study-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 20px 0 8px;
-}
-
-.study-card {
-  flex: 1;
-  min-width: 120px;
-  background: linear-gradient(160deg, #2f2620, #241d18);
-  border: 1px solid rgba(223,131,56,.18);
+.study-countdown-bar {
+  background: var(--s-card);
+  border: 1px solid var(--s-border);
   border-radius: 14px;
-  padding: 14px 16px;
+  padding: 16px;
+  margin: 12px 0;
+  text-align: center;
 }
-
-.study-card-lab {
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #c9bba8;
-  margin-bottom: 5px;
-}
-
-.study-card-big {
-  font-family: 'Fraunces', serif;
+.study-countdown-num {
+  font-size: 42px;
   font-weight: 900;
-  font-size: 30px;
-  color: #f3e9da;
+  color: var(--s-amber);
   line-height: 1;
 }
-
-.study-card-big.study-tiger { color: #df8338; }
-
-.study-card-sub {
-  font-size: 11px;
-  color: #c9bba8;
-  margin-top: 3px;
+.study-countdown-label {
+  font-size: 13px;
+  color: var(--s-text-dim);
+  margin-top: 4px;
 }
-
-.study-bar-shell { margin: 16px 0 4px; }
-
-.study-bar-head {
+.study-progress-section {
+  background: var(--s-card);
+  border: 1px solid var(--s-border);
+  border-radius: 14px;
+  padding: 16px;
+  margin: 12px 0;
+}
+.study-progress-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 12px;
-  color: #c9bba8;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
-
-.study-bar-head b {
-  font-family: 'Fraunces', serif;
-  color: #f3e9da;
-  font-size: 16px;
-}
-
-.study-bar {
-  height: 12px;
-  border-radius: 20px;
-  background: #2f2620;
-  overflow: hidden;
-  border: 1px solid rgba(223,131,56,.18);
-}
-
-.study-bar > i {
-  display: block;
-  height: 100%;
-  width: 0;
-  border-radius: 20px;
-  background: linear-gradient(90deg, #b85f1c, #df8338, #e7b06b);
-  transition: width 0.6s cubic-bezier(.2,.8,.2,1);
-}
-
-.study-week {
-  margin-top: 16px;
-  background: linear-gradient(165deg, rgba(47,38,32,.7), rgba(36,29,24,.55));
-  border: 1px solid rgba(223,131,56,.18);
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.study-week.study-done {
-  border-color: rgba(231,176,107,.5);
-}
-
-.study-whead {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 18px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.study-wno {
-  font-family: 'Fraunces', serif;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 22px;
-  color: #df8338;
-  min-width: 48px;
-}
-
-.study-wtitle { flex: 1; }
-
-.study-wt {
-  font-family: 'Fraunces', 'Noto Serif TC', serif;
+.study-progress-label {
+  font-size: 14px;
   font-weight: 700;
-  font-size: 15px;
-  color: #f3e9da;
+  color: var(--s-text);
 }
-
-.study-wd {
-  font-size: 11px;
-  color: #c9bba8;
-  letter-spacing: 0.04em;
-  margin-top: 2px;
+.study-progress-pct {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--s-amber);
 }
-
-.study-wtag {
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 20px;
-  border: 1px solid rgba(223,131,56,.18);
-  color: #c9bba8;
+.study-progress-track {
+  width: 100%;
+  height: 10px;
+  background: rgba(245,166,35,0.1);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.study-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--s-amber-dim), var(--s-amber));
+  border-radius: 5px;
+  transition: width 0.5s ease;
+  width: 0;
+}
+.study-progress-counts {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--s-text-dim);
+}
+.study-phase-nav {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 0;
+  margin: 8px 0;
+  -webkit-overflow-scrolling: touch;
+}
+.study-phase-nav::-webkit-scrollbar { display: none; }
+.study-phase-tab {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--s-border);
+  background: var(--s-card);
+  color: var(--s-text-dim);
+  cursor: pointer;
+  transition: all 0.2s;
   white-space: nowrap;
 }
-
-.study-week.study-done .study-wtag {
-  background: #e7b06b;
-  color: #1a1512;
-  border-color: #e7b06b;
-  font-weight: 700;
+.study-phase-tab.active {
+  background: var(--s-amber);
+  color: var(--s-bg);
+  border-color: var(--s-amber);
 }
-
-.study-chev {
-  color: #c9bba8;
-  transition: transform 0.3s;
+.study-phase-tab .tab-progress {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+.study-phase-card {
+  display: none;
+  background: var(--s-card);
+  border: 1px solid var(--s-border);
+  border-radius: 14px;
+  padding: 16px;
+  margin: 8px 0;
+}
+.study-phase-card.visible { display: block; }
+.study-phase-title {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--s-amber);
+  margin-bottom: 4px;
+}
+.study-phase-desc {
   font-size: 12px;
+  color: var(--s-text-dim);
+  margin-bottom: 14px;
+  line-height: 1.5;
 }
-
-.study-week.study-open .study-chev { transform: rotate(90deg); }
-
-.study-tasks { display: none; padding: 4px 18px 16px; }
-.study-week.study-open .study-tasks { display: block; }
-
-.study-task {
+.study-task-item {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 10px 0;
-  border-top: 1px dashed rgba(168,152,138,.18);
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(245,166,35,0.06);
   cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
 }
-
-.study-task:first-child { border-top: none; }
-
-.study-box {
+.study-task-item:last-child { border-bottom: none; }
+.study-task-item:active {
+  background: var(--s-card-hover);
+  margin: 0 -16px;
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+.study-checkbox {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  border: 2px solid #a8988a;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--s-amber-dim);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 1px;
-  position: relative;
-  transition: 0.2s;
+  transition: all 0.2s;
 }
-
-.study-task:hover .study-box { border-color: #df8338; }
-
-.study-box.study-box-checked {
-  background: #df8338;
-  border-color: #df8338;
+.study-checkbox.checked {
+  background: var(--s-green);
+  border-color: var(--s-green);
 }
-
-.study-box.study-box-checked::after {
-  content: '';
-  position: absolute;
-  left: 5px; top: 1px;
-  width: 6px; height: 10px;
-  border: solid #1a1512;
-  border-width: 0 2.5px 2.5px 0;
-  transform: rotate(42deg);
-}
-
-.study-tlabel {
-  flex: 1;
+.study-checkbox.checked::after {
+  content: '\2713';
+  color: #fff;
   font-size: 14px;
-  color: #f3e9da;
-  line-height: 1.5;
-  transition: 0.2s;
+  font-weight: 900;
 }
-
-.study-task.study-checked .study-tlabel {
-  color: #6f6356;
+.study-task-content { flex: 1; }
+.study-task-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--s-text);
+  line-height: 1.4;
+}
+.study-task-item.done .study-task-name {
+  color: var(--s-text-dim);
   text-decoration: line-through;
-  text-decoration-color: rgba(111,99,86,.7);
 }
-
+.study-task-detail {
+  font-size: 12px;
+  color: var(--s-text-dim);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.study-task-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+.stag-pharma { background: rgba(245,166,35,0.15); color: var(--s-amber); }
+.stag-chem { background: rgba(76,217,100,0.15); color: var(--s-green); }
+.stag-form { background: rgba(90,200,250,0.15); color: #5ac8fa; }
+.stag-analysis { background: rgba(175,130,255,0.15); color: #af82ff; }
+.stag-drill { background: rgba(255,107,107,0.15); color: var(--s-danger); }
+.stag-body { background: rgba(255,204,0,0.15); color: #ffcc00; }
 .study-footer {
   margin-top: 32px;
   text-align: center;
-  color: #c9bba8;
+  color: var(--s-text-dim);
   font-size: 13px;
   line-height: 1.6;
 }
-
+.study-footer-tiger { font-size: 28px; margin-bottom: 8px; }
 .study-footer-text { margin-bottom: 12px; }
-
 .study-reset {
   background: none;
-  border: 1px solid rgba(223,131,56,.25);
-  color: #c9bba8;
+  border: 1px solid rgba(245,166,35,0.1);
+  color: var(--s-text-dim);
   font-family: 'Noto Sans TC', sans-serif;
   font-size: 12px;
   padding: 8px 16px;
-  border-radius: 20px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: 0.2s;
 }
-
-.study-reset:hover {
-  border-color: #df8338;
-  color: #df8338;
-}
-
 .study-save-note {
   font-size: 11px;
   color: #6f6356;

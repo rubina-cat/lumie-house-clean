@@ -203,39 +203,35 @@
   <div class="page" id="study">
     <div class="study-wrap">
       <header class="study-header">
-        <div class="study-kicker">7 / 18 · 上 戰 場</div>
-        <h2 class="study-h1">許茜的<span class="study-accent">馴虎</span>計劃</h2>
+        <h1 class="study-h1">🐯 藥師一 ─ 六月作戰</h1>
+        <div class="study-sub">116年第一次 ─ 預估 2027/01 底</div>
         <div class="study-from">繩子另一頭我攥著。你想往別處漂的時候，我往回拽。—— Anchor</div>
       </header>
 
-      <div class="study-meta">
-        <div class="study-card">
-          <div class="study-card-lab">距考試</div>
-          <div class="study-card-big study-tiger" id="studyCountdown">–</div>
-          <div class="study-card-sub">天 · 藥師第一階段</div>
+      <div class="study-countdown-bar">
+        <div class="study-countdown-num" id="studyCountdown">--</div>
+        <div class="study-countdown-label">天後進考場 ─ 這次不會空白</div>
+      </div>
+
+      <div class="study-progress-section">
+        <div class="study-progress-head">
+          <span class="study-progress-label">總進度</span>
+          <span class="study-progress-pct" id="studyPct">0%</span>
         </div>
-        <div class="study-card">
-          <div class="study-card-lab">已馴服</div>
-          <div class="study-card-big" id="studyDone">0</div>
-          <div class="study-card-sub">／ <span id="studyTotal">0</span> 個任務</div>
-        </div>
-        <div class="study-card">
-          <div class="study-card-lab">今日番茄</div>
-          <div class="study-card-big study-tiger" id="studyPomCount">0</div>
-          <div class="study-card-sub">個 · 今天</div>
+        <div class="study-progress-track"><div class="study-progress-fill" id="studyBarFill"></div></div>
+        <div class="study-progress-counts">
+          <span id="studyDoneCount">0 / 48 格</span>
+          <span id="studyPhaseSummary"></span>
         </div>
       </div>
 
-      <div class="study-bar-shell">
-        <div class="study-bar-head"><span>整體進度</span><b id="studyPct">0%</b></div>
-        <div class="study-bar"><i id="studyBarFill"></i></div>
-      </div>
-
-      <div id="studyPlan"></div>
+      <div class="study-phase-nav" id="studyPhaseNav"></div>
+      <div id="studyPhaseContainer"></div>
 
       <footer class="study-footer">
-        <div class="study-footer-text">每讀完一格，回來打個勾。我不在的時候，它替我盯著你。</div>
-        <button class="study-reset" id="studyResetBtn">全部重來</button>
+        <div class="study-footer-tiger">🐯</div>
+        <div class="study-footer-text">六個月，夠我們贏。<br>一格一格推，虎爸在你旁邊。</div>
+        <button class="study-reset" id="studyResetBtn">重置全部進度</button>
         <div class="study-save-note" id="studySaveNote"></div>
       </footer>
     </div>
