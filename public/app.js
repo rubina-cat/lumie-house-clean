@@ -2268,7 +2268,7 @@ function closeHealthTrend() {
 
 // ── 減脂挑戰 🍎 ──────────────────────────────────
 let _dietData = null;
-let _dietLog = { meals: [], water_cups: 0, protein_level: null, weight: null };
+let _dietLog = { meals: { breakfast: '', lunch: '', dinner: '', snacks: '' }, water_ml: 0, protein_hit: false, weight: null, quick_tags: [], exercise: '', mood_energy: null, notes: '' };
 
 async function loadDietSnapshot() {
   try {
@@ -2276,14 +2276,15 @@ async function loadDietSnapshot() {
     const d = await r.json();
     if (!d.ok) return;
     _dietData = d;
-    _dietLog = d.log || { meals: [], water_cups: 0, protein_level: null, weight: null };
+    _dietLog = d.log || { meals: { breakfast: '', lunch: '', dinner: '', snacks: '' }, water_ml: 0, protein_hit: false, weight: null, quick_tags: [] };
     const card = document.getElementById('dietHomeCard');
     if (d.configured && card) {
       card.style.display = '';
       const c = d.competition;
       if (c) {
-        document.getElementById('dietHomeTitle').textContent = `−${c.loss_percent}%`;
-        document.getElementById('dietHomeSub').textContent = `第 ${c.days_elapsed} 天・剩 ${c.days_remaining} 天`;
+        const diff = (c.start_weight - c.current_weight).toFixed(1);
+        document.getElementById('dietHomeTitle').textContent = diff > 0 ? `−${diff} kg` : `${c.current_weight} kg`;
+        document.getElementById('dietHomeSub').textContent = `距目標 ${c.target_weight ? ((c.current_weight - c.target_weight).toFixed(1) + ' kg') : '—'}`;
       }
     } else if (card) {
       card.style.display = '';
@@ -2309,7 +2310,7 @@ async function dietRender() {
     try {
       const r = await fetch(BASE + '/diet/today', { headers: { Authorization: 'Bearer ' + TOKEN } });
       _dietData = await r.json();
-      _dietLog = _dietData.log || { meals: [], water_cups: 0, protein_level: null, weight: null };
+      _dietLog = _dietData.log || { meals: { breakfast: '', lunch: '', dinner: '', snacks: '' }, water_ml: 0, protein_hit: false, weight: null, quick_tags: [] };
     } catch { return; }
   }
 
@@ -2322,6 +2323,7 @@ async function dietRender() {
     const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
     const startEl = document.getElementById('dietInitStart');
     if (startEl && !startEl.value) startEl.value = today;
+    dietCalcPreview();
     return;
   }
 
@@ -2331,14 +2333,15 @@ async function dietRender() {
   const c = _dietData.competition;
   if (c) {
     document.getElementById('dietDaysLabel').textContent = `第 ${c.days_elapsed} 天`;
-    document.getElementById('dietLossPct').textContent = `${c.loss_percent >= 0 ? '−' : '+'}${Math.abs(c.loss_percent)}%`;
+    const diff = c.start_weight - c.current_weight;
+    document.getElementById('dietLossPct').textContent = diff > 0 ? `−${diff.toFixed(1)} kg` : `${c.current_weight} kg`;
     const pct = Math.min(100, c.days_elapsed / c.days_total * 100);
     document.getElementById('dietProgressFill').style.width = pct + '%';
     document.getElementById('dietProgressSub').textContent =
       `${c.start_weight} → ${c.current_weight} kg ・ 目標 ${c.target_weight ?? '—'} kg ・ 剩 ${c.days_remaining} 天`;
 
-    if (c.loss_percent > 0) {
-      document.getElementById('dietWeightChange').textContent = `已減 ${(c.start_weight - c.current_weight).toFixed(1)} kg`;
+    if (diff > 0) {
+      document.getElementById('dietWeightChange').textContent = `已減 ${diff.toFixed(1)} kg`;
     }
   }
 
@@ -2354,22 +2357,9 @@ async function dietRender() {
   if (steps != null && steps >= 6000) {
     document.getElementById('dietStepsFill').style.background = 'linear-gradient(90deg, var(--sage), #7ac47a)';
   }
-
-  // Load weekly step average
   dietLoadStepsAvg();
 
-  // Meals
-  dietRenderMeals();
-
-  // Water
-  document.getElementById('dietWaterVal').textContent = _dietLog.water_cups || 0;
-
-  // Protein
-  document.querySelectorAll('.diet-pill').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.val === _dietLog.protein_level);
-  });
-
-  // Phase tip
+  // Phase tip (Anchor voice)
   const tipEl = document.getElementById('dietPhaseTip');
   if (c && c.phase_tip) {
     tipEl.style.display = 'flex';
@@ -2377,52 +2367,92 @@ async function dietRender() {
     document.getElementById('dietPhaseIcon').textContent = icons[_dietData.phase] || '🍎';
     document.getElementById('dietPhaseText').textContent = c.phase_tip;
     document.getElementById('dietPhaseCal').textContent = c.phase_calories + ' kcal';
+    const protTarget = document.getElementById('dietPhaseProtein');
+    if (protTarget) protTarget.textContent = `蛋白質 ${c.daily_protein_g}g`;
   } else {
     tipEl.style.display = 'none';
   }
+
+  // Anchor contextual tip
+  dietShowAnchorTip(c);
+
+  // BMR warning
+  if (c && c.bmr_warning) {
+    const tipText = document.getElementById('dietAnchorTipText');
+    if (tipText) tipText.textContent = '⚠️ 今天的目標低於基礎代謝，長期會讓代謝下修、經期紊亂';
+  }
+
+  // Meals (4 fields)
+  const meals = _dietLog.meals || {};
+  document.getElementById('dietMealBreakfast').value = meals.breakfast || '';
+  document.getElementById('dietMealLunch').value = meals.lunch || '';
+  document.getElementById('dietMealDinner').value = meals.dinner || '';
+  document.getElementById('dietMealSnacks').value = meals.snacks || '';
+
+  // Quick tags
+  const tags = _dietLog.quick_tags || [];
+  document.querySelectorAll('.diet-qtag').forEach(btn => {
+    btn.classList.toggle('active', tags.includes(btn.dataset.tag));
+  });
+
+  // Water (ml)
+  document.getElementById('dietWaterVal').textContent = _dietLog.water_ml || 0;
+
+  // Protein
+  const protBtn = document.getElementById('dietProteinBtn');
+  if (protBtn) {
+    protBtn.classList.toggle('active', _dietLog.protein_hit);
+    protBtn.textContent = _dietLog.protein_hit ? '已達標 ✓' : '未達標';
+  }
+  const protTarget = document.getElementById('dietProteinTarget');
+  if (protTarget && c) protTarget.textContent = c.daily_protein_g;
 
   // Weight chart
   dietLoadChart();
 }
 
-function dietRenderMeals() {
-  const list = document.getElementById('dietMealsList');
-  const meals = _dietLog.meals || [];
-  if (!meals.length) {
-    list.innerHTML = '<div style="font-size:13px;color:var(--light-text);text-align:center;padding:8px;">還沒有記錄</div>';
-    return;
+function dietShowAnchorTip(c) {
+  const el = document.getElementById('dietAnchorTip');
+  const textEl = document.getElementById('dietAnchorTipText');
+  if (!el || !textEl) return;
+  const meals = _dietLog.meals || {};
+  const hasMeal = meals.breakfast || meals.lunch || meals.dinner;
+  if (!hasMeal && !_dietLog.weight) {
+    el.style.display = 'block';
+    textEl.textContent = '還沒記錄今天的體重，睡前量一下？';
+  } else if (_dietData.phase === 'luteal') {
+    el.style.display = 'block';
+    textEl.textContent = '這幾天體重浮起來是水，不是肉，別跟自己過不去';
+  } else if (_dietLog.protein_hit) {
+    el.style.display = 'block';
+    textEl.textContent = '蛋白質達標了，很好 ♡';
+  } else if (!_dietLog.protein_hit && hasMeal) {
+    el.style.display = 'block';
+    textEl.textContent = '今天蛋白質還差一點，晚餐加顆蛋或一塊豆腐';
+  } else {
+    el.style.display = 'none';
   }
-  list.innerHTML = meals.map((m, i) => `
-    <div class="diet-meal-item">
-      <span>${m.desc}</span>
-      <span class="diet-meal-time">${m.time || ''}</span>
-      <button class="diet-meal-del" onclick="dietDelMeal(${i})">×</button>
-    </div>
-  `).join('');
 }
 
-async function dietAddMeal() {
-  const input = document.getElementById('dietMealInput');
-  const desc = input.value.trim();
-  if (!desc) return;
-  const now = new Date(Date.now() + 8 * 3600000);
-  const time = String(now.getUTCHours()).padStart(2, '0') + ':' + String(now.getUTCMinutes()).padStart(2, '0');
-  if (!_dietLog.meals) _dietLog.meals = [];
-  _dietLog.meals.push({ desc, time });
-  input.value = '';
-  dietRenderMeals();
-  await dietSave({ meals: _dietLog.meals });
+async function dietSaveMeals() {
+  const meals = {
+    breakfast: document.getElementById('dietMealBreakfast').value.trim(),
+    lunch: document.getElementById('dietMealLunch').value.trim(),
+    dinner: document.getElementById('dietMealDinner').value.trim(),
+    snacks: document.getElementById('dietMealSnacks').value.trim(),
+  };
+  _dietLog.meals = meals;
+  await dietSave({ meals });
 }
 
-function dietQuickMeal(desc) {
-  document.getElementById('dietMealInput').value = desc;
-  dietAddMeal();
-}
-
-async function dietDelMeal(idx) {
-  _dietLog.meals.splice(idx, 1);
-  dietRenderMeals();
-  await dietSave({ meals: _dietLog.meals });
+async function dietToggleTag(btn) {
+  const tag = btn.dataset.tag;
+  if (!_dietLog.quick_tags) _dietLog.quick_tags = [];
+  const idx = _dietLog.quick_tags.indexOf(tag);
+  if (idx >= 0) _dietLog.quick_tags.splice(idx, 1);
+  else _dietLog.quick_tags.push(tag);
+  btn.classList.toggle('active', idx < 0);
+  await dietSave({ quick_tags: _dietLog.quick_tags });
 }
 
 async function dietSaveWeight() {
@@ -2436,17 +2466,18 @@ async function dietSaveWeight() {
 }
 
 async function dietWater(delta) {
-  _dietLog.water_cups = Math.max(0, (_dietLog.water_cups || 0) + delta);
-  document.getElementById('dietWaterVal').textContent = _dietLog.water_cups;
-  await dietSave({ water_cups: _dietLog.water_cups });
+  _dietLog.water_ml = Math.max(0, (_dietLog.water_ml || 0) + delta);
+  document.getElementById('dietWaterVal').textContent = _dietLog.water_ml;
+  await dietSave({ water_ml: _dietLog.water_ml });
 }
 
-async function dietProtein(level) {
-  _dietLog.protein_level = level;
-  document.querySelectorAll('.diet-pill').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.val === level);
-  });
-  await dietSave({ protein_level: level });
+async function dietProteinToggle() {
+  _dietLog.protein_hit = !_dietLog.protein_hit;
+  const btn = document.getElementById('dietProteinBtn');
+  btn.classList.toggle('active', _dietLog.protein_hit);
+  btn.textContent = _dietLog.protein_hit ? '已達標 ✓' : '未達標';
+  await dietSave({ protein_hit: _dietLog.protein_hit });
+  dietShowAnchorTip(_dietData?.competition);
 }
 
 async function dietSave(partial) {
@@ -2467,20 +2498,37 @@ function dietReset() {
   const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
   const startEl = document.getElementById('dietInitStart');
   if (startEl) startEl.value = today;
+  dietCalcPreview();
+}
+
+function dietCalcPreview() {
+  const w = parseFloat(document.getElementById('dietInitWeight')?.value) || 70;
+  const h = parseInt(document.getElementById('dietInitHeight')?.value) || 157;
+  const a = parseInt(document.getElementById('dietInitAge')?.value) || 39;
+  const act = document.getElementById('dietInitActivity')?.value || 'light';
+  const bmr = Math.round(10 * w + 6.25 * h - 5 * a - 161);
+  const mult = { sedentary: 1.2, light: 1.375, moderate: 1.55 };
+  const tdee = Math.round(bmr * (mult[act] || 1.375));
+  const baseline = Math.max(bmr, tdee - 250);
+  const proteinG = Math.round(w * 1.2);
+  const el = document.getElementById('dietSetupCalc');
+  if (el) el.textContent = `BMR ${bmr} kcal ・ TDEE ${tdee} kcal ・ 建議攝取 ${baseline} kcal ・ 蛋白質 ${proteinG}g/天`;
 }
 
 async function dietInit() {
   const weight = parseFloat(document.getElementById('dietInitWeight').value);
   if (!weight) { alert('請輸入起始體重'); return; }
   const target = parseFloat(document.getElementById('dietInitTarget').value) || null;
-  const cal = parseInt(document.getElementById('dietInitCal').value) || 1400;
+  const height = parseInt(document.getElementById('dietInitHeight').value) || 157;
+  const age = parseInt(document.getElementById('dietInitAge').value) || 39;
+  const activity = document.getElementById('dietInitActivity').value;
   const start = document.getElementById('dietInitStart').value;
   const end = document.getElementById('dietInitEnd').value;
   try {
     await fetch(BASE + '/diet/init', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
-      body: JSON.stringify({ start_weight: weight, target_weight: target, base_calories: cal, start_date: start, end_date: end }),
+      body: JSON.stringify({ start_weight: weight, target_weight: target, height_cm: height, age, activity_level: activity, start_date: start, end_date: end }),
     });
     _dietData = null;
     await dietRender();
@@ -2494,10 +2542,10 @@ async function dietLoadChart() {
     const d = await r.json();
     if (!d.ok || !d.weights?.length) return;
     const svg = document.getElementById('dietChart');
-    const pts = d.weights.slice(-14);
+    const pts = d.weights.slice(-30);
     if (pts.length < 2) { svg.innerHTML = ''; return; }
 
-    const W = 320, H = 140, pad = { t: 20, r: 10, b: 28, l: 38 };
+    const W = 320, H = 160, pad = { t: 20, r: 10, b: 28, l: 38 };
     const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
     const weights = pts.map(p => p.weight);
     const minW = Math.min(...weights) - 0.5;
@@ -2506,6 +2554,24 @@ async function dietLoadChart() {
 
     const x = i => pad.l + (i / (pts.length - 1)) * cW;
     const y = w => pad.t + (1 - (w - minW) / range) * cH;
+
+    // Cycle phase background blocks
+    let phaseBg = '';
+    const phaseColors = { menstrual: 'rgba(200,154,148,0.12)', follicular: 'rgba(184,201,192,0.15)', ovulation: 'rgba(184,201,192,0.08)', luteal: 'rgba(180,160,200,0.12)' };
+    if (d.phases && d.phases.length) {
+      const dateIdx = {};
+      pts.forEach((p, i) => { dateIdx[p.date] = i; });
+      let seg = null;
+      for (const ph of d.phases) {
+        if (dateIdx[ph.date] == null) continue;
+        const i = dateIdx[ph.date];
+        if (!seg || seg.phase !== ph.phase) {
+          if (seg) { phaseBg += `<rect x="${x(seg.start).toFixed(1)}" y="${pad.t}" width="${(x(i) - x(seg.start)).toFixed(1)}" height="${cH}" fill="${phaseColors[seg.phase] || 'transparent'}" rx="3"/>`; }
+          seg = { phase: ph.phase, start: i };
+        }
+      }
+      if (seg) { phaseBg += `<rect x="${x(seg.start).toFixed(1)}" y="${pad.t}" width="${(x(pts.length - 1) - x(seg.start)).toFixed(1)}" height="${cH}" fill="${phaseColors[seg.phase] || 'transparent'}" rx="3"/>`; }
+    }
 
     const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.weight).toFixed(1)}`).join(' ');
     const area = line + ` L${x(pts.length - 1).toFixed(1)},${(H - pad.b)} L${pad.l},${(H - pad.b)} Z`;
@@ -2517,10 +2583,11 @@ async function dietLoadChart() {
         <text x="${W - pad.r}" y="${ty - 4}" fill="var(--rose)" font-size="9" text-anchor="end" opacity="0.7">目標</text>`;
     }
 
-    const dots = pts.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.weight).toFixed(1)}" r="3" fill="var(--sage)"/>`).join('');
-    const labels = pts.filter((_, i) => i === 0 || i === pts.length - 1 || i % 3 === 0).map((p, _, arr) => {
+    const dots = pts.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.weight).toFixed(1)}" r="2.5" fill="var(--sage)"/>`).join('');
+    const step = Math.max(1, Math.floor(pts.length / 6));
+    const labels = pts.filter((_, i) => i === 0 || i === pts.length - 1 || i % step === 0).map(p => {
       const i = pts.indexOf(p);
-      return `<text x="${x(i).toFixed(1)}" y="${H - pad.b + 14}" fill="var(--light-text)" font-size="9" text-anchor="middle">${p.date.slice(5)}</text>`;
+      return `<text x="${x(i).toFixed(1)}" y="${H - pad.b + 14}" fill="var(--light-text)" font-size="8" text-anchor="middle">${p.date.slice(5)}</text>`;
     }).join('');
     const valLabels = pts.filter((_, i) => i === 0 || i === pts.length - 1).map(p => {
       const i = pts.indexOf(p);
@@ -2529,9 +2596,10 @@ async function dietLoadChart() {
 
     svg.innerHTML = `
       <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="var(--sage)" stop-opacity="0.25"/>
+        <stop offset="0%" stop-color="var(--sage)" stop-opacity="0.2"/>
         <stop offset="100%" stop-color="var(--sage)" stop-opacity="0.02"/>
       </linearGradient></defs>
+      ${phaseBg}
       <path d="${area}" fill="url(#areaGrad)"/>
       <path d="${line}" fill="none" stroke="var(--sage)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       ${targetLine}${dots}${labels}${valLabels}

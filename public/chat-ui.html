@@ -513,11 +513,20 @@
       <div id="dietSetup" style="display:none">
         <div class="diet-setup-title">開始減脂挑戰</div>
         <div class="diet-setup-form">
-          <label class="diet-label">起始體重 (kg)<input type="number" id="dietInitWeight" step="0.1" placeholder="55.0" class="diet-input"></label>
-          <label class="diet-label">目標體重 (kg)<input type="number" id="dietInitTarget" step="0.1" placeholder="50.0" class="diet-input"></label>
-          <label class="diet-label">每日基礎熱量 (kcal)<input type="number" id="dietInitCal" value="1400" class="diet-input"></label>
+          <label class="diet-label">身高 (cm)<input type="number" id="dietInitHeight" value="157" class="diet-input" oninput="dietCalcPreview()"></label>
+          <label class="diet-label">年齡<input type="number" id="dietInitAge" value="39" class="diet-input" oninput="dietCalcPreview()"></label>
+          <label class="diet-label">活動量
+            <select id="dietInitActivity" class="diet-input" onchange="dietCalcPreview()">
+              <option value="sedentary">久坐</option>
+              <option value="light" selected>輕度活動</option>
+              <option value="moderate">中度活動</option>
+            </select>
+          </label>
+          <label class="diet-label">起始體重 (kg)<input type="number" id="dietInitWeight" step="0.1" placeholder="70.5" class="diet-input" oninput="dietCalcPreview()"></label>
+          <label class="diet-label">目標體重 (kg)<input type="number" id="dietInitTarget" step="0.1" placeholder="65.0" class="diet-input"></label>
           <label class="diet-label">開始日期<input type="date" id="dietInitStart" class="diet-input"></label>
           <label class="diet-label">結束日期<input type="date" id="dietInitEnd" value="2026-10-23" class="diet-input"></label>
+          <div class="diet-setup-calc" id="dietSetupCalc"></div>
           <button class="diet-btn" onclick="dietInit()">開始挑戰</button>
         </div>
       </div>
@@ -550,7 +559,7 @@
         <div class="diet-section">
           <div class="diet-section-title">體重趨勢</div>
           <div class="diet-chart-wrap" id="dietChartWrap">
-            <svg id="dietChart" viewBox="0 0 320 140" preserveAspectRatio="xMidYMid meet"></svg>
+            <svg id="dietChart" viewBox="0 0 320 160" preserveAspectRatio="xMidYMid meet"></svg>
           </div>
         </div>
 
@@ -565,21 +574,41 @@
           <div class="diet-steps-avg" id="dietStepsAvg"></div>
         </div>
 
-        <!-- 飲食記錄 -->
+        <!-- 週期提示 (Anchor voice) -->
+        <div class="diet-section diet-phase-tip" id="dietPhaseTip" style="display:none">
+          <span class="diet-phase-icon" id="dietPhaseIcon"></span>
+          <div class="diet-phase-body">
+            <div class="diet-phase-text" id="dietPhaseText"></div>
+            <div class="diet-phase-cal-row">
+              <span class="diet-phase-cal" id="dietPhaseCal"></span>
+              <span class="diet-phase-protein" id="dietPhaseProtein"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Anchor 小提醒 -->
+        <div class="diet-section diet-anchor-tip" id="dietAnchorTip" style="display:none">
+          <span class="diet-anchor-tip-text" id="dietAnchorTipText"></span>
+        </div>
+
+        <!-- 飲食記錄（四餐分開）-->
         <div class="diet-section">
           <div class="diet-section-title">飲食記錄</div>
-          <div class="diet-meals" id="dietMealsList"></div>
-          <div class="diet-meal-add">
-            <input type="text" id="dietMealInput" placeholder="吃了什麼…" class="diet-meal-input">
-            <button class="diet-save-btn" onclick="dietAddMeal()">＋</button>
+          <div class="diet-meal-fields">
+            <label class="diet-meal-label">早餐<input type="text" id="dietMealBreakfast" placeholder="豆漿蛋餅…" class="diet-meal-field" onchange="dietSaveMeals()"></label>
+            <label class="diet-meal-label">午餐<input type="text" id="dietMealLunch" placeholder="便當、麵…" class="diet-meal-field" onchange="dietSaveMeals()"></label>
+            <label class="diet-meal-label">晚餐<input type="text" id="dietMealDinner" placeholder="自己煮、外食…" class="diet-meal-field" onchange="dietSaveMeals()"></label>
+            <label class="diet-meal-label">點心<input type="text" id="dietMealSnacks" placeholder="水果、堅果…" class="diet-meal-field" onchange="dietSaveMeals()"></label>
           </div>
-          <div class="diet-quick-tags" id="dietMealTags">
-            <button class="diet-tag" onclick="dietQuickMeal('水煮蛋')">水煮蛋</button>
-            <button class="diet-tag" onclick="dietQuickMeal('雞胸肉')">雞胸肉</button>
-            <button class="diet-tag" onclick="dietQuickMeal('沙拉')">沙拉</button>
-            <button class="diet-tag" onclick="dietQuickMeal('燕麥')">燕麥</button>
-            <button class="diet-tag" onclick="dietQuickMeal('水果')">水果</button>
-            <button class="diet-tag" onclick="dietQuickMeal('豆漿')">豆漿</button>
+          <div class="diet-section-title" style="margin-top:12px">今日標記</div>
+          <div class="diet-quick-tags" id="dietQuickTags">
+            <button class="diet-qtag" data-tag="高蛋白" onclick="dietToggleTag(this)">高蛋白</button>
+            <button class="diet-qtag" data-tag="低醣" onclick="dietToggleTag(this)">低醣</button>
+            <button class="diet-qtag" data-tag="外食" onclick="dietToggleTag(this)">外食</button>
+            <button class="diet-qtag" data-tag="加班" onclick="dietToggleTag(this)">加班</button>
+            <button class="diet-qtag" data-tag="便利商店" onclick="dietToggleTag(this)">便利商店</button>
+            <button class="diet-qtag" data-tag="有運動" onclick="dietToggleTag(this)">有運動</button>
+            <button class="diet-qtag" data-tag="蛋白質達標" onclick="dietToggleTag(this)">蛋白質達標</button>
           </div>
         </div>
 
@@ -588,28 +617,19 @@
           <div class="diet-half">
             <div class="diet-section-title">喝水</div>
             <div class="diet-cups-row">
-              <button class="diet-cup-btn" onclick="dietWater(-1)">−</button>
+              <button class="diet-cup-btn" onclick="dietWater(-250)">−</button>
               <span class="diet-cups-val" id="dietWaterVal">0</span>
-              <span class="diet-cups-unit">杯</span>
-              <button class="diet-cup-btn" onclick="dietWater(1)">＋</button>
+              <span class="diet-cups-unit">ml</span>
+              <button class="diet-cup-btn" onclick="dietWater(250)">＋</button>
             </div>
-            <div class="diet-cups-hint">250ml / 杯</div>
+            <div class="diet-cups-hint">每次 ±250ml</div>
           </div>
           <div class="diet-half">
-            <div class="diet-section-title">蛋白質</div>
+            <div class="diet-section-title">蛋白質 (<span id="dietProteinTarget">85</span>g)</div>
             <div class="diet-protein-pills">
-              <button class="diet-pill" data-val="不足" onclick="dietProtein('不足')">不足</button>
-              <button class="diet-pill" data-val="剛好" onclick="dietProtein('剛好')">剛好</button>
-              <button class="diet-pill" data-val="充足" onclick="dietProtein('充足')">充足</button>
+              <button class="diet-pill" id="dietProteinBtn" onclick="dietProteinToggle()">未達標</button>
             </div>
           </div>
-        </div>
-
-        <!-- 週期提示 -->
-        <div class="diet-section diet-phase-tip" id="dietPhaseTip" style="display:none">
-          <span class="diet-phase-icon" id="dietPhaseIcon"></span>
-          <span class="diet-phase-text" id="dietPhaseText"></span>
-          <span class="diet-phase-cal" id="dietPhaseCal"></span>
         </div>
       </div>
 

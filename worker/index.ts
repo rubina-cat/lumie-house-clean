@@ -3611,17 +3611,18 @@ audio{width:300px;margin-top:4px}
         env.PHONE_STATE.get("health:latest"),
         env.PHONE_STATE.get("period:current")
       ]);
-      const log = logRaw ? JSON.parse(logRaw) : { meals: [], water_cups: 0, protein_level: null, weight: null };
+      const log = logRaw ? JSON.parse(logRaw) : { meals: { breakfast: '', lunch: '', dinner: '', snacks: '' }, water_ml: 0, protein_hit: false, weight: null, quick_tags: [], exercise: '', mood_energy: null, notes: '' };
       const config = configRaw ? JSON.parse(configRaw) : null;
       const health = healthRaw ? JSON.parse(healthRaw) : null;
 
       let phase: string | null = null;
+      let cycleDay: number | null = null;
       if (periodRaw) {
         const period = JSON.parse(periodRaw);
         if (period.cycle_start) {
           const start = new Date(period.cycle_start + 'T00:00:00+08:00');
           const nowLocal = new Date(Date.now() + 8 * 3600000);
-          const cycleDay = Math.max(1, Math.floor((nowLocal.getTime() - start.getTime()) / 86400000) + 1);
+          cycleDay = Math.max(1, Math.floor((nowLocal.getTime() - start.getTime()) / 86400000) + 1);
           const avgCycle = period.average_cycle ?? 28;
           const avgPeriod = period.average_period ?? 5;
           const ovDay = avgCycle - 14;
@@ -3641,13 +3642,16 @@ audio{width:300px;margin-top:4px}
         const elapsed = Math.max(0, Math.ceil((nowLocal.getTime() - startDate.getTime()) / 86400000));
         const currentWeight = log.weight ?? config.latest_weight ?? config.start_weight;
         const lossPercent = config.start_weight ? +((config.start_weight - currentWeight) / config.start_weight * 100).toFixed(2) : 0;
-        const baseCalories = config.base_calories ?? 1400;
-        let phaseCalories = baseCalories;
-        let phaseTip = '';
-        if (phase === 'menstrual') { phaseCalories = baseCalories + 100; phaseTip = '月經期，多補100大卡，別餓著'; }
-        else if (phase === 'follicular') { phaseTip = '卵泡期，減脂黃金期，加油'; }
-        else if (phase === 'ovulation') { phaseTip = '排卵期，維持穩定就好'; }
-        else if (phase === 'luteal') { phaseCalories = baseCalories + 50; phaseTip = '黃體期，別壓太低容易暴食'; }
+        const bmr = config.bmr ?? 1330;
+        const phaseCalMap: Record<string, number> = { menstrual: 1450, follicular: 1250, ovulation: 1250, luteal: 1600 };
+        const phaseCalories = phase ? (phaseCalMap[phase] ?? config.baseline_calories ?? 1450) : (config.baseline_calories ?? 1450);
+        const phaseTips: Record<string, string> = {
+          menstrual: '溫和期，別勉強節食，補鐵優先',
+          follicular: '減脂黃金期，代謝好、有力氣運動',
+          ovulation: '狀態最佳，維持穩定就好',
+          luteal: '別跟自己過不去，多補蛋白質和鎂',
+        };
+        const phaseTip = phase ? (phaseTips[phase] ?? '') : '';
         competition = {
           start_weight: config.start_weight,
           current_weight: currentWeight,
@@ -3658,16 +3662,20 @@ audio{width:300px;margin-top:4px}
           days_remaining: Math.max(0, totalDays - elapsed),
           start_date: config.start_date,
           end_date: config.end_date,
-          base_calories: baseCalories,
+          bmr,
+          tdee: config.tdee ?? 1700,
+          baseline_calories: config.baseline_calories ?? 1450,
           phase_calories: phaseCalories,
           phase_tip: phaseTip,
+          bmr_warning: phaseCalories < bmr,
+          daily_protein_g: config.daily_protein_g ?? 85,
         };
       }
 
       return Response.json({
         ok: true, today, log, configured: config != null,
         steps: health?.steps ?? null,
-        phase,
+        phase, cycle_day: cycleDay,
         competition,
       });
     }
@@ -3680,7 +3688,7 @@ audio{width:300px;margin-top:4px}
       const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
       const date = body.date ?? today;
       const existing = await env.PHONE_STATE.get(`diet:${date}`);
-      const prev = existing ? JSON.parse(existing) : { meals: [], water_cups: 0, protein_level: null, weight: null };
+      const prev = existing ? JSON.parse(existing) : { meals: { breakfast: '', lunch: '', dinner: '', snacks: '' }, water_ml: 0, protein_hit: false, weight: null, quick_tags: [], exercise: '', mood_energy: null, notes: '' };
       const merged = { ...prev, ...body, date };
       await env.PHONE_STATE.put(`diet:${date}`, JSON.stringify(merged), { expirationTtl: 86400 * 120 });
 
@@ -3712,13 +3720,28 @@ audio{width:300px;margin-top:4px}
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
       const body = await request.json() as any;
       if (!body.start_weight) return Response.json({ error: "start_weight required" }, { status: 400 });
+      const height = body.height_cm ?? 157;
+      const age = body.age ?? 39;
+      const weight = body.start_weight;
+      const bmr = Math.round(10 * weight + 6.25 * height - 5 * age - 161);
+      const actMult: Record<string, number> = { sedentary: 1.2, light: 1.375, moderate: 1.55 };
+      const activity = body.activity_level ?? 'light';
+      const tdee = Math.round(bmr * (actMult[activity] ?? 1.375));
+      const baseline = body.baseline_calories ?? Math.max(bmr, tdee - 250);
+      const proteinG = Math.round(weight * 1.2);
       const config = {
-        start_weight: body.start_weight,
+        start_weight: weight,
         target_weight: body.target_weight ?? null,
         start_date: body.start_date ?? new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0],
         end_date: body.end_date ?? '2026-10-23',
-        base_calories: body.base_calories ?? 1400,
-        latest_weight: body.start_weight,
+        height_cm: height,
+        age,
+        activity_level: activity,
+        bmr,
+        tdee,
+        baseline_calories: baseline,
+        daily_protein_g: proteinG,
+        latest_weight: weight,
       };
       const hist = [{ date: config.start_date, weight: config.start_weight }];
       await Promise.all([
@@ -3728,17 +3751,39 @@ audio{width:300px;margin-top:4px}
       return Response.json({ ok: true, config });
     }
 
-    // GET /diet/trend — 體重趨勢
+    // GET /diet/trend — 體重趨勢 + 週期色塊
     if (request.method === "GET" && url.pathname === "/diet/trend") {
       const auth = request.headers.get("Authorization");
       if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-      const [weightsRaw, configRaw] = await Promise.all([
+      const [weightsRaw, configRaw, periodRaw] = await Promise.all([
         env.PHONE_STATE.get("diet:weights"),
-        env.PHONE_STATE.get("diet:config")
+        env.PHONE_STATE.get("diet:config"),
+        env.PHONE_STATE.get("period:current")
       ]);
       const weights: any[] = weightsRaw ? JSON.parse(weightsRaw) : [];
       const config = configRaw ? JSON.parse(configRaw) : null;
-      return Response.json({ ok: true, weights, start_weight: config?.start_weight, target_weight: config?.target_weight });
+      let phases: any[] = [];
+      if (periodRaw && weights.length >= 2) {
+        const period = JSON.parse(periodRaw);
+        if (period.cycle_start) {
+          const cycleStart = new Date(period.cycle_start + 'T00:00:00+08:00');
+          const avgCycle = period.average_cycle ?? 28;
+          const avgPeriod = period.average_period ?? 5;
+          const ovDay = avgCycle - 14;
+          const firstDate = new Date(weights[0].date + 'T00:00:00+08:00');
+          const lastDate = new Date(weights[weights.length - 1].date + 'T00:00:00+08:00');
+          for (let d = new Date(firstDate); d <= lastDate; d.setUTCDate(d.getUTCDate() + 1)) {
+            const cd = Math.max(1, Math.floor((d.getTime() - cycleStart.getTime()) / 86400000) + 1);
+            const dayInCycle = ((cd - 1) % avgCycle) + 1;
+            let ph = 'luteal';
+            if (dayInCycle <= avgPeriod) ph = 'menstrual';
+            else if (dayInCycle < ovDay - 1) ph = 'follicular';
+            else if (dayInCycle <= ovDay + 1) ph = 'ovulation';
+            phases.push({ date: d.toISOString().split('T')[0], phase: ph });
+          }
+        }
+      }
+      return Response.json({ ok: true, weights, start_weight: config?.start_weight, target_weight: config?.target_weight, phases });
     }
 
     // GET /diet/steps-weekly — 近7天步數均值
