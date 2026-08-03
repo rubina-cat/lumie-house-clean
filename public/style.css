@@ -2114,7 +2114,18 @@ textarea::placeholder { color: var(--light-text); }
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: 8px;
+  gap: 8px;
 }
+.diet-reset-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--light-text);
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.6;
+}
+.diet-reset-btn:active { opacity: 1; }
 .diet-progress-label {
   font-family: 'Cormorant Garamond', serif;
   font-size: 20px;

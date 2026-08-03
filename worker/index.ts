@@ -3720,9 +3720,7 @@ audio{width:300px;margin-top:4px}
         base_calories: body.base_calories ?? 1400,
         latest_weight: body.start_weight,
       };
-      const histRaw = await env.PHONE_STATE.get("diet:weights");
-      const hist: any[] = histRaw ? JSON.parse(histRaw) : [];
-      hist.push({ date: config.start_date, weight: config.start_weight });
+      const hist = [{ date: config.start_date, weight: config.start_weight }];
       await Promise.all([
         env.PHONE_STATE.put("diet:config", JSON.stringify(config)),
         env.PHONE_STATE.put("diet:weights", JSON.stringify(hist)),

@@ -2459,6 +2459,16 @@ async function dietSave(partial) {
   } catch {}
 }
 
+function dietReset() {
+  if (!confirm('重設減脂挑戰？（天數會歸零重算）')) return;
+  _dietData = null;
+  document.getElementById('dietMain').style.display = 'none';
+  document.getElementById('dietSetup').style.display = 'block';
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().split('T')[0];
+  const startEl = document.getElementById('dietInitStart');
+  if (startEl) startEl.value = today;
+}
+
 async function dietInit() {
   const weight = parseFloat(document.getElementById('dietInitWeight').value);
   if (!weight) { alert('請輸入起始體重'); return; }
