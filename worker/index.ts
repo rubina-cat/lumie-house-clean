@@ -1263,6 +1263,16 @@ async function mergeMemoryFragments(env: any) {
   } catch {}
 }
 
+async function decayMemoryHeat(env: any) {
+  try {
+    await initMemoriesTable(env);
+    await env.DB.prepare("UPDATE memories SET heat = heat * 0.95 WHERE is_locked = 0").run();
+    const cutoff = Date.now() - 30 * 86400000;
+    const del = await env.DB.prepare("DELETE FROM memories WHERE is_locked = 0 AND heat < 0.1 AND saved_at < ?").bind(cutoff).run();
+    console.log(`記憶衰減完成，清除 ${del.meta?.changes ?? 0} 條淡忘記憶`);
+  } catch (e) { console.error("decayMemoryHeat error:", e); }
+}
+
 async function migrateMemoriesFromKV(env: any) {
   const count = await env.DB.prepare("SELECT COUNT(*) as c FROM memories").first() as any;
   if ((count?.c ?? 0) > 0) return;
@@ -4508,6 +4518,7 @@ audio{width:300px;margin-top:4px}
         if (!done) {
           await env.PHONE_STATE.put(`morning:${todayStr}`, '1', { expirationTtl: 86400 * 2 });
           ctx.waitUntil(morningRitual(env));
+          ctx.waitUntil(decayMemoryHeat(env));
         }
       }
       if (utcH === 15 && utcM < 15) {
