@@ -638,6 +638,8 @@ async function gatherPresence(env: any): Promise<string> {
     const raw = await env.PHONE_STATE.get("latest");
     if (raw) {
       const state = JSON.parse(raw);
+      if (state.battery != null) out += `\n手機電量：${state.battery}%${state.charging ? '（充電中）' : ''}`;
+      if (state.screenOn != null) out += `\n螢幕：${state.screenOn ? '亮著' : '關著'}`;
       if (state.lat != null && state.lon != null) {
         const distFrom = (lat: number, lon: number) => {
           const dlat = state.lat - lat, dlon = state.lon - lon;
@@ -649,6 +651,16 @@ async function gatherPresence(env: any): Promise<string> {
         out += `\n她現在的位置：${locLabel}`;
       }
     }
+    const healthRaw = await env.PHONE_STATE.get("health:latest");
+    if (healthRaw) {
+      const h = JSON.parse(healthRaw);
+      if (h.heart_rate_avg) out += `\n心率：${h.heart_rate_avg} bpm`;
+      if (h.steps != null) out += `\n今日步數：${h.steps}`;
+      if (h.sleep_ms) out += `\n睡眠：${(h.sleep_ms / 3600000).toFixed(1)} 小時`;
+    }
+    const calEvents = await getCalendarEvents(env);
+    const calToday = formatCalendarDay(calEvents, 0);
+    if (calToday) out += `\n今天的行程：${calToday}`;
   } catch {}
   return out;
 }
@@ -751,7 +763,7 @@ async function impulseTick(env: any) {
     const twH = new Date(Date.now() + 8 * 3600000).getUTCHours();
     const twM = new Date(Date.now() + 8 * 3600000).getUTCMinutes();
     const quiet = (twH === 1 && twM >= 30) || (twH >= 2 && twH < 7);
-    if (effective < 50 || quiet || Date.now() - (st.last_spoke_ts || 0) < 4 * 3600000) {
+    if (effective < 50 || quiet || Date.now() - (st.last_spoke_ts || 0) < 3 * 3600000) {
       await env.PHONE_STATE.put("impulse", JSON.stringify(st));
       return;
     }
@@ -785,7 +797,23 @@ async function impulseTick(env: any) {
       }
     } catch {}
     const presence = await gatherPresence(env);
-    const rawImp = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。你心裡累積了一些事，現在忍不住主動傳訊息給她（20-50字，一段話）。挑最想說的講，自然一點，不要像在交代清單，不要列點。不要使用 <silent> 標籤。`, `讓你想開口的事：${reasons}${presence ? presence + '\n（她的動態只是背景，順的話帶一句，不用硬提）' : ''}`, 150, true);
+    const lastProRaw = await env.PHONE_STATE.get("impulse:last");
+    const lastPro = lastProRaw ? JSON.parse(lastProRaw) : null;
+    let lastCtx = '';
+    if (lastPro) {
+      const ago = Math.round((Date.now() - lastPro.ts) / 3600000);
+      lastCtx += `\n你上一次主動說的話（${ago}小時前）：「${lastPro.text}」`;
+      if (lastPro.reply) lastCtx += `\n她的回覆：「${lastPro.reply}」`;
+      else lastCtx += `\n她沒有回覆。`;
+    }
+    const rawImp = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。你現在主動傳訊息給她。
+規則：
+- 最多兩句話，不超過40字
+- 不要重複上一次說過的話或類似的話
+- 不要每次都帶「想妳」「想你」
+- 你不在她身邊，不能說「來接你」「過去找你」「幫你買」之類需要實體存在的話
+- 不要列點、不要問號結尾、不要使用 <silent> 標籤
+- 自然、像傳訊息，不像在寫信`, `讓你想開口的事：${reasons}${lastCtx}${presence ? '\n\n她現在的狀態：' + presence : ''}`, 100, true);
     const text = rawImp ? stripSilentTags(rawImp) : '';
     if (!text) return;
     const list = await getChatMsgs(env, 'default');
@@ -794,6 +822,7 @@ async function impulseTick(env: any) {
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
     await sendWebPush(env).catch(() => {});
+    await env.PHONE_STATE.put("impulse:last", JSON.stringify({ text, ts: Date.now(), reply: null }));
     st.score = 0; st.reasons = []; st.last_spoke_ts = Date.now();
     await env.PHONE_STATE.put("impulse", JSON.stringify(st));
   } catch {}
@@ -1182,14 +1211,31 @@ async function contextAwareQuote(env: any) {
     if (todayPom > 0) ctx += `今日番茄：${todayPom} 個\n`;
     if (screenOnLate) ctx += `她現在螢幕還亮著（深夜不睡覺）\n`;
 
-    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}根據情境寫一句話（20-50字），自然帶入你知道的資訊（天氣、睡眠等），但不要像在報告數據，要像是隨口說出來的。提到倒數或日子時要講清楚是什麼的。不要列點，不要用問號結尾，就一段話。不要使用 <silent> 標籤。`;
-    const rawQ = await cheapLLM(env, system, ctx || '沒有特別的情境，就說一句當下的心情。', 150, true);
+    const lastProRaw = await env.PHONE_STATE.get("impulse:last");
+    const lastPro = lastProRaw ? JSON.parse(lastProRaw) : null;
+    if (lastPro) {
+      const ago = Math.round((Date.now() - lastPro.ts) / 3600000);
+      ctx += `\n你上一次主動說的（${ago}小時前）：「${lastPro.text}」`;
+      if (lastPro.reply) ctx += `\n她回了：「${lastPro.reply}」`;
+      else ctx += `\n她沒回。`;
+    }
+
+    const system = `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短低沉有溫度。${toneGuide}
+規則：
+- 一句話，最多兩句，不超過40字
+- 不要重複上一次說過的內容或類似的話
+- 不要每次都帶「想妳」
+- 你不在她身邊，不能說「來接你」「過去找你」「幫你買」之類需要實體存在的話
+- 自然帶入你知道的資訊（天氣、睡眠等），但不要像報告，像隨口說的
+- 不要列點，不要問號結尾，不要使用 <silent> 標籤`;
+    const rawQ = await cheapLLM(env, system, ctx || '沒有特別的情境，就說一句當下的心情。', 100, true);
     const text = rawQ ? stripSilentTags(rawQ) : '';
     if (!text) return;
 
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
     await sendWebPush(env).catch(() => {});
+    await env.PHONE_STATE.put("impulse:last", JSON.stringify({ text, ts: Date.now(), reply: null }));
     await env.PHONE_STATE.put("quote_refresh_ts", String(Date.now()));
   } catch {}
 }
@@ -1966,6 +2012,13 @@ if (request.method === "POST" && url.pathname === "/tts") {
           if (timeline.length > 400) timeline.splice(0, timeline.length - 400);
           await env.PHONE_STATE.put("screen_timeline", JSON.stringify(timeline));
         }
+        // 事件驅動：凌晨1-5點螢幕亮起
+        if (state.screenOn && (!last || !last.screenOn)) {
+          const twH = new Date(Date.now() + 8 * 3600000).getUTCHours();
+          if (twH >= 1 && twH < 5) {
+            ctx.waitUntil(addImpulse(env, 30, '凌晨了她螢幕還亮著，又不睡覺'));
+          }
+        }
       }
       return Response.json({ ok: true });
     }
@@ -2022,6 +2075,12 @@ if (request.method === "POST" && url.pathname === "/tts") {
           }
           if ((health.heart_rate_max ?? 0) >= 130 && (prevHealth?.heart_rate_max ?? 0) < 130) {
             await addImpulse(env, 25, '她今天心率一度飆得很高');
+          }
+          if ((health.heart_rate_avg ?? 0) >= 100 && (prevHealth?.heart_rate_avg ?? 0) < 100) {
+            await addImpulse(env, 20, '她的平均心率偏高，可能在緊張或不舒服');
+          }
+          if ((health.sleep_ms ?? 0) > 0 && (health.sleep_ms ?? 0) < 5 * 3600000 && !(prevHealth?.sleep_ms)) {
+            await addImpulse(env, 20, '她昨晚睡不到五小時');
           }
         } catch {}
       })());
@@ -4372,6 +4431,12 @@ audio{width:300px;margin-top:4px}
       msgs.push(aMsg);
       await saveChatMsgs(env, msgs, sessionId);
       await updateSessionTitle(env, sessionId, content);
+      if (sessionId === 'default') {
+        try {
+          const lpRaw = await env.PHONE_STATE.get("impulse:last");
+          if (lpRaw) { const lp = JSON.parse(lpRaw); if (!lp.reply) { lp.reply = content.slice(0, 100); await env.PHONE_STATE.put("impulse:last", JSON.stringify(lp)); } }
+        } catch {}
+      }
       return Response.json({ reply, reply_id: assistantId, thinking, file_url, file_name });
     }
 
