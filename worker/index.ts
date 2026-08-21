@@ -1609,7 +1609,6 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
       "Content-Type": "application/json",
       "x-api-key": env.ANTHROPIC_KEY,
       "anthropic-version": "2023-06-01",
-      "anthropic-beta": "prompt-caching-2024-07-31",
     };
     const bodyObj: any = { model: modelId, max_tokens: maxTok, system: systemBlocks, tools, messages: m };
     if (usesThinking) bodyObj.thinking = { type: "adaptive" };
