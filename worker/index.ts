@@ -1844,13 +1844,16 @@ export default {
       await env.DB.prepare("CREATE TABLE IF NOT EXISTS usage_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, model TEXT NOT NULL, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_creation_tokens INTEGER DEFAULT 0, cache_read_tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0)").run();
       const now = Date.now();
       const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-      const [total, month, week, today] = await Promise.all([
+      const [total, month, week, today, cacheStats] = await Promise.all([
         env.DB.prepare("SELECT COUNT(*) as messages, COALESCE(SUM(cost_usd),0) as cost_usd FROM usage_log").first(),
         env.DB.prepare("SELECT COUNT(*) as messages, COALESCE(SUM(cost_usd),0) as cost_usd FROM usage_log WHERE ts >= ?").bind(now - 30*86400000).first(),
         env.DB.prepare("SELECT COUNT(*) as messages, COALESCE(SUM(cost_usd),0) as cost_usd FROM usage_log WHERE ts >= ?").bind(now - 7*86400000).first(),
         env.DB.prepare("SELECT COUNT(*) as messages, COALESCE(SUM(cost_usd),0) as cost_usd FROM usage_log WHERE ts >= ?").bind(todayStart.getTime()).first(),
+        env.DB.prepare("SELECT COALESCE(SUM(cache_creation_tokens),0) as created, COALESCE(SUM(cache_read_tokens),0) as read, COALESCE(SUM(input_tokens),0) as total_input FROM usage_log WHERE ts >= ?").bind(now - 7*86400000).first(),
       ]);
-      return Response.json({ total, month, week, today });
+      const cache = cacheStats as any;
+      const cacheHitRate = cache.total_input > 0 ? Math.round(cache.read / cache.total_input * 100) : 0;
+      return Response.json({ total, month, week, today, cache_7d: { created: cache.created, read: cache.read, total_input: cache.total_input, hit_rate_pct: cacheHitRate } });
     }
 
     // GET /vapid-public-key — 不需要 token
@@ -4446,7 +4449,7 @@ audio{width:300px;margin-top:4px}
         if (file_url) { lastMsg.file_url = file_url; lastMsg.file_name = file_name; }
         withoutLast.push(lastMsg);
         await saveChatMsgs(env, withoutLast, sessionId);
-        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name });
+        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name, usage });
       }
 
       if (body.edit_regen) {
@@ -4458,7 +4461,7 @@ audio{width:300px;margin-top:4px}
         if (file_url) { aMsg.file_url = file_url; aMsg.file_name = file_name; }
         msgs.push(aMsg);
         await saveChatMsgs(env, msgs, sessionId);
-        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name });
+        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name, usage });
       }
 
       // Normal send
@@ -4482,7 +4485,7 @@ audio{width:300px;margin-top:4px}
           if (lpRaw) { const lp = JSON.parse(lpRaw); if (!lp.reply) { lp.reply = content.slice(0, 100); await env.PHONE_STATE.put("impulse:last", JSON.stringify(lp)); } }
         } catch {}
       }
-      return Response.json({ reply, reply_id: assistantId, thinking, file_url, file_name });
+      return Response.json({ reply, reply_id: assistantId, thinking, file_url, file_name, usage });
     }
 
     // POST /api/chat/edit
