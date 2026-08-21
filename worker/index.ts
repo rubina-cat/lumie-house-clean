@@ -1514,9 +1514,9 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
 [/file]
 只有真的是「可以獨立執行的成品」才用這個格式。純聊天、解釋說明、短程式碼片段不需要。`;
   const systemBlocks: any[] = [
-    { type: "text", text: staticSystemText, cache_control: { type: "ephemeral" } },
+    { type: "text", text: staticSystemText },
   ];
-  if (memText) systemBlocks.push({ type: "text", text: memText, cache_control: { type: "ephemeral" } });
+  if (memText) systemBlocks.push({ type: "text", text: memText });
   if (relText) systemBlocks.push({ type: "text", text: relText });
   if (goalText) systemBlocks.push({ type: "text", text: goalText });
   // 時間感知：現在幾點＋距上句話多久（history 最後一則是這次的新訊息，看它前一則）
@@ -1612,15 +1612,16 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     };
     const bodyObj: any = { model: modelId, max_tokens: maxTok, system: systemBlocks, tools, messages: m };
     if (usesThinking) bodyObj.thinking = { type: "adaptive" };
-    const retryable = new Set([403, 429, 500, 502, 503, 529]);
+    const retryable = new Set([429, 500, 502, 503, 529]);
     for (let attempt = 0; attempt < 3; attempt++) {
       const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(bodyObj) });
       if (r.ok) return r.json() as Promise<any>;
+      const errText = await r.text().catch(() => `HTTP ${r.status}`);
+      console.error(`Anthropic API error ${r.status} (attempt ${attempt + 1}):`, errText.slice(0, 500));
       if (retryable.has(r.status) && attempt < 2) {
         await new Promise(ok => setTimeout(ok, (attempt + 1) * 2000));
         continue;
       }
-      const errText = await r.text().catch(() => `HTTP ${r.status}`);
       throw new Error(`Anthropic ${r.status}: ${errText.slice(0, 200)}`);
     }
   };
