@@ -4381,6 +4381,33 @@ audio{width:300px;margin-top:4px}
       }
     }
 
+    // GET /api/debug-anthropic — 最小 API 測試，找出 403 原因
+    if (request.method === "GET" && url.pathname === "/api/debug-anthropic") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const results: any = {};
+      const tests = [
+        { name: "minimal_string", body: { model: "claude-haiku-4-5", max_tokens: 50, system: "你好", messages: [{ role: "user", content: "說 hi" }] } },
+        { name: "system_array", body: { model: "claude-haiku-4-5", max_tokens: 50, system: [{ type: "text", text: "你好" }], messages: [{ role: "user", content: "說 hi" }] } },
+        { name: "with_cache_control", body: { model: "claude-haiku-4-5", max_tokens: 50, system: [{ type: "text", text: "你好", cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: "說 hi" }] } },
+        { name: "with_tools", body: { model: "claude-haiku-4-5", max_tokens: 50, system: "你好", tools: [{ name: "test", description: "test", input_schema: { type: "object", properties: {} } }], messages: [{ role: "user", content: "說 hi" }] } },
+      ];
+      for (const t of tests) {
+        try {
+          const r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+            body: JSON.stringify(t.body),
+          });
+          const txt = await r.text();
+          results[t.name] = { status: r.status, body: txt.slice(0, 300) };
+        } catch (e: any) {
+          results[t.name] = { error: e.message };
+        }
+      }
+      return Response.json(results, { headers: { "Content-Type": "application/json" } });
+    }
+
     // POST /api/chat/send
     if (request.method === "POST" && url.pathname === "/api/chat/send") {
       const auth = request.headers.get("Authorization");
