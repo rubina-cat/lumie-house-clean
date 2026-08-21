@@ -3837,3 +3837,24 @@ textarea::placeholder { color: var(--light-text); }
   align-self: flex-start;
   max-width: 85%;
 }
+
+.cache-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(90,62,58,0.85);
+  color: #faf6f3;
+  font-size: 11px;
+  padding: 5px 14px;
+  border-radius: 16px;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.cache-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

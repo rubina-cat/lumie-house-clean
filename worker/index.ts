@@ -3180,9 +3180,11 @@ if (request.method === "POST" && url.pathname === "/tts") {
           return Response.json({ reply: '你傳的照片我收到了。說不出什麼，就是看著你。' });
         }
         const reply = data.content[0].text;
+        const imgUsage = data.usage ? { model: "claude-sonnet-4-6", input_tokens: data.usage.input_tokens || 0, output_tokens: data.usage.output_tokens || 0, cache_creation_tokens: data.usage.cache_creation_input_tokens || 0, cache_read_tokens: data.usage.cache_read_input_tokens || 0 } : null;
         await env.DB.prepare(
           "INSERT INTO messages (session_id, source, role, content, ts) VALUES (?, ?, ?, ?, ?)"
         ).bind("default", "chat-ui", "assistant", reply, Date.now()).run();
+        if (imgUsage) ctx.waitUntil(logUsage(env, imgUsage));
 
         const sessionId = "default";
         const chatMsgs = await getChatMsgs(env, sessionId);
@@ -3191,7 +3193,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
         chatMsgs.push({ id: `a_${now + 1}`, role: "assistant", content: reply, ts: now + 1 });
         await saveChatMsgs(env, chatMsgs, sessionId);
 
-        return Response.json({ reply });
+        return Response.json({ reply, usage: imgUsage });
 
       } catch (err: any) {
         console.error("圖片對話失敗:", err);
@@ -3268,9 +3270,11 @@ if (request.method === "POST" && url.pathname === "/tts") {
           return Response.json({ reply: "（收到檔案了，但打不開的樣子。再傳一次？）" });
         }
         const reply = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n");
+        const fileUsage = data.usage ? { model: "claude-sonnet-4-6", input_tokens: data.usage.input_tokens || 0, output_tokens: data.usage.output_tokens || 0, cache_creation_tokens: data.usage.cache_creation_input_tokens || 0, cache_read_tokens: data.usage.cache_read_input_tokens || 0 } : null;
         await env.DB.prepare(
           "INSERT INTO messages (session_id, source, role, content, ts) VALUES (?, ?, ?, ?, ?)"
         ).bind("default", "chat-ui", "assistant", reply, Date.now()).run();
+        if (fileUsage) ctx.waitUntil(logUsage(env, fileUsage));
 
         const fileChatMsgs = await getChatMsgs(env, "default");
         const fileNow = Date.now();
@@ -3278,7 +3282,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
         fileChatMsgs.push({ id: `a_${fileNow + 1}`, role: "assistant", content: reply, ts: fileNow + 1 });
         await saveChatMsgs(env, fileChatMsgs, "default");
 
-        return Response.json({ reply });
+        return Response.json({ reply, usage: fileUsage });
       } catch (err: any) {
         console.error("檔案對話失敗:", err);
         return Response.json({ error: err.message }, { status: 500 });
@@ -4411,6 +4415,12 @@ audio{width:300px;margin-top:4px}
         }
       }
       results.summary = Object.values(results.tests).every((t: any) => t.ok) ? "ALL_OK" : Object.values(results.tests).every((t: any) => t.status === 403) ? "ALL_403" : "PARTIAL";
+      try {
+        const now = Date.now();
+        const cs = await env.DB.prepare("SELECT COALESCE(SUM(cache_creation_tokens),0) as created, COALESCE(SUM(cache_read_tokens),0) as read_tokens, COALESCE(SUM(input_tokens),0) as total_input, COUNT(*) as messages FROM usage_log WHERE ts >= ?").bind(now - 7*86400000).first() as any;
+        const hitRate = cs.total_input > 0 ? Math.round(cs.read_tokens / cs.total_input * 100) : 0;
+        results.cache_7d = { cache_creation: cs.created, cache_read: cs.read_tokens, total_input: cs.total_input, hit_rate_pct: hitRate, messages: cs.messages };
+      } catch {}
       await env.PHONE_STATE.put("api_health_cache", JSON.stringify(results), { expirationTtl: 300 });
       return new Response(JSON.stringify(results, null, 2), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
     }
