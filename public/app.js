@@ -704,6 +704,25 @@ function changeModel(val) {
   localStorage.setItem('chat_model', val);
 }
 
+function _showCacheToast(usage) {
+  if (!usage) return;
+  const cr = usage.cache_read_tokens || 0;
+  const cc = usage.cache_creation_tokens || 0;
+  const inp = usage.input_tokens || 0;
+  if (!inp && !cr && !cc) return;
+  const pct = inp > 0 ? Math.round(cr / inp * 100) : 0;
+  let label = '';
+  if (cr > 0) label = '⚡ cache hit ' + pct + '% (' + cr + ' tokens)';
+  else if (cc > 0) label = '📦 cache created (' + cc + ' tokens)';
+  else label = 'no cache';
+  const el = document.createElement('div');
+  el.className = 'cache-toast';
+  el.textContent = label;
+  document.body.appendChild(el);
+  setTimeout(() => { el.classList.add('show'); }, 10);
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 4000);
+}
+
 function buildMsgEl(msg, isLast) {
   const wrap = document.createElement('div');
   wrap.className = 'msg-wrap';
@@ -850,6 +869,7 @@ async function send() {
       chatMsgs = msgs;
       renderAllMsgs();
       try { localStorage.setItem(CHAT_SNAP_KEY, JSON.stringify(chatMsgs.slice(-50))); } catch {}
+      if (d.usage) _showCacheToast(d.usage);
     }
   } catch {
     typingEl.textContent = '連線錯誤';
@@ -873,6 +893,7 @@ async function regenerate() {
     if (d.reply) {
       chatMsgs = await _fetchChatMsgs();
       renderAllMsgs();
+      if (d.usage) _showCacheToast(d.usage);
     }
   } catch {
     typingEl.textContent = '重新生成失敗';
@@ -927,10 +948,11 @@ async function saveEdit(msgId, btn) {
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
       body: JSON.stringify({ edit_regen: true, session_id: currentSession }),
     });
-    await r2.json();
+    const d2 = await r2.json();
     typingEl.remove();
     chatMsgs = await _fetchChatMsgs();
     renderAllMsgs();
+    if (d2.usage) _showCacheToast(d2.usage);
   } catch {}
   chatSending = false;
 }
@@ -2062,6 +2084,7 @@ async function sendImageMessage(file, textMessage) {
     chatMsgs = await _fetchChatMsgs();
     renderAllMsgs();
     try { localStorage.setItem(CHAT_SNAP_KEY, JSON.stringify(chatMsgs.slice(-50))); } catch {}
+    if (data.usage) _showCacheToast(data.usage);
   } catch (error) {
     thinking.remove(); addMsg('assistant', '（看不太清那張照片，網路好像有些模糊……）');
   }
@@ -2089,6 +2112,7 @@ async function sendChatFile(input) {
     chatMsgs = await _fetchChatMsgs();
     renderAllMsgs();
     try { localStorage.setItem(CHAT_SNAP_KEY, JSON.stringify(chatMsgs.slice(-50))); } catch {}
+    if (data.usage) _showCacheToast(data.usage);
   } catch {
     thinking.remove(); addMsg('assistant', '（檔案好像傳丟了，再試一次？）');
   }
