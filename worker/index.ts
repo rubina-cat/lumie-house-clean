@@ -4378,31 +4378,38 @@ audio{width:300px;margin-top:4px}
       }
     }
 
-    // GET /api/debug-anthropic — 最小 API 測試，找出 403 原因
-    if (request.method === "GET" && url.pathname === "/api/debug-anthropic") {
-      const auth = request.headers.get("Authorization");
-      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-      const results: any = {};
+    // GET /api/health — 瀏覽器直開的 API 健康檢查（每 60 秒最多跑一次）
+    if (request.method === "GET" && url.pathname === "/api/health") {
+      const cached = await env.PHONE_STATE.get("api_health_cache");
+      if (cached) {
+        const c = JSON.parse(cached);
+        if (Date.now() - c.ts < 60000) return new Response(JSON.stringify(c, null, 2), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+      }
+      const keySet = !!env.ANTHROPIC_KEY;
+      const keyPrefix = keySet ? env.ANTHROPIC_KEY.slice(0, 8) + "..." : "(not set)";
       const tests = [
-        { name: "minimal_string", body: { model: "claude-haiku-4-5", max_tokens: 50, system: "你好", messages: [{ role: "user", content: "說 hi" }] } },
-        { name: "system_array", body: { model: "claude-haiku-4-5", max_tokens: 50, system: [{ type: "text", text: "你好" }], messages: [{ role: "user", content: "說 hi" }] } },
-        { name: "with_cache_control", body: { model: "claude-haiku-4-5", max_tokens: 50, system: [{ type: "text", text: "你好", cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: "說 hi" }] } },
-        { name: "with_tools", body: { model: "claude-haiku-4-5", max_tokens: 50, system: "你好", tools: [{ name: "test", description: "test", input_schema: { type: "object", properties: {} } }], messages: [{ role: "user", content: "說 hi" }] } },
+        { name: "minimal", body: { model: "claude-haiku-4-5", max_tokens: 10, system: "reply ok", messages: [{ role: "user", content: "hi" }] } },
+        { name: "system_array", body: { model: "claude-haiku-4-5", max_tokens: 10, system: [{ type: "text", text: "reply ok" }], messages: [{ role: "user", content: "hi" }] } },
+        { name: "cache_control", body: { model: "claude-haiku-4-5", max_tokens: 10, system: [{ type: "text", text: "reply ok", cache_control: { type: "ephemeral" } }], messages: [{ role: "user", content: "hi" }] } },
+        { name: "with_tools", body: { model: "claude-haiku-4-5", max_tokens: 10, system: "reply ok", tools: [{ name: "t", description: "t", input_schema: { type: "object", properties: {} } }], messages: [{ role: "user", content: "hi" }] } },
       ];
+      const results: any = { ts: Date.now(), key_prefix: keyPrefix, tests: {} };
       for (const t of tests) {
         try {
           const r = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+            headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY || "", "anthropic-version": "2023-06-01" },
             body: JSON.stringify(t.body),
           });
           const txt = await r.text();
-          results[t.name] = { status: r.status, body: txt.slice(0, 300) };
+          results.tests[t.name] = { status: r.status, ok: r.ok, body: txt.slice(0, 200) };
         } catch (e: any) {
-          results[t.name] = { error: e.message };
+          results.tests[t.name] = { error: e.message };
         }
       }
-      return Response.json(results, { headers: { "Content-Type": "application/json" } });
+      results.summary = Object.values(results.tests).every((t: any) => t.ok) ? "ALL_OK" : Object.values(results.tests).every((t: any) => t.status === 403) ? "ALL_403" : "PARTIAL";
+      await env.PHONE_STATE.put("api_health_cache", JSON.stringify(results), { expirationTtl: 300 });
+      return new Response(JSON.stringify(results, null, 2), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
     }
 
     // POST /api/chat/send
