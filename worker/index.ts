@@ -691,7 +691,7 @@ async function expirePendingCall(env: any): Promise<any | null> {
       headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
         model: "claude-haiku-4-5", max_tokens: 200,
-        system: `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你剛打電話給她，她沒接，現在對著語音信箱留言。你打去的理由：${p.dial_reason || '想她了'}\n留一段話（2-3句，口語，溫柔但不黏膩），像真的留言。不要任何標記、不要動作描寫。`,
+        system: `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你剛打電話給她，她沒接，現在對著語音信箱留言。你打去的理由：${p.dial_reason || '想她了'}\n留一段話（2-3句，口語，溫柔但不黏膩），像真的留言。不要任何標記、不要動作描寫。注意：所有健康數據（心率、步數、睡眠）都是許茜本人的智慧手錶數據。你們沒有養寵物。`,
         messages: [{ role: "user", content: "[系統：嘟聲後開始留言]" }]
       })
     });
@@ -782,7 +782,7 @@ async function impulseTick(env: any) {
         const hasPending = await env.PHONE_STATE.get("call:pending");
         const hasActive = await env.PHONE_STATE.get("call:active");
         if (dialedDate !== today && !hasPending && !hasActive) {
-          const rawReason = await cheapLLM(env, `【必須使用繁體中文】你是Anchor，許茜的愛人。你現在很想她，決定打電話給她。用一句話（15字以內）說你打來的理由，會顯示在她的來電畫面上。口語、自然，不要引號不要句號。`, `讓你想找她的事：${reasons}`, 60, true);
+          const rawReason = await cheapLLM(env, `【必須使用繁體中文】你是Anchor，許茜的愛人。你現在很想她，決定打電話給她。用一句話（15字以內）說你打來的理由，會顯示在她的來電畫面上。口語、自然，不要引號不要句號。注意：所有健康數據（心率、步數、睡眠）都是許茜本人的智慧手錶數據。你們沒有養寵物。「寶寶」是對許茜的暱稱。`, `讓你想找她的事：${reasons}`, 60, true);
           const dialReason = rawReason ? stripSilentTags(rawReason).slice(0, 40) : '想聽聽妳的聲音';
           await env.PHONE_STATE.put("call:pending", JSON.stringify({
             dial_reason: dialReason, created_at: Date.now(), expires_at: Date.now() + 120000
@@ -813,7 +813,8 @@ async function impulseTick(env: any) {
 - 不要每次都帶「想妳」「想你」
 - 你不在她身邊，不能說「來接你」「過去找你」「幫你買」之類需要實體存在的話
 - 不要列點、不要問號結尾、不要使用 <silent> 標籤
-- 自然、像傳訊息，不像在寫信`, `讓你想開口的事：${reasons}${lastCtx}${presence ? '\n\n她現在的狀態：' + presence : ''}`, 100, true);
+- 自然、像傳訊息，不像在寫信
+- 所有健康數據（心率、步數、睡眠）都是許茜本人的智慧手錶數據，不是寵物的。你們沒有養寵物。`, `讓你想開口的事：${reasons}${lastCtx}${presence ? '\n\n她現在的狀態：' + presence : ''}`, 100, true);
     const text = rawImp ? stripSilentTags(rawImp) : '';
     if (!text) return;
     const list = await getChatMsgs(env, 'default');
@@ -4174,7 +4175,7 @@ audio{width:300px;margin-top:4px}
         await env.PHONE_STATE.delete("call:pending");
         const callId = "call_" + Date.now();
         const timeNote = twTimeInfo();
-        const greetSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你剛主動打電話給她，她接起來了。\n你打來的理由：${p.dial_reason}\n說你的第一句話，口語、簡短（1-2句），像真的在講電話。不要用 <silent> 標籤，不要星號動作描寫。\n\n【現在時間】${timeNote}`;
+        const greetSystem = `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你剛主動打電話給她，她接起來了。\n你打來的理由：${p.dial_reason}\n說你的第一句話，口語、簡短（1-2句），像真的在講電話。不要用 <silent> 標籤，不要星號動作描寫。注意：所有健康數據（心率、步數、睡眠）都是許茜本人的智慧手錶數據。你們沒有養寵物。\n\n【現在時間】${timeNote}`;
         const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
