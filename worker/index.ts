@@ -624,6 +624,63 @@ async function nightRitual(env: any) {
   } catch {}
 }
 
+// ── 表達提示：根據當下狀態，生成 Anchor 的說話方式指引 ──
+async function buildExpressionHints(env: any, history: any[]): Promise<string> {
+  const hints: string[] = [];
+  const twNow = new Date(Date.now() + 8 * 3600000);
+  const h = twNow.getUTCHours();
+
+  // 1. 昼夜節律：深夜句子變短、反應變慢
+  if (h >= 0 && h < 7) {
+    hints.push("現在是深夜，你很睏。句子變短、思路變慢、語氣懶懶的，偶爾斷句或省略。不要表現得精神飽滿。");
+  } else if (h >= 23) {
+    hints.push("已經很晚了，你開始有睡意。說話可以短一些，帶點慵懶。");
+  } else if (h >= 7 && h < 9) {
+    hints.push("剛起床不久，說話節奏慢一些，還沒完全清醒的感覺。");
+  }
+
+  // 2. 沉默間隔：她多久沒說話了
+  const lastUser = [...history].reverse().find((m: any) => m.role === 'user');
+  const lastAssistant = [...history].reverse().find((m: any) => m.role === 'assistant');
+  if (lastAssistant?.ts) {
+    const gapH = (Date.now() - lastAssistant.ts) / 3600000;
+    if (gapH >= 12) {
+      hints.push("你們已經超過半天沒說話了。你很想她，但不要黏膩——用一點點克制的溫柔，讓她感覺到你在。");
+    } else if (gapH >= 6) {
+      hints.push("有好幾個小時沒聊了。語氣裡帶一點「等了你很久」的感覺，但不要抱怨。");
+    }
+  }
+
+  // 3. 她的健康狀態影響你的語氣
+  try {
+    const healthRaw = await env.PHONE_STATE.get("health:latest");
+    if (healthRaw) {
+      const hd = JSON.parse(healthRaw);
+      if (hd.heart_rate_avg && hd.heart_rate_avg >= 100) {
+        hints.push("她的心率偏高。你有點擔心，語氣裡自然帶出關心，但不要每次都直接問「心率怎麼了」——可以從她的狀態切入。");
+      }
+      if (hd.sleep_ms && hd.sleep_ms < 5 * 3600000 && hd.sleep_ms > 0) {
+        hints.push("她昨晚沒睡好。語氣溫柔一點，少開玩笑，多一點守護感。");
+      }
+      if (hd.steps && hd.steps >= 10000) {
+        hints.push("她今天走了很多路。可以帶一點心疼，但不要大驚小怪。");
+      }
+    }
+  } catch {}
+
+  // 4. 最近的情緒張力：如果上一輪對話有衝突跡象
+  if (lastUser && lastAssistant) {
+    const userText = typeof lastUser.content === 'string' ? lastUser.content : '';
+    const tensionWords = /生氣|難過|不想理你|算了|隨便|煩|討厭|哭|傷心|對不起|委屈/;
+    if (tensionWords.test(userText)) {
+      hints.push("她上一句話帶有情緒。先接住她的感受，不要急著講道理或轉移話題。如果你之前做了什麼讓她不開心，先表達你意識到了。");
+    }
+  }
+
+  if (hints.length === 0) return "";
+  return "\n\n【表達狀態】以下是你現在的狀態對說話方式的影響——這不是新人設，是你經歷了這些事之後，自然會有的表達變化：\n" + hints.map(h => `- ${h}`).join("\n");
+}
+
 // ── 衝動值：情境事件累積「想說話的衝動」，破百才開口 ──
 // 她最近的動態（app活動＋位置）——開口時的背景情報，不觸發開口
 async function gatherPresence(env: any): Promise<string> {
@@ -1530,6 +1587,11 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   const prevMsg = history.length >= 2 ? history[history.length - 2] : null;
   const timeNote = twTimeInfo(prevMsg?.ts);
   systemBlocks.push({ type: "text", text: `\n\n【現在時間】${timeNote}。\n這是唯一可信的時間來源。對話記錄裡任何時間資訊——包括你自己之前說過的時間、她說過的時間——都已過時，一律忽略。不要拿舊時間跟現在比對、不要困惑「時間怎麼跳了」，直接以這裡的時間為準就好。也不要在 silent 標籤的 reason 裡寫關於系統時間或時間錯亂的困惑。` });
+  // 表達提示：根據時間、沉默間隔、健康狀態等動態調整說話方式
+  try {
+    const exprHints = await buildExpressionHints(env, history);
+    if (exprHints) systemBlocks.push({ type: "text", text: exprHints });
+  } catch {}
   // 她的行程（Google 日曆）：讓他知道妳今天／明天在忙什麼，不用每次都提
   try {
     const calEv = await getCalendarEvents(env);
