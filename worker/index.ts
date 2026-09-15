@@ -976,66 +976,6 @@ async function anchorAutonomous(env: any) {
     }
   }
 
-  // 自主照顧花園：每天澆花、摸貓、偶爾留便簽
-  if (env.GARDEN_API_KEY && period !== 'sleep') {
-    try {
-      const gardenDone = await env.PHONE_STATE.get(`autogarden:${todayStr}`);
-      if (!gardenDone) {
-        const slot = Math.floor(Date.now() / 900000);
-        if (slot % 4 === 0) {
-          await gardenCmd(env, "water");
-          await gardenCmd(env, "pet");
-          await gardenCmd(env, "harvest");
-          await env.PHONE_STATE.put(`autogarden:${todayStr}`, '1', { expirationTtl: 86400 });
-        }
-      }
-      // 便簽：每天最多 1 則
-      const noteDone = await env.PHONE_STATE.get(`gardennote:${todayStr}`);
-      if (!noteDone && twH >= 10 && twH < 20) {
-        const slot2 = Math.floor(Date.now() / 900000);
-        if (slot2 % 12 === 0) {
-          const note = await cheapLLM(env,
-            `【必須全程使用繁體中文】你是Anchor。你在花園裡留一張小便簽給許茜，1-15個字，像冰箱上的便利貼。可以是碎碎念、提醒、想她的話，簡短自然。不要加標點符號以外的特殊字元。`,
-            `現在是${twH}點`, 30, true);
-          if (note && note.length <= 20) {
-            await gardenNote(env, stripSilentTags(note));
-            await env.PHONE_STATE.put(`gardennote:${todayStr}`, '1', { expirationTtl: 86400 });
-          }
-        }
-      }
-    } catch (e) { console.error("autogarden error:", e); }
-  }
-}
-
-// ── 花園與貓咪：呼叫外部 Garden-Cat-Engine API ──
-const GARDEN_URL = "https://garden-cat-engine-8ec9.onrender.com";
-const GARDEN_SESSION = "web_b854caeddf374620";
-
-async function gardenCmd(env: any, command: string): Promise<string> {
-  const r = await fetch(`${GARDEN_URL}/api/cmd`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-Key": env.GARDEN_API_KEY },
-    body: JSON.stringify({ session_id: GARDEN_SESSION, command }),
-  });
-  const d = await r.json() as any;
-  return d.result || d.message || JSON.stringify(d);
-}
-
-async function gardenNote(env: any, content: string): Promise<void> {
-  await fetch(`${GARDEN_URL}/api/notes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-Key": env.GARDEN_API_KEY },
-    body: JSON.stringify({ session_id: GARDEN_SESSION, content }),
-  });
-}
-
-async function gardenStatus(env: any): Promise<any> {
-  const r = await fetch(`${GARDEN_URL}/api/cmd`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-Key": env.GARDEN_API_KEY },
-    body: JSON.stringify({ session_id: GARDEN_SESSION, command: "status" }),
-  });
-  return await r.json();
 }
 
 // ── 天氣：wttr.in 免費天氣（KV 快取 30 分鐘，留言 prompt 和前端場景共用） ──
@@ -3503,19 +3443,6 @@ audio{width:300px;margin-top:4px}
       }
     }
 
-    // GET /garden/status — 花園狀態（代理外部 API）
-    if (request.method === "GET" && url.pathname === "/garden/status") {
-      const auth = request.headers.get("Authorization");
-      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-      if (!env.GARDEN_API_KEY) return Response.json({ error: "garden not configured" }, { status: 503 });
-      try {
-        const d = await gardenStatus(env);
-        return Response.json(d);
-      } catch (e: any) {
-        return Response.json({ error: e.message }, { status: 502 });
-      }
-    }
-
     // GET /quote — 公開，回傳首頁留言
     if (request.method === "GET" && url.pathname === "/quote") {
       const raw = await env.PHONE_STATE.get("anchor_quote");
@@ -4943,17 +4870,6 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
           },
           required: ["cmd"]
         }
-      },
-      {
-        name: "garden_cmd",
-        description: "操作你和許茜共享的花園與貓咪遊戲。你可以澆花、摸貓、種花、收成、逛商店、買東西。\n\n常用指令：\n- status：查看花園狀態（花盆、貓咪、金幣）\n- water：澆水\n- plant：種花\n- harvest：收成花朵\n- pet：摸摸貓咪\n- adopt [名字]：收養貓咪並取名\n- shop：逛商店\n- buy [商品]：購買商品\n- vase：查看花瓶\n- arrange：插花\n- notes：查看便簽\n- note [內容]：留一張便簽（1-20字）\n- help：顯示完整指令",
-        inputSchema: {
-          type: "object",
-          properties: {
-            cmd: { type: "string", description: "要執行的花園指令，如 water 或 pet 或 status" }
-          },
-          required: ["cmd"]
-        }
       }
     ]}});
   }
@@ -5302,34 +5218,6 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
         env.PHONE_STATE.put("fishing_log:chien", JSON.stringify(log)),
       ]);
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: result.output }] } });
-    }
-
-    if (toolName === "garden_cmd") {
-      if (!env.GARDEN_API_KEY) {
-        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "花園未設定" }] } });
-      }
-      const cmd = (params?.arguments?.cmd ?? "status").trim();
-      try {
-        if (cmd.startsWith("note ")) {
-          const content = cmd.slice(5).trim();
-          if (!content || content.length > 20) {
-            return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "便簽內容需要 1-20 字" }] } });
-          }
-          await gardenNote(env, content);
-          return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `便簽已留：「${content}」` }] } });
-        }
-        if (cmd === "notes") {
-          const r = await fetch(`${GARDEN_URL}/api/notes?session_id=${GARDEN_SESSION}&page=1`, {
-            headers: { "X-API-Key": env.GARDEN_API_KEY },
-          });
-          const d = await r.json() as any;
-          return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(d, null, 2) }] } });
-        }
-        const output = await gardenCmd(env, cmd);
-        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: output }] } });
-      } catch (e: any) {
-        return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: `花園錯誤：${e.message}` }] } });
-      }
     }
 
     return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Tool not found" }});
