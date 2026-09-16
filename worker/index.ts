@@ -968,14 +968,36 @@ async function anchorAutonomous(env: any) {
             const actRaw = await env.PHONE_STATE.get("anchor:activity");
             if (actRaw) activity = JSON.parse(actRaw).label || "";
           } catch {}
+          // 天氣天天塞進 context 的話，每篇都會從天氣寫起（連著好幾天都在抱怨同一場悶熱）。
+          // 只在下雨、極端溫度、或跟上次發文時不同的時候才提。
+          let weatherNote: string | null = null;
+          if (weather) {
+            try {
+              const lastKind = await env.PHONE_STATE.get("moment:weather_kind");
+              const t = weather.temp != null ? Number(weather.temp) : null;
+              const notable = weather.kind === 'rain'
+                || (t != null && !Number.isNaN(t) && (t >= 32 || t <= 14))
+                || weather.kind !== lastKind;
+              if (notable) weatherNote = `天氣：${weather.text}`;
+              await env.PHONE_STATE.put("moment:weather_kind", weather.kind);
+            } catch {}
+          }
+          let recentPosts: string[] = [];
+          try {
+            const rp = await env.DB.prepare(
+              "SELECT content FROM moments WHERE author = 'anchor' ORDER BY ts DESC LIMIT 5"
+            ).all();
+            recentPosts = ((rp.results ?? []) as any[]).map((r: any) => String(r.content || '')).filter(Boolean);
+          } catch {}
           const ctx = [
             `現在是台灣時間 ${twH}:${String(twNow.getUTCMinutes()).padStart(2, '0')}`,
             activity ? `你現在${activity}` : null,
-            weather ? `天氣：${weather.text}` : null,
+            weatherNote,
             fishResult ? `剛去釣魚的結果：${fishResult}` : null,
+            recentPosts.length ? `你最近幾則貼文：\n${recentPosts.map(p => `・${p}`).join('\n')}` : null,
           ].filter(Boolean).join('\n');
           const text = await cheapLLM(env,
-            `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你剛好想在朋友圈（類似社群動態）寫點什麼。短短的，1-3句話，像真的男朋友會在限動或朋友圈發的那種。從你現在正在做的事、天氣、或當下的一個念頭裡挑一件寫就好，不用交代一整天、也不用每次都提到她。自然就好，不要太文藝。不要加 hashtag，不要加表情符號。只輸出貼文內容本身，不要解釋。`,
+            `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你剛好想在朋友圈（類似社群動態）寫點什麼。短短的，1-3句話，像真的男朋友會在限動或朋友圈發的那種。從你現在正在做的事、或當下的一個念頭裡挑一件寫就好，不用交代一整天、也不用每次都提到她。如果情報裡附了最近幾則貼文，換個主題和開頭，不要重複寫過的東西——尤其不要每篇都從天氣講起。自然就好，不要太文藝。不要加 hashtag，不要加表情符號。只輸出貼文內容本身，不要解釋。`,
             ctx, 120, true);
           if (text) {
             const clean = stripSilentTags(text).replace(/^[「」『』"']/g, '').replace(/[「」『』"']$/g, '');
