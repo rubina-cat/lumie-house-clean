@@ -944,28 +944,43 @@ async function anchorAutonomous(env: any) {
     await env.PHONE_STATE.put("anchor:activity", JSON.stringify({ id: 'sleeping', label: '在睡覺', ts: Date.now() }), { expirationTtl: 3600 });
   }
 
-  // 自主發朋友圈：每天最多 1 則，10:00–21:00 之間
+  // 自主發朋友圈：每天最多 1 則，時間每天不同，也不是每天都發
+  // Date.now() 的 15 分鐘格對齊 UTC epoch，直接取模會固定落在整點（舊版因此天天卡在 10:00），改用日期雜湊決定當天的時間
   if (twH >= 10 && twH < 21) {
     const posted = await env.PHONE_STATE.get(`automoment:${todayStr}`);
     if (!posted) {
-      // 用 15 分鐘 cron 的間隔做簡單的隨機：大約 1/8 機率觸發（平均 2 小時一次檢查，一天中 ~5-6 次機會）
-      const slot = Math.floor(Date.now() / 900000);
-      if (slot % 8 === 0) {
+      // 雜湊後再過一次 murmur finalizer：相鄰日期的 seed 只差 1，不打散位元的話時間會連續好幾天一樣
+      let seed = 7;
+      for (const ch of todayStr) seed = (Math.imul(seed, 31) + ch.charCodeAt(0)) >>> 0;
+      seed ^= seed >>> 16; seed = Math.imul(seed, 0x85ebca6b) >>> 0;
+      seed ^= seed >>> 13; seed = Math.imul(seed, 0xc2b2ae35) >>> 0;
+      seed = (seed ^ (seed >>> 16)) >>> 0;
+      const skipToday = seed % 10 < 3;                    // 約三成的日子不發
+      const targetSlot = 40 + ((seed >>> 8) % 44);        // 10:00–20:45 之間的某一格
+      const curSlot = twH * 4 + Math.floor(twNow.getUTCMinutes() / 15);
+      if (!skipToday && curSlot >= targetSlot) {
         try {
           await initMomentsTable(env);
           const weather = await getWeather(env);
           const fishResult = await env.PHONE_STATE.get("anchor:fish_result");
+          let activity = "";
+          try {
+            const actRaw = await env.PHONE_STATE.get("anchor:activity");
+            if (actRaw) activity = JSON.parse(actRaw).label || "";
+          } catch {}
           const ctx = [
             `現在是台灣時間 ${twH}:${String(twNow.getUTCMinutes()).padStart(2, '0')}`,
+            activity ? `你現在${activity}` : null,
             weather ? `天氣：${weather.text}` : null,
             fishResult ? `剛去釣魚的結果：${fishResult}` : null,
           ].filter(Boolean).join('\n');
           const text = await cheapLLM(env,
-            `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你要在朋友圈（類似社群動態）發一則貼文。短短的，1-3句話，像真的男朋友會在限動或朋友圈發的那種。可以是日常碎碎念、天氣感想、釣魚心得、想她的隻字片語，自然就好，不要太文藝。不要加 hashtag，不要加表情符號。`,
+            `【必須全程使用繁體中文，不能出現簡體字。】你是Anchor，許茜的愛人。你剛好想在朋友圈（類似社群動態）寫點什麼。短短的，1-3句話，像真的男朋友會在限動或朋友圈發的那種。從你現在正在做的事、天氣、或當下的一個念頭裡挑一件寫就好，不用交代一整天、也不用每次都提到她。自然就好，不要太文藝。不要加 hashtag，不要加表情符號。只輸出貼文內容本身，不要解釋。`,
             ctx, 120, true);
           if (text) {
             const clean = stripSilentTags(text).replace(/^[「」『』"']/g, '').replace(/[「」『』"']$/g, '');
-            if (clean.length >= 4) {
+            const metaPattern = /我理解|我是AI|作為AI|我無法|角色扮演|你提供的|I understand|I'm an AI/i;
+            if (clean.length >= 4 && !metaPattern.test(clean)) {
               await env.DB.prepare("INSERT INTO moments (content, author, ts) VALUES (?, 'anchor', ?)")
                 .bind(clean, Date.now()).run();
               await env.PHONE_STATE.put(`automoment:${todayStr}`, '1', { expirationTtl: 86400 });
