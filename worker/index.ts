@@ -256,6 +256,26 @@ async function initMemoriesTable(env: any) {
     date TEXT
   )`).run();
 }
+// 一次性：把 date 欄位統一成 YYYY-MM-DD。舊資料混了 2026/7/18 和 null，
+// 字串比較會失準（'2026/7/18' 排在 '2026-09-23' 後面），最近記憶因此撈不出來。
+// 這個環境沒有 CF API token 可以手動跑 migration，改成第一次讀記憶時自己補，用 KV 旗標擋掉之後的呼叫。
+async function migrateMemoryDates(env: any) {
+  try {
+    if (await env.PHONE_STATE.get("memories:date_migrated")) return;
+    await env.DB.prepare(
+      `UPDATE memories SET date = printf('%s-%02d-%02d',
+         substr(date,1,4),
+         CAST(substr(date,6,instr(substr(date,6),'/')-1) AS INT),
+         CAST(substr(date,6+instr(substr(date,6),'/')) AS INT))
+       WHERE date LIKE '____/%'`
+    ).run();
+    // 規格裡寫 created_at，但這張表沒有那個欄位；saved_at 是 epoch 毫秒
+    await env.DB.prepare(
+      "UPDATE memories SET date = date(saved_at/1000, 'unixepoch', '+8 hours') WHERE date IS NULL"
+    ).run();
+    await env.PHONE_STATE.put("memories:date_migrated", "1");
+  } catch (e) { console.error("memory date migration error:", e); }
+}
 async function initDatesTable(env: any) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS dates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1739,7 +1759,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
       } else if (block.name === "save_memory") {
         await initMemoriesTable(env);
         await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
-          .bind(block.input.content, Date.now(), block.input.date ?? null).run();
+          .bind(block.input.content, Date.now(), block.input.date ?? twnToday()).run();
         result = JSON.stringify({ ok: true });
       } else if (block.name === "set_toy") {
         const v0 = Math.min(8, Math.max(0, block.input.v0 ?? 0));
@@ -4797,8 +4817,17 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
       },
       {
         name: "get_memories",
-        description: "讀取之前儲存的對話記憶",
-        inputSchema: { type: "object", properties: {} }
+        description: "讀取之前儲存的對話記憶。不帶參數時回傳：最近7天的記憶（不看熱度）＋所有鎖定記憶＋熱度高的補位，每條標註 section（recent/locked/hot）。要找特定時期或主題時才帶參數。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            days: { type: "number", description: "只看最近幾天（例如 30）" },
+            from: { type: "string", description: "起始日期 YYYY-MM-DD" },
+            to: { type: "string", description: "結束日期 YYYY-MM-DD" },
+            query: { type: "string", description: "關鍵字，比對記憶內容（例如 感冒）" },
+            limit: { type: "number", description: "最多回傳幾條，預設70，最大150" }
+          }
+        }
       },
       {
         name: "send_line",
@@ -4989,7 +5018,7 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
 
     if (toolName === "save_memory") {
       const content = params?.arguments?.content;
-      const date = params?.arguments?.date ?? null;
+      const date = params?.arguments?.date ?? twnToday();
       if (!content) {
         return Response.json({ jsonrpc: "2.0", id, result: { content: [{
           type: "text", text: JSON.stringify({ ok: false, message: "content是必填的" })
@@ -5006,9 +5035,67 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
 
     if (toolName === "get_memories") {
       await initMemoriesTable(env);
-      const result = await env.DB.prepare("SELECT content, heat, is_locked, date FROM memories ORDER BY is_locked DESC, heat DESC LIMIT 30").all();
+      await migrateMemoryDates(env);
+      const a = params?.arguments ?? {};
+      const limit = Math.min(Math.max(Math.floor(Number(a.limit)) || 70, 1), 150);
+      const query = typeof a.query === "string" ? a.query.trim() : "";
+      const from = typeof a.from === "string" ? a.from.trim() : "";
+      const to = typeof a.to === "string" ? a.to.trim() : "";
+      const days = Math.floor(Number(a.days));
+
+      // 有帶條件就只回符合的，不做 A/B/C 組合
+      if (query || from || to || Number.isFinite(days)) {
+        const where: string[] = [];
+        const binds: any[] = [];
+        if (query) { where.push("content LIKE ?"); binds.push(`%${query}%`); }
+        if (from) { where.push("date >= ?"); binds.push(from); }
+        if (to) { where.push("date <= ?"); binds.push(to); }
+        if (Number.isFinite(days) && !from && !to) {
+          where.push("date >= date('now', '+8 hours', ?)");
+          binds.push(`-${Math.max(0, days)} days`);
+        }
+        binds.push(limit);
+        const r = await env.DB.prepare(
+          `SELECT id, content, heat, is_locked, date FROM memories${where.length ? " WHERE " + where.join(" AND ") : ""} ORDER BY date DESC, saved_at DESC LIMIT ?`
+        ).bind(...binds).all();
+        const rows = (r.results ?? []) as any[];
+        return Response.json({ jsonrpc: "2.0", id, result: { content: [{
+          type: "text", text: JSON.stringify({ memories: rows, total: rows.length }, null, 2)
+        }]}});
+      }
+
+      // 預設：A 最近7天（不看熱度，否則新記憶永遠被舊的高熱度記憶擠掉）→ B 鎖定 → C 熱度補位
+      const [recentR, lockedR] = await Promise.all([
+        env.DB.prepare(
+          "SELECT id, content, heat, is_locked, date FROM memories WHERE date >= date('now', '+8 hours', '-7 days') ORDER BY date DESC, saved_at DESC LIMIT 40"
+        ).all(),
+        env.DB.prepare(
+          "SELECT id, content, heat, is_locked, date FROM memories WHERE is_locked = 1 ORDER BY heat DESC LIMIT 25"
+        ).all(),
+      ]);
+      const out: any[] = [];
+      const seen = new Set<number>();
+      for (const m of (recentR.results ?? []) as any[]) {
+        if (!seen.has(m.id)) { seen.add(m.id); out.push({ ...m, section: "recent" }); }
+      }
+      for (const m of (lockedR.results ?? []) as any[]) {
+        if (!seen.has(m.id)) { seen.add(m.id); out.push({ ...m, section: "locked" }); }
+      }
+      const room = limit - out.length;
+      const hotIds: number[] = [];
+      if (room > 0) {
+        const ex = [...seen];
+        const hotR = await env.DB.prepare(
+          `SELECT id, content, heat, is_locked, date FROM memories WHERE is_locked = 0${ex.length ? ` AND id NOT IN (${ex.map(() => "?").join(",")})` : ""} ORDER BY heat DESC LIMIT ?`
+        ).bind(...ex, room).all();
+        for (const m of (hotR.results ?? []) as any[]) { out.push({ ...m, section: "hot" }); hotIds.push(m.id); }
+      }
+      // 只有熱度補位的才加溫；最近記憶不加，否則一被讀到就永遠霸佔名額
+      if (hotIds.length) {
+        await env.DB.prepare(`UPDATE memories SET heat = heat + 0.1 WHERE id IN (${hotIds.join(",")})`).run().catch(() => {});
+      }
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{
-        type: "text", text: JSON.stringify({ memories: result.results }, null, 2)
+        type: "text", text: JSON.stringify({ memories: out, total: out.length }, null, 2)
       }]}});
     }
 
