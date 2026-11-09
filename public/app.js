@@ -718,6 +718,14 @@ function _showCacheToast(usage) {
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 4000);
 }
 
+function _msgTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function buildMsgEl(msg, isLast) {
   const wrap = document.createElement('div');
   wrap.className = 'msg-wrap';
@@ -792,6 +800,20 @@ function buildMsgEl(msg, isLast) {
       nav.innerHTML = `<button onclick="switchEditBranch('${msg.id}','${eb[eb.length-1].id}')">← 舊版</button>`;
       div.appendChild(nav);
     }
+  }
+
+  // 切換分支時內容會換成該分支的，時間也跟著用那一版產生的時間
+  let stamp = msg.ts;
+  if (msg.branches && msg.branches.length) {
+    const bi = msg.branch_idx ?? (msg.branches.length - 1);
+    stamp = msg.branches[bi]?.ts ?? stamp;
+  }
+  const timeStr = _msgTime(stamp);
+  if (timeStr) {
+    const t = document.createElement('div');
+    t.className = 'msg-time';
+    t.textContent = timeStr;
+    div.appendChild(t);
   }
 
   wrap.appendChild(div);

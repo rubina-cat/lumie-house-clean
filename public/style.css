@@ -647,6 +647,17 @@ body {
 /* edited tag */
 .edited-tag { font-size: 10px; opacity: 0.5; margin-left: 6px; }
 
+/* 每則訊息的日期時間。右側留空給 hover 才出現的編輯／重新生成按鈕（絕對定位在 bottom-right） */
+.msg-time {
+  font-size: 10px;
+  opacity: 0.4;
+  margin-top: 6px;
+  padding-right: 22px;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+  font-variant-numeric: tabular-nums;
+}
+
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
