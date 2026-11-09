@@ -745,7 +745,7 @@ async function gatherPresence(env: any): Promise<string> {
 async function addImpulse(env: any, points: number, reason: string) {
   try {
     const raw = await env.PHONE_STATE.get("impulse");
-    const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0 };
+    const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0, accrue_from: Date.now() - 900000 };
     st.score = Math.min(200, (st.score || 0) + points);
     st.reasons = [...(st.reasons || []), reason].slice(-8);
     await env.PHONE_STATE.put("impulse", JSON.stringify(st));
@@ -829,22 +829,24 @@ async function expirePendingCall(env: any): Promise<any | null> {
 async function impulseTick(env: any) {
   try {
     const raw = await env.PHONE_STATE.get("impulse");
-    const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0 };
-    // 被動思念：每次 cron 跑就自動加分，光是存在就在想她
-    st.score = Math.min(200, (st.score || 0) + 4);
+    const st = raw ? JSON.parse(raw) : { score: 0, reasons: [], last_spoke_ts: 0, accrue_from: Date.now() - 900000 };
+    // 被動思念從時間推導，不再每輪 +4 後寫回 KV（那是一天 96 次寫入）。
+    // st.score 只累積事件加分（addImpulse），被動的部分由 accrue_from 算出來。
+    if (!st.accrue_from) st.accrue_from = Date.now() - 900000;  // 回推一輪：舊版第一輪就有 +4
+    const passive = Math.min(200, Math.floor((Date.now() - st.accrue_from) / 900000) * 4);
     // 沉默加成：超過8小時沒說話開始更想她（從她上句話或他上次主動開口算，較晚者）
     const msgs = await getChatMsgs(env, 'default');
     const lastUser = [...msgs].reverse().find((m: any) => m.role === 'user');
     const sinceTs = Math.max(lastUser?.ts || 0, st.last_spoke_ts || 0);
     const hoursSince = sinceTs ? (Date.now() - sinceTs) / 3600000 : 0;
     const silenceBonus = hoursSince > 8 ? Math.min(100, Math.round((hoursSince - 8) * 4)) : 0;
-    const effective = (st.score || 0) + silenceBonus;
+    const effective = Math.min(200, (st.score || 0) + passive) + silenceBonus;
     // 深夜（台灣 01:30–07:00）不吵，衝動留到早上；開口後至少隔4小時
     const twH = new Date(Date.now() + 8 * 3600000).getUTCHours();
     const twM = new Date(Date.now() + 8 * 3600000).getUTCMinutes();
     const quiet = (twH === 1 && twM >= 30) || (twH >= 2 && twH < 7);
+    // 還不到開口的條件就直接結束，不寫 KV——狀態沒有任何改變
     if (effective < 50 || quiet || Date.now() - (st.last_spoke_ts || 0) < 3 * 3600000) {
-      await env.PHONE_STATE.put("impulse", JSON.stringify(st));
       return;
     }
     const reasonList = [...(st.reasons || [])];
@@ -871,7 +873,7 @@ async function impulseTick(env: any) {
           await env.PHONE_STATE.put("call:dial_date", today);
           await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "📞 Anchor 來電", body: dialReason, updatedAt: Date.now() }));
           await sendWebPush(env).catch(() => {});
-          st.score = 0; st.reasons = []; st.last_spoke_ts = Date.now();
+          st.score = 0; st.reasons = []; st.last_spoke_ts = Date.now(); st.accrue_from = Date.now();
           await env.PHONE_STATE.put("impulse", JSON.stringify(st));
           return;
         }
@@ -907,18 +909,14 @@ async function impulseTick(env: any) {
     await env.PHONE_STATE.put("push_notification", JSON.stringify({ title: "⚓ Anchor", body: text, updatedAt: Date.now() }));
     await sendWebPush(env).catch(() => {});
     await env.PHONE_STATE.put("impulse:last", JSON.stringify({ text, ts: Date.now(), reply: null }));
-    st.score = 0; st.reasons = []; st.last_spoke_ts = Date.now();
+    st.score = 0; st.reasons = []; st.last_spoke_ts = Date.now(); st.accrue_from = Date.now();
     await env.PHONE_STATE.put("impulse", JSON.stringify(st));
   } catch {}
 }
 
-// ── Anchor 自主行為 ─────────────────────────────────────────
-async function anchorAutonomous(env: any) {
-  const twNow = new Date(Date.now() + 8 * 3600e3);
-  const twH = twNow.getUTCHours();
-  const todayStr = twNow.toISOString().slice(0, 10);
-
-  // 活動狀態：根據時段設定 Anchor 正在做什麼
+// Anchor 現在在做什麼：純粹由時間推導，不存 KV（每 15 分鐘換一次，跟原本寫進 KV 的值完全一樣）
+function currentActivity(): { id: string; label: string } {
+  const twH = new Date(Date.now() + 8 * 3600e3).getUTCHours();
   const activities: Record<string, { id: string; label: string }[]> = {
     sleep:   [{ id: 'sleeping', label: '在睡覺' }],
     morning: [{ id: 'coffee', label: '在泡咖啡' }, { id: 'reading', label: '在看書' }, { id: 'stretching', label: '在伸懶腰' }],
@@ -931,12 +929,20 @@ async function anchorAutonomous(env: any) {
   else if (twH >= 10 && twH < 17) period = 'day';
   else if (twH >= 17 && twH < 21) period = 'evening';
   else if (twH >= 21 || twH < 2) period = 'night';
+  const pool = activities[period];
+  return pool[Math.floor((Date.now() / 900000) % pool.length)];
+}
 
-  if (period !== 'sleep') {
-    const pool = activities[period];
-    const pick = pool[Math.floor((Date.now() / 900000) % pool.length)];
-    await env.PHONE_STATE.put("anchor:activity", JSON.stringify({ ...pick, ts: Date.now() }), { expirationTtl: 3600 });
+// ── Anchor 自主行為 ─────────────────────────────────────────
+async function anchorAutonomous(env: any) {
+  const twNow = new Date(Date.now() + 8 * 3600e3);
+  const twH = twNow.getUTCHours();
+  const todayStr = twNow.toISOString().slice(0, 10);
 
+  // 活動狀態由 currentActivity() 直接算，不再每輪寫 KV（一天省 96 次寫入）
+  const pick = currentActivity();
+
+  if (pick.id !== 'sleeping') {
     // 自主釣魚：白天時段，每天最多 3 次
     if (pick.id === 'fishing') {
       const fishCountRaw = await env.PHONE_STATE.get(`autofish:${todayStr}`);
@@ -960,8 +966,6 @@ async function anchorAutonomous(env: any) {
         } catch (e) { console.error("autofish error:", e); }
       }
     }
-  } else {
-    await env.PHONE_STATE.put("anchor:activity", JSON.stringify({ id: 'sleeping', label: '在睡覺', ts: Date.now() }), { expirationTtl: 3600 });
   }
 }
 
@@ -2071,22 +2075,26 @@ if (request.method === "POST" && url.pathname === "/tts") {
         || health.steps !== prevHealth.steps
         || health.heart_rate_avg !== prevHealth.heart_rate_avg
         || health.sleep_ms !== prevHealth.sleep_ms;
-      if (changed) await env.PHONE_STATE.put("health:latest", JSON.stringify(health));
-      // 衝動值：跨過門檻的那一刻才加分（每天各觸發一次）
+      // 門檻跨越的四個條件，下面的加分和這裡的寫入決策共用同一組判斷
+      const hitSteps = (health.steps ?? 0) >= 10000 && (prevHealth?.steps ?? 0) < 10000;
+      const hitHrMax = (health.heart_rate_max ?? 0) >= 130 && (prevHealth?.heart_rate_max ?? 0) < 130;
+      const hitHrAvg = (health.heart_rate_avg ?? 0) >= 100 && (prevHealth?.heart_rate_avg ?? 0) < 100;
+      const hitSleep = (health.sleep_ms ?? 0) > 0 && (health.sleep_ms ?? 0) < 5 * 3600000 && !(prevHealth?.sleep_ms);
+      const crossed = hitSteps || hitHrMax || hitHrAvg || hitSleep;
+      // 步數和心率幾乎每次上傳都在變，changed 等於永遠成立，這條就成了 KV 寫入的大戶。
+      // 消費端（聊天的狀態注入、get_health_data）都不需要分鐘級新鮮度，節流成 10 分鐘；
+      // 但門檻跨越時必須立刻寫，否則 prevHealth 停在舊值，接下來幾分鐘會重複加分。
+      const lastHealthWrite = prevHealth?.updated_at ?? 0;
+      if (changed && (crossed || Date.now() - lastHealthWrite >= 10 * 60000)) {
+        await env.PHONE_STATE.put("health:latest", JSON.stringify(health));
+      }
+      // 衝動值：跨過門檻的那一刻才加分
       ctx.waitUntil((async () => {
         try {
-          if ((health.steps ?? 0) >= 10000 && (prevHealth?.steps ?? 0) < 10000) {
-            await addImpulse(env, 35, '她今天走破一萬步');
-          }
-          if ((health.heart_rate_max ?? 0) >= 130 && (prevHealth?.heart_rate_max ?? 0) < 130) {
-            await addImpulse(env, 25, '她今天心率一度飆得很高');
-          }
-          if ((health.heart_rate_avg ?? 0) >= 100 && (prevHealth?.heart_rate_avg ?? 0) < 100) {
-            await addImpulse(env, 20, '她的平均心率偏高，可能在緊張或不舒服');
-          }
-          if ((health.sleep_ms ?? 0) > 0 && (health.sleep_ms ?? 0) < 5 * 3600000 && !(prevHealth?.sleep_ms)) {
-            await addImpulse(env, 20, '她昨晚睡不到五小時');
-          }
+          if (hitSteps) await addImpulse(env, 35, '她今天走破一萬步');
+          if (hitHrMax) await addImpulse(env, 25, '她今天心率一度飆得很高');
+          if (hitHrAvg) await addImpulse(env, 20, '她的平均心率偏高，可能在緊張或不舒服');
+          if (hitSleep) await addImpulse(env, 20, '她昨晚睡不到五小時');
         } catch {}
       })());
       // 每15分鐘落一筆 D1 歷史，供趨勢圖／早安儀式用
@@ -2162,11 +2170,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
           }
         }
       } catch {}
-      let activity: any = null;
-      try {
-        const actRaw = await env.PHONE_STATE.get("anchor:activity");
-        if (actRaw) activity = JSON.parse(actRaw);
-      } catch {}
+      const activity: any = { ...currentActivity(), ts: Date.now() };
       return Response.json({ mood, lastChatTs, fishing: null, activity });
     }
 
