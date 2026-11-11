@@ -748,7 +748,7 @@ async function gatherPresence(env: any): Promise<string> {
       const ageMin = state.reportedAt ? Math.round((Date.now() - state.reportedAt) / 60000) : null;
       const stale = ageMin != null && ageMin > 120;
       const ageNote = ageMin == null ? '' : stale ? `（${agoText(ageMin)}的資料，手機可能沒在回報）` : `（${agoText(ageMin)}）`;
-      if (state.battery != null) out += `\n手機電量：${state.battery}%${state.charging ? '（充電中）' : ''}`;
+      if (state.batteryPercent != null) out += `\n手機電量：${state.batteryPercent}%`;
       if (state.screenOn != null) out += `\n螢幕：${state.screenOn ? '亮著' : '關著'}`;
       const pl = resolvePlace(state.lat, state.lon);
       if (pl) out += `\n她現在的位置：${pl.label}${ageNote}`;
@@ -2057,12 +2057,6 @@ if (request.method === "POST" && url.pathname === "/tts") {
       const state = {
         batteryPercent: Math.round(body.batteryPercent ?? 0),
         usageStats: Array.isArray(body.usageStats) ? body.usageStats.slice(0, 50) : [],
-        charging: (() => {
-          const s = String(body.batteryState ?? "").toUpperCase();
-          if (s === "CHARGING" || s === "FULL" || body.charging === true) return true;
-          if (s === "DISCHARGING" || s === "NOT_CHARGING" || body.charging === false) return false;
-          return null;
-        })(),
         screenOn: (() => {
           const s = String(body.screenState ?? body.screen ?? "").toLowerCase();
           if (s === "on" || s === "true" || body.screenOn === true) return true;
