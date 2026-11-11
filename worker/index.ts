@@ -3730,8 +3730,16 @@ audio{width:300px;margin-top:4px}
     // GET /period-history
     if (request.method === "GET" && url.pathname === "/period-history") {
       const h = { "Access-Control-Allow-Origin": "*" };
-      const raw = await env.PHONE_STATE.get("period:history");
-      return Response.json({ history: raw ? JSON.parse(raw) : [] }, { headers: h });
+      const [raw, curRaw] = await Promise.all([
+        env.PHONE_STATE.get("period:history"),
+        env.PHONE_STATE.get("period:current"),
+      ]);
+      // 進行中的這輪只存在 period:current，不在 history 裡，所以歷史清單會看起來少一輪，
+      // 直到下次按「來了」才補上。一起回傳，讓前端能把它標成進行中顯示。
+      return Response.json({
+        history: raw ? JSON.parse(raw) : [],
+        current: curRaw ? JSON.parse(curRaw) : null,
+      }, { headers: h });
     }
 
     // GET /period-daily-list — last 30 days of daily records

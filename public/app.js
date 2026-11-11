@@ -1597,7 +1597,8 @@ async function periodRenderHistory() {
     ]);
     const days = dr.days || [];
     const history = hr.history || [];
-    if (!days.length && !history.length) {
+    const current = hr.current || null;
+    if (!days.length && !history.length && !current) {
       list.innerHTML = '<div class="period-history-empty">還沒有歷史記錄</div>';
       return;
     }
@@ -1614,11 +1615,28 @@ async function periodRenderHistory() {
         ${priv}
       </div>`;
     }).join('');
-    const cycleHtml = history.length ? `
+    const dayMs = 86400000;
+    const toTs = s => new Date(s + 'T00:00:00+08:00').getTime();
+    let currentHtml = '';
+    if (current && current.cycle_start) {
+      const startTs = toTs(current.cycle_start);
+      // toTs 已經是帶 +08:00 的絕對時間，Date.now() 也是，不要再加 8 小時（會多算一天）
+      const elapsed = Math.floor((Date.now() - startTs) / dayMs) + 1;
+      const pLen = current.period_end
+        ? Math.round((toTs(current.period_end) - startTs) / dayMs) + 1
+        : null;
+      currentHtml = `
+        <div class="period-history-item period-history-current">
+          <div class="period-history-dates">${current.cycle_start} → ${current.period_end || '進行中'} <span class="period-current-tag">這一輪</span></div>
+          <div class="period-history-meta">${pLen ? `經期 ${pLen} 天` : '經期還沒結束'}・目前第 ${elapsed} 天</div>
+        </div>`;
+    }
+    const cycleHtml = (history.length || currentHtml) ? `
       <div class="period-section-title" style="margin-top:16px">歷史週期</div>
-      ${history.slice().reverse().map(h => `
+      ${currentHtml}
+      ${history.slice().sort((a, b) => String(b.cycle_start).localeCompare(String(a.cycle_start))).map(h => `
         <div class="period-history-item">
-          <div class="period-history-dates">${h.cycle_start} → ${h.period_end || '進行中'}</div>
+          <div class="period-history-dates">${h.cycle_start} → ${h.period_end || '沒記錄結束日'}</div>
           <div class="period-history-meta">經期 ${h.period_length ?? '?'} 天・週期 ${h.cycle_length ?? '?'} 天</div>
         </div>`).join('')}` : '';
     list.innerHTML = dailyHtml + cycleHtml;
