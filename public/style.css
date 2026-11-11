@@ -3880,3 +3880,18 @@ textarea::placeholder { color: var(--light-text); }
   margin-bottom: 8px;
 }
 .eye-stale-dim .eye-now-value { opacity: 0.45; }
+
+/* 進行中的這一輪：跟已完成的歷史區隔開 */
+.period-history-current {
+  border-left: 2px solid var(--period-rose);
+  padding-left: 8px;
+}
+.period-current-tag {
+  font-size: 10px;
+  color: var(--period-rose);
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 1px 6px;
+  margin-left: 4px;
+  vertical-align: 1px;
+}
