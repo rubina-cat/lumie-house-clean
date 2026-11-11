@@ -3869,3 +3869,14 @@ textarea::placeholder { color: var(--light-text); }
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* 資料過期：超過 2 小時沒更新就壓灰，並在最上面掛一條提示 */
+.eye-stale {
+  font-size: 11px;
+  color: #b0756a;
+  background: rgba(200,154,148,0.14);
+  border-radius: 10px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+.eye-stale-dim .eye-now-value { opacity: 0.45; }
