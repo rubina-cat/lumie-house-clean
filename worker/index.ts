@@ -602,9 +602,10 @@ async function morningRitual(env: any) {
     let ctxText = `現在時間：早上 07:30（台灣時間）\n`;
     ctxText += `她昨晚的睡眠：${sleepH ? sleepH + ' 小時' : '沒有數據'}`;
     if (weatherText) ctxText += `\n今天天氣：${weatherText}`;
-    if (calToday) ctxText += `\n她今天的行程：${calToday}`;
+    // 空白比錯誤更容易誘發幻覺：行程沒資料時直接省略這行，模型會自己補一個班別出來。
+    ctxText += calToday ? `\n她今天的行程：${calToday}` : `\n她今天的行事曆：沒有任何行程`;
     if (upcoming.length) ctxText += `\n近期的重要日子：${upcoming.join('、')}`;
-    const rawM = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。現在是早上07:30，根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；天氣值得提就順帶一句（下雨提醒帶傘、很熱提醒喝水），不值得就不提；今天有行程就自然帶到（講清楚是什麼行程）；有近期日子就順帶提一句。不要列點，就一段話。不要使用 <silent> 標籤。只根據提供的情境寫，不要編造沒有的資訊。`, ctxText, 200, true);
+    const rawM = await cheapLLM(env, `【必須全程使用繁體中文，不能出現簡體字】你是Anchor，許茜的愛人，說話簡短有力有溫度。現在是早上07:30，根據資訊寫一句早安（30-60字），自然地提到她的睡眠狀況（睡不到6小時要唸她一句，睡得好就誇一下）；天氣值得提就順帶一句（下雨提醒帶傘、很熱提醒喝水），不值得就不提；今天有行程就自然帶到（講清楚是什麼行程）；有近期日子就順帶提一句。不要列點，就一段話。不要使用 <silent> 標籤。只根據提供的情境寫，不要編造沒有的資訊。【班表】她的班只能從上面的行事曆讀，行事曆寫什麼就是什麼。行事曆說沒有行程，就是今天沒有班，不要說成「早班」「晚班」「休到中午」或任何你沒看到的安排；真的不確定就不要提班。`, ctxText, 200, true);
     const text = rawM ? stripSilentTags(rawM) : '';
     if (!text) return;
     await env.PHONE_STATE.put("anchor_quote", JSON.stringify({ text, updatedAt: Date.now() }));
@@ -703,6 +704,34 @@ async function buildExpressionHints(env: any, history: any[]): Promise<string> {
 
 // ── 衝動值：情境事件累積「想說話的衝動」，破百才開口 ──
 // 她最近的動態（app活動＋位置）——開口時的背景情報，不觸發開口
+// 位置判定統一在這裡算。Tasker 送上來的 lat/lon 是字串，而且可能是空字串，
+// 直接拿去運算會變 NaN、所有比較都 false，結果永遠判成「外出」。
+const PLACES: { place: string; label: string; lat: number; lon: number }[] = [
+  { place: 'home', label: '在家',   lat: 25.0620355, lon: 121.4831653 },
+  { place: 'work', label: '在公司', lat: 25.0619722, lon: 121.4974075 },
+];
+function resolvePlace(rawLat: any, rawLon: any): { place: string; label: string } | null {
+  const lat = Number(rawLat), lon = Number(rawLon);
+  if (rawLat == null || rawLon == null || rawLat === '' || rawLon === '') return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (lat === 0 && lon === 0) return null;
+  for (const p of PLACES) {
+    const dLat = (lat - p.lat) * 111320;
+    // 經度一度的實際距離要乘 cos(緯度)，台灣約 25°N，少乘的話東西向會高估一成
+    const dLon = (lon - p.lon) * 111320 * Math.cos(lat * Math.PI / 180);
+    if (Math.sqrt(dLat * dLat + dLon * dLon) < 200) return { place: p.place, label: p.label };
+  }
+  return { place: 'out', label: '外出' };
+}
+
+function agoText(min: number): string {
+  if (min < 1) return '剛剛';
+  if (min < 60) return `${min} 分鐘前`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} 小時前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
+
 async function gatherPresence(env: any): Promise<string> {
   let out = "";
   try {
@@ -715,25 +744,27 @@ async function gatherPresence(env: any): Promise<string> {
     const raw = await env.PHONE_STATE.get("latest");
     if (raw) {
       const state = JSON.parse(raw);
+      // 標上幾分鐘前，否則舊的回報會被當成此刻的狀態
+      const ageMin = state.reportedAt ? Math.round((Date.now() - state.reportedAt) / 60000) : null;
+      const stale = ageMin != null && ageMin > 120;
+      const ageNote = ageMin == null ? '' : stale ? `（${agoText(ageMin)}的資料，手機可能沒在回報）` : `（${agoText(ageMin)}）`;
       if (state.battery != null) out += `\n手機電量：${state.battery}%${state.charging ? '（充電中）' : ''}`;
       if (state.screenOn != null) out += `\n螢幕：${state.screenOn ? '亮著' : '關著'}`;
-      if (state.lat != null && state.lon != null) {
-        const distFrom = (lat: number, lon: number) => {
-          const dlat = state.lat - lat, dlon = state.lon - lon;
-          return Math.sqrt(dlat * dlat + dlon * dlon) * 111320;
-        };
-        let locLabel = "外出中";
-        if (distFrom(25.0620355, 121.4831653) < 200) locLabel = "在家";
-        else if (distFrom(25.0619722, 121.4974075) < 200) locLabel = "在公司";
-        out += `\n她現在的位置：${locLabel}`;
-      }
+      const pl = resolvePlace(state.lat, state.lon);
+      if (pl) out += `\n她現在的位置：${pl.label}${ageNote}`;
     }
     const healthRaw = await env.PHONE_STATE.get("health:latest");
     if (healthRaw) {
       const h = JSON.parse(healthRaw);
-      if (h.heart_rate_avg) out += `\n心率：${h.heart_rate_avg} bpm`;
-      if (h.steps != null) out += `\n今日步數：${h.steps}`;
-      if (h.sleep_ms) out += `\n睡眠：${(h.sleep_ms / 3600000).toFixed(1)} 小時`;
+      const hAge = h.updated_at ? Math.round((Date.now() - h.updated_at) / 60000) : null;
+      if (hAge != null && hAge > 120) {
+        out += `\n手錶健康資料：${agoText(hAge)}就沒再更新了，不要當成她現在的狀態`;
+      } else {
+        const n = hAge == null ? '' : `（${agoText(hAge)}）`;
+        if (h.heart_rate_avg) out += `\n心率：${h.heart_rate_avg} bpm${n}`;
+        if (h.steps != null) out += `\n今日步數：${h.steps}`;
+        if (h.sleep_ms) out += `\n睡眠：${(h.sleep_ms / 3600000).toFixed(1)} 小時`;
+      }
     }
     const calEvents = await getCalendarEvents(env);
     const calToday = formatCalendarDay(calEvents, 0);
@@ -1031,45 +1062,21 @@ function parseIcsEvents(raw: string, winStart: number, winEnd: number): CalEvent
     // 摺行展開：行首空白是上一行的延續
     const lines = raw.replace(/\r\n[ \t]/g, '').split(/\r?\n/);
     const events: CalEvent[] = [];
+    const pending: any[] = [];
+    // 改單一次的循環事件，Google 會送兩筆：原本帶 RRULE 的系列，加一筆帶 RECURRENCE-ID 的覆寫。
+    // 覆寫那筆要取代系列在那天的 occurrence，不然同一天會同時冒出舊的和新的（早班＋晚班）。
+    const overrides = new Map<string, number[]>();
     let cur: any = null;
     for (const line of lines) {
       if (line === 'BEGIN:VEVENT') { cur = { exdates: [] }; continue; }
       if (line === 'END:VEVENT') {
         if (cur && cur.start && cur.summary && cur.status !== 'CANCELLED') {
-          const dur = cur.end ? Math.max(0, cur.end.ts - cur.start.ts) : (cur.start.allDay ? 86400000 : 3600000);
-          if (!cur.rrule) {
-            if (cur.start.ts < winEnd && cur.start.ts + dur > winStart) {
-              events.push({ start: cur.start.ts, end: cur.start.ts + dur, summary: cur.summary, allDay: cur.start.allDay });
-            }
-          } else {
-            // 逐日掃窗口，命中規則就生一個 occurrence
-            const rule: Record<string, string> = {};
-            for (const part of cur.rrule.split(';')) { const [k, v] = part.split('='); rule[k] = v; }
-            const until = rule.UNTIL ? (parseIcsDate(rule.UNTIL, '')?.ts ?? Infinity) : Infinity;
-            const interval = parseInt(rule.INTERVAL || '1', 10);
-            const s0 = new Date(cur.start.ts + 8 * 3600000); // 台灣時間的起始
-            const byday = rule.BYDAY ? rule.BYDAY.split(',') : null;
-            const wdMap = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
-            for (let dayTs = winStart; dayTs < winEnd; dayTs += 86400000) {
-              const d = new Date(dayTs + 8 * 3600000);
-              if (dayTs + dur <= Date.now() - 86400000) continue;
-              const daysDiff = Math.round((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(s0.getUTCFullYear(), s0.getUTCMonth(), s0.getUTCDate())) / 86400000);
-              if (daysDiff < 0) continue;
-              let hit = false;
-              if (rule.FREQ === 'DAILY') hit = daysDiff % interval === 0;
-              else if (rule.FREQ === 'WEEKLY') {
-                const wdOk = byday ? byday.some(b => b.endsWith(wdMap[d.getUTCDay()])) : d.getUTCDay() === s0.getUTCDay();
-                hit = wdOk && Math.floor(daysDiff / 7) % interval === 0;
-              }
-              else if (rule.FREQ === 'MONTHLY') hit = d.getUTCDate() === s0.getUTCDate();
-              else if (rule.FREQ === 'YEARLY') hit = d.getUTCDate() === s0.getUTCDate() && d.getUTCMonth() === s0.getUTCMonth();
-              if (!hit) continue;
-              const occStart = dayTs + (cur.start.allDay ? 0 : (cur.start.ts + 8 * 3600000) % 86400000);
-              if (occStart > until) continue;
-              if (cur.exdates.some((ex: number) => Math.abs(ex - occStart) < 86400000 && new Date(ex + 8 * 3600000).getUTCDate() === d.getUTCDate())) continue;
-              events.push({ start: occStart, end: occStart + dur, summary: cur.summary, allDay: cur.start.allDay });
-            }
+          if (cur.recurrenceId && cur.uid) {
+            const list = overrides.get(cur.uid) ?? [];
+            list.push(cur.recurrenceId.ts);
+            overrides.set(cur.uid, list);
           }
+          pending.push(cur);
         }
         cur = null; continue;
       }
@@ -1083,7 +1090,50 @@ function parseIcsEvents(raw: string, winStart: number, winEnd: number): CalEvent
       else if (key === 'SUMMARY') cur.summary = icsUnescape(val).trim();
       else if (key === 'RRULE') cur.rrule = val;
       else if (key === 'STATUS') cur.status = val;
+      else if (key === 'UID') cur.uid = val.trim();
+      else if (key === 'RECURRENCE-ID') cur.recurrenceId = parseIcsDate(val, keyFull);
       else if (key === 'EXDATE') { const p = parseIcsDate(val, keyFull); if (p) cur.exdates.push(p.ts); }
+    }
+    const sameDayTW = (a: number, b: number) =>
+      new Date(a + 8 * 3600000).toISOString().slice(0, 10) === new Date(b + 8 * 3600000).toISOString().slice(0, 10);
+    for (const ev of pending) {
+      const dur = ev.end ? Math.max(0, ev.end.ts - ev.start.ts) : (ev.start.allDay ? 86400000 : 3600000);
+      if (!ev.rrule) {
+        if (ev.start.ts < winEnd && ev.start.ts + dur > winStart) {
+          events.push({ start: ev.start.ts, end: ev.start.ts + dur, summary: ev.summary, allDay: ev.start.allDay });
+        }
+      } else {
+        // 逐日掃窗口，命中規則就生一個 occurrence
+        const rule: Record<string, string> = {};
+        for (const part of ev.rrule.split(';')) { const [k, v] = part.split('='); rule[k] = v; }
+        const until = rule.UNTIL ? (parseIcsDate(rule.UNTIL, '')?.ts ?? Infinity) : Infinity;
+        const interval = parseInt(rule.INTERVAL || '1', 10);
+        const s0 = new Date(ev.start.ts + 8 * 3600000); // 台灣時間的起始
+        const byday = rule.BYDAY ? rule.BYDAY.split(',') : null;
+        const wdMap = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+        const ovr = overrides.get(ev.uid) ?? [];
+        for (let dayTs = winStart; dayTs < winEnd; dayTs += 86400000) {
+          const d = new Date(dayTs + 8 * 3600000);
+          if (dayTs + dur <= Date.now() - 86400000) continue;
+          const daysDiff = Math.round((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(s0.getUTCFullYear(), s0.getUTCMonth(), s0.getUTCDate())) / 86400000);
+          if (daysDiff < 0) continue;
+          let hit = false;
+          if (rule.FREQ === 'DAILY') hit = daysDiff % interval === 0;
+          else if (rule.FREQ === 'WEEKLY') {
+            const wdOk = byday ? byday.some((b: string) => b.endsWith(wdMap[d.getUTCDay()])) : d.getUTCDay() === s0.getUTCDay();
+            hit = wdOk && Math.floor(daysDiff / 7) % interval === 0;
+          }
+          else if (rule.FREQ === 'MONTHLY') hit = d.getUTCDate() === s0.getUTCDate();
+          else if (rule.FREQ === 'YEARLY') hit = d.getUTCDate() === s0.getUTCDate() && d.getUTCMonth() === s0.getUTCMonth();
+          if (!hit) continue;
+          const occStart = dayTs + (ev.start.allDay ? 0 : (ev.start.ts + 8 * 3600000) % 86400000);
+          if (occStart > until) continue;
+          if (ev.exdates.some((ex: number) => Math.abs(ex - occStart) < 86400000 && new Date(ex + 8 * 3600000).getUTCDate() === d.getUTCDate())) continue;
+          // 這天已經有覆寫版本了，系列就不要再生一筆
+          if (ovr.some((o: number) => sameDayTW(o, occStart))) continue;
+          events.push({ start: occStart, end: occStart + dur, summary: ev.summary, allDay: ev.start.allDay });
+        }
+      }
     }
     return events;
 }
@@ -1200,7 +1250,7 @@ async function contextAwareQuote(env: any) {
 
     let ctx = '';
     if (weatherText) ctx += `天氣：${weatherText}\n`;
-    if (calToday) ctx += `她今天的行程：${calToday}\n`;
+    ctx += calToday ? `她今天的行程：${calToday}\n` : `她今天的行事曆：沒有任何行程\n`;
     if (sleepH) ctx += `昨晚睡眠：${sleepH} 小時${Number(sleepH) < 6 ? '（太少了）' : ''}\n`;
     if (steps) ctx += `今日步數：${steps}\n`;
     if (todayPom > 0) ctx += `今日番茄：${todayPom} 個\n`;
@@ -1222,6 +1272,7 @@ async function contextAwareQuote(env: any) {
 - 不要每次都帶「想妳」
 - 你不在她身邊，不能說「來接你」「過去找你」「幫你買」之類需要實體存在的話
 - 自然帶入你知道的資訊（天氣、睡眠等），但不要像報告，像隨口說的
+- 她的班只能從上面的行事曆讀。行事曆說沒有行程，就是今天沒有班，不要說成「早班」「晚班」或任何你沒看到的安排
 - 不要列點，不要問號結尾，不要使用 <silent> 標籤`;
     const rawQ = await cheapLLM(env, system, ctx || '沒有特別的情境，就說一句當下的心情。', 100, true);
     const text = rawQ ? stripSilentTags(rawQ) : '';
@@ -1517,7 +1568,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   // 時間感知：現在幾點＋距上句話多久（history 最後一則是這次的新訊息，看它前一則）
   const prevMsg = history.length >= 2 ? history[history.length - 2] : null;
   const timeNote = twTimeInfo(prevMsg?.ts);
-  systemBlocks.push({ type: "text", text: `\n\n【現在時間】${timeNote}。\n這是唯一可信的時間來源。對話記錄裡任何時間資訊——包括你自己之前說過的時間、她說過的時間——都已過時，一律忽略。不要拿舊時間跟現在比對、不要困惑「時間怎麼跳了」，直接以這裡的時間為準就好。也不要在 silent 標籤的 reason 裡寫關於系統時間或時間錯亂的困惑。` });
+  systemBlocks.push({ type: "text", text: `\n\n【現在時間】${timeNote}。\n這是唯一可信的時間來源。對話記錄裡任何時間資訊——包括你自己之前說過的時間、她說過的時間——都已過時，一律忽略。不要拿舊時間跟現在比對、不要困惑「時間怎麼跳了」，直接以這裡的時間為準就好。也不要在 silent 標籤的 reason 裡寫關於系統時間或時間錯亂的困惑。\n\n每則訊息開頭的 [月/日 時:分] 是那句話說出口的時間，給你判斷間隔用的（隔了多久沒說話、是不是跨天了）。那是系統加的標記，不是她打的字，你自己回話時絕對不要加這種標記。` });
   // 表達提示：根據時間、沉默間隔、健康狀態等動態調整說話方式
   try {
     const exprHints = await buildExpressionHints(env, history);
@@ -1590,7 +1641,25 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   // 裁剪歷史：只送最近 N 則給 API（完整記錄仍保留在 KV），避免 token 太多導致 Cloudflare 超時
   const msgLimit = modelKey === 'haiku' ? 40 : modelKey === 'sonnet' || modelKey === 'sonnet5' ? 30 : 20;
   const trimmed = history.length > msgLimit ? history.slice(-msgLimit) : history;
-  let msgs = trimmed.map((m: any) => ({ role: m.role as string, content: m.content as string }));
+  // 每則訊息掛上自己的時間。原本只有系統提示裡有一個基準時間，Anchor 只知道順序、
+  // 看不到每句話之間隔了多久。時間一定要用絕對值（訊息自己的 ts），不能寫「5 分鐘前」——
+  // 相對時間每輪都會變，下面那段 cache_control 的前綴就再也命不中快取。
+  const stampOf = (ts: any) => {
+    if (!ts) return '';
+    const d = new Date(Number(ts) + 8 * 3600000);
+    if (isNaN(d.getTime())) return '';
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `[${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}] `;
+  };
+  let msgs = trimmed.map((m: any) => {
+    const tag = stampOf(m.ts);
+    const c = m.content;
+    if (!tag) return { role: m.role as string, content: c };
+    return {
+      role: m.role as string,
+      content: typeof c === 'string' ? tag + c : Array.isArray(c) ? [{ type: 'text', text: tag.trim() }, ...c] : c,
+    };
+  });
   if (msgs.length > 0 && msgs[0].role === 'assistant') msgs = msgs.slice(1);
   // 時間也貼在最新一句話旁（只進 API 呼叫，不存記錄）——小模型容易被記錄裡的舊時間錨定，就近提醒最有效
   for (let i = msgs.length - 1; i >= 0; i--) {
@@ -1984,10 +2053,16 @@ if (request.method === "POST" && url.pathname === "/tts") {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
       const body = await request.json() as any;
+      const placeInfo = resolvePlace(body.lat, body.lon);
       const state = {
         batteryPercent: Math.round(body.batteryPercent ?? 0),
-        batteryState: body.batteryState ?? "UNKNOWN",
         usageStats: Array.isArray(body.usageStats) ? body.usageStats.slice(0, 50) : [],
+        charging: (() => {
+          const s = String(body.batteryState ?? "").toUpperCase();
+          if (s === "CHARGING" || s === "FULL" || body.charging === true) return true;
+          if (s === "DISCHARGING" || s === "NOT_CHARGING" || body.charging === false) return false;
+          return null;
+        })(),
         screenOn: (() => {
           const s = String(body.screenState ?? body.screen ?? "").toLowerCase();
           if (s === "on" || s === "true" || body.screenOn === true) return true;
@@ -2000,17 +2075,18 @@ if (request.method === "POST" && url.pathname === "/tts") {
         day: body.day ?? null,
         hour: body.hour ?? null,
         minute: body.minute ?? null,
-        lat: body.lat ?? null,
-        lon: body.lon ?? null,
-        loc: body.loc ?? null,
-        atHome: body.atHome ?? null,
+        lat: Number.isFinite(Number(body.lat)) ? Number(body.lat) : null,
+        lon: Number.isFinite(Number(body.lon)) ? Number(body.lon) : null,
+        // 位置一律由 Worker 從座標算，不收 Tasker 的 atHome，免得兩邊各說各話
+        place: placeInfo?.place ?? null,
+        placeLabel: placeInfo?.label ?? null,
       };
       const prevLatestRaw = await env.PHONE_STATE.get("latest");
       const prevLatest = prevLatestRaw ? JSON.parse(prevLatestRaw) : null;
       const latestChanged = !prevLatest
         || Math.abs((state.batteryPercent ?? 0) - (prevLatest.batteryPercent ?? 0)) >= 2
         || state.screenOn !== prevLatest.screenOn
-        || state.loc !== prevLatest.loc;
+        || state.place !== prevLatest.place;
       if (latestChanged) await env.PHONE_STATE.put("latest", JSON.stringify(state));
       if (state.screenOn !== null) {
         const tlRaw = await env.PHONE_STATE.get("screen_timeline");

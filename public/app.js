@@ -171,6 +171,23 @@ async function loadEye() {
   }
 }
 
+// 預計日過了就是「晚了 N 天」，不要顯示成「距離下次 -N 天」
+function _periodDue(days, withDate) {
+  if (days == null) return '—';
+  if (days < 0) return `晚了 ${Math.abs(days)} 天${withDate ? `（預計 ${withDate}）` : ''}`;
+  if (days === 0) return `預計就是今天${withDate ? `（${withDate}）` : ''}`;
+  return `距離下次 ${days} 天${withDate ? `（${withDate}）` : ''}`;
+}
+
+function _agoText(min) {
+  if (min == null) return '—';
+  if (min < 1) return '剛剛';
+  if (min < 60) return min + ' 分鐘前';
+  const h = Math.floor(min / 60);
+  if (h < 24) return h + ' 小時前';
+  return Math.floor(h / 24) + ' 天前';
+}
+
 function renderEyeNow(latest, ageMin, sleep) {
   const el = document.getElementById('eyeNow');
   if (!latest) {
@@ -184,11 +201,12 @@ function renderEyeNow(latest, ageMin, sleep) {
   const time = (latest.hour != null && latest.minute != null)
     ? String(latest.hour).padStart(2,'0') + ':' + String(latest.minute).padStart(2,'0')
     : '—';
-  const charging = latest.batteryState === 'CHARGING' ? ' ⚡' : '';
+  const charging = latest.charging === true ? ' ⚡' : '';
   const screenLabel = latest.screenOn === true ? '亮著' : latest.screenOn === false ? '熄了' : '—';
-  const loc = latest.atHome === true ? '家' : latest.loc || '—';
+  const loc = latest.placeLabel || '—';
+  const stale = ageMin != null && ageMin > 120;
   el.innerHTML = `
-    <div class="eye-now-row">
+    ${stale ? '<div class="eye-stale">⚠ 斷線中・資料停在 ' + _agoText(ageMin) + '</div>' : ''}    <div class="eye-now-row">
       <span class="eye-now-label">電量</span>
       <span class="eye-now-value big">${latest.batteryPercent ?? '—'}%${charging}</span>
     </div>
@@ -206,13 +224,14 @@ function renderEyeNow(latest, ageMin, sleep) {
     </div>
     <div class="eye-now-row">
       <span class="eye-now-label">上報</span>
-      <span class="eye-now-value">${ageMin != null ? ageMin + ' 分鐘前' : '—'}</span>
+      <span class="eye-now-value">${ageMin != null ? _agoText(ageMin) : '—'}</span>
     </div>
     ${sleep ? `<div class="eye-now-row">
       <span class="eye-now-label">昨晚</span>
       <span class="eye-now-value">${fmtTwn(sleep.sleepAt)} 睡・${fmtTwn(sleep.wakeAt)} 醒（${sleep.durationH} 小時）</span>
     </div>` : ''}
   `;
+  el.classList.toggle('eye-stale-dim', stale);
 }
 
 function renderHealth(health) {
@@ -224,14 +243,17 @@ function renderHealth(health) {
   const ageMin = health.updated_at ? Math.floor((Date.now() - health.updated_at) / 60000) : null;
   const sleepH = health.sleep_ms ? (health.sleep_ms / 3600000).toFixed(1) : '—';
   const cal = health.calories != null ? Math.round(health.calories) : '—';
+  const stale = ageMin != null && ageMin > 120;
   el.innerHTML = `
+    ${stale ? '<div class="eye-stale">⚠ 手錶斷線中・資料停在 ' + _agoText(ageMin) + '</div>' : ''}
     <div class="eye-now-row"><span class="eye-now-label">心率均值</span><span class="eye-now-value">${health.heart_rate_avg ?? '—'} bpm</span></div>
     <div class="eye-now-row"><span class="eye-now-label">心率峰值</span><span class="eye-now-value">${health.heart_rate_max ?? '—'} bpm</span></div>
     <div class="eye-now-row"><span class="eye-now-label">今日步數</span><span class="eye-now-value">${health.steps != null ? health.steps.toLocaleString() : '—'}</span></div>
     <div class="eye-now-row"><span class="eye-now-label">活動卡路里</span><span class="eye-now-value">${cal} kcal</span></div>
     <div class="eye-now-row"><span class="eye-now-label">睡眠時長</span><span class="eye-now-value">${sleepH} 小時</span></div>
-    ${ageMin != null ? `<div class="eye-now-row"><span class="eye-now-label">資料更新</span><span class="eye-now-value">${ageMin} 分鐘前</span></div>` : ''}
+    ${ageMin != null ? `<div class="eye-now-row"><span class="eye-now-label">資料更新</span><span class="eye-now-value">${_agoText(ageMin)}</span></div>` : ''}
   `;
+  el.classList.toggle('eye-stale-dim', stale);
 }
 
 const CHAT_SNAP_KEY = 'anchor_chat_snap';
@@ -1437,7 +1459,7 @@ function periodRender() {
   badge.textContent = phaseLabels[_periodState.phase] || '—';
   badge.style.background = phaseColors[_periodState.phase] || '#FFB3C6';
   document.getElementById('periodDayBig').textContent = `第 ${_periodState.cycle_day} 天`;
-  document.getElementById('periodNextInfo').textContent = `距離下次月經 ${_periodState.days_to_next} 天（${_periodState.next_period_date}）`;
+  document.getElementById('periodNextInfo').textContent = _periodDue(_periodState.days_to_next, _periodState.next_period_date);
   document.getElementById('periodReminder').textContent = phaseReminders[_periodState.phase] || '';
   const btnEnd = document.getElementById('periodBtnEnd');
   if (btnEnd) btnEnd.style.display = (_periodState.period_end === null) ? '' : 'none';
@@ -1449,7 +1471,7 @@ function periodRender() {
   if (homeCard) {
     homeCard.style.display = '';
     document.getElementById('periodHomeTitle').textContent = `第 ${_periodState.cycle_day} 天・${phaseLabels[_periodState.phase]}`;
-    document.getElementById('periodHomeSub').textContent = `距離下次 ${_periodState.days_to_next} 天`;
+    document.getElementById('periodHomeSub').textContent = _periodDue(_periodState.days_to_next);
   }
   periodRenderHistory();
 }
@@ -1948,7 +1970,7 @@ fetch(BASE + '/period-status').then(r => r.json()).then(d => {
     if (homeCard) {
       homeCard.style.display = '';
       document.getElementById('periodHomeTitle').textContent = `第 ${d.cycle_day} 天・${phaseLabels[d.phase]}`;
-      document.getElementById('periodHomeSub').textContent = `距離下次 ${d.days_to_next} 天`;
+      document.getElementById('periodHomeSub').textContent = _periodDue(d.days_to_next);
     }
   }
 }).catch(() => {});
