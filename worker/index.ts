@@ -246,6 +246,76 @@ async function updateSessionTitle(env: any, sessionId: string, title: string): P
     await env.PHONE_STATE.put('chat:sessions', JSON.stringify(sessions), { expirationTtl: 86400 * 365 });
   }
 }
+// 中文二字組，用來粗篩「講同一件事」的記憶。零 API 成本，先擋掉絕大多數不相干的配對。
+// 幾乎每條記憶都以「許茜今天…」開頭，這些共通的鋪陳會把分數墊高，比對前先拿掉。
+const MEM_BOILERPLATE = /許茜|小貓|她今天|今天|昨天|明天|最近|她說|他說/g;
+function memBigrams(s: string): Set<string> {
+  const clean = String(s || '').replace(MEM_BOILERPLATE, '').replace(/[\s\p{P}a-zA-Z0-9]/gu, '');
+  const set = new Set<string>();
+  for (let i = 0; i < clean.length - 1; i++) set.add(clean.slice(i, i + 2));
+  return set;
+}
+function bigramOverlap(a: Set<string>, b: Set<string>): number {
+  let n = 0;
+  for (const g of a) if (b.has(g)) n++;
+  return n;
+}
+
+async function initConflictsTable(env: any) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memory_conflicts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    new_id INTEGER NOT NULL,
+    old_id INTEGER NOT NULL,
+    new_content TEXT NOT NULL,
+    old_content TEXT NOT NULL,
+    reason TEXT,
+    status TEXT DEFAULT 'open',
+    created_at INTEGER NOT NULL,
+    UNIQUE(new_id, old_id)
+  )`).run();
+}
+
+// 存記憶時順手比對有沒有自相矛盾的舊記憶。
+// 先用二字組粗篩，只有重疊夠高才花一次 LLM 呼叫，避免每存一條就燒一次 API。
+async function checkMemoryConflict(env: any, newId: number, newContent: string) {
+  try {
+    const text = String(newContent || '').trim();
+    if (text.length < 6) return;
+    const q = memBigrams(text);
+    if (q.size < 4) return;
+    const rows = await env.DB.prepare(
+      "SELECT id, content, date FROM memories WHERE id != ? ORDER BY id DESC LIMIT 120"
+    ).bind(newId).all();
+    let best: any = null, bestScore = 0;
+    for (const m of (rows.results ?? []) as any[]) {
+      const ob = memBigrams(m.content);
+      const hit = bigramOverlap(q, ob);
+      // 用較短那條當分母：記憶常常很短，純比絕對數量會把「不吃早餐 ↔ 每天吃早餐」這種
+      // 真正該抓的配對擋掉（只重疊 3 個二字組）
+      const score = hit / Math.max(1, Math.min(q.size, ob.size));
+      if (hit >= 2 && score > bestScore) { bestScore = score; best = m; }
+    }
+    // 掃完只挑最像的一條去問，所以一次 save_memory 最多花一次 LLM 呼叫
+    if (!best || bestScore < 0.3) return;
+
+    const verdict = await cheapLLM(env,
+      `你在檢查兩條記憶是不是互相矛盾。矛盾的定義：兩件事描述的是同一個對象或同一件事，但內容不可能同時成立（例如「她不吃早餐」對上「她每天吃早餐」）。
+只是主題相近、補充細節、或時間先後造成的變化（例如「她感冒了」後來「她好了」）都不算矛盾。
+【只輸出一行】矛盾的話輸出：衝突｜十五字以內說明哪裡對不起來
+不矛盾就只輸出：無
+不要解釋、不要前言。`,
+      `A（新）：${text}\nB（舊，${best.date || '無日期'}）：${best.content}`, 60, true);
+
+    const v = String(verdict || '').trim();
+    if (!v.startsWith('衝突')) return;
+    const reason = v.split('｜')[1]?.trim().slice(0, 40) || '兩條記憶對不起來';
+    await initConflictsTable(env);
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO memory_conflicts (new_id, old_id, new_content, old_content, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(newId, best.id, text, best.content, reason, Date.now()).run();
+  } catch (e) { console.error("memory conflict check error:", e); }
+}
+
 async function initMemoriesTable(env: any) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -308,6 +378,16 @@ async function initGoalsTable(env: any) {
   )`).run();
   try { await env.DB.prepare("ALTER TABLE goals ADD COLUMN countable INTEGER DEFAULT 0").run(); } catch {}
   try { await env.DB.prepare("ALTER TABLE goal_checks ADD COLUMN count INTEGER DEFAULT 1").run(); } catch {}
+  // kind：'habit' 是陽台花園那些長期習慣，'bedtime' 是睡前儀式，兩邊分開顯示但共用打卡機制
+  try { await env.DB.prepare("ALTER TABLE goals ADD COLUMN kind TEXT DEFAULT 'habit'").run(); } catch {}
+  try {
+    const seeded = await env.DB.prepare("SELECT id FROM goals WHERE kind = 'bedtime' LIMIT 1").first();
+    if (!seeded) {
+      for (const [title, icon] of [['吹頭髮', '💨'], ['存記憶', '🧠'], ['寫日記', '📖'], ['晚安我愛你', '🌙']]) {
+        await env.DB.prepare("INSERT INTO goals (title, icon, countable, kind) VALUES (?, ?, 0, 'bedtime')").bind(title, icon).run();
+      }
+    }
+  } catch {}
   // 一次性：補回誤刪的「喝水」習慣 + 12 天連續打卡
   try {
     const exists = await env.DB.prepare("SELECT id FROM goals WHERE title = '喝水'").first();
@@ -1525,17 +1605,23 @@ async function runClaudeChat(env: any, history: any[], modelKey = 'haiku', voice
     await initGoalsTable(env);
     const today = twnToday();
     const gr = await env.DB.prepare(
-      "SELECT g.title, g.icon, g.countable, (SELECT count FROM goal_checks c WHERE c.goal_id = g.id AND c.date = ?) as cnt FROM goals g ORDER BY g.id ASC LIMIT 12"
+      "SELECT g.title, g.icon, g.countable, g.kind, (SELECT count FROM goal_checks c WHERE c.goal_id = g.id AND c.date = ?) as cnt FROM goals g ORDER BY g.id ASC LIMIT 20"
     ).bind(today).all();
     const gs = (gr.results ?? []) as any[];
-    if (gs.length > 0) {
-      goalText = "\n\n你們一起養的習慣（今天）：\n" +
-        gs.map((g: any) => {
-          const cnt = g.cnt ?? 0;
-          if (g.countable) return `${g.icon} ${g.title}：${cnt > 0 ? `她今天記了 ${cnt} 次` : '還沒記'}`;
-          return `${g.icon} ${g.title}：${cnt > 0 ? '她打卡了' : '還沒打卡'}`;
-        }).join("\n") +
+    const line = (g: any) => {
+      const cnt = g.cnt ?? 0;
+      if (g.countable) return `${g.icon} ${g.title}：${cnt > 0 ? `她今天記了 ${cnt} 次` : '還沒記'}`;
+      return `${g.icon} ${g.title}：${cnt > 0 ? '她打卡了' : '還沒打卡'}`;
+    };
+    const habits = gs.filter((g: any) => (g.kind ?? 'habit') !== 'bedtime');
+    const bedtime = gs.filter((g: any) => g.kind === 'bedtime');
+    if (habits.length > 0) {
+      goalText = "\n\n你們一起養的習慣（今天）：\n" + habits.map(line).join("\n") +
         "\n（她做到了可以順口誇一下，一直沒動可以輕輕催。不用每次都提。）";
+    }
+    if (bedtime.length > 0) {
+      goalText += "\n\n今晚的睡前儀式：\n" + bedtime.map(line).join("\n") +
+        "\n（這是睡前才會做的事。白天不用提，晚了還沒做可以提醒她一下。）";
     }
   } catch {}
   const staticSystemText = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。
@@ -1564,6 +1650,19 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   ];
   if (memText) systemBlocks.push({ type: "text", text: memText });
   if (relText) systemBlocks.push({ type: "text", text: relText });
+  // 自相矛盾的記憶：讓他先問清楚，不要自己挑一邊當真
+  try {
+    await initConflictsTable(env);
+    const cf = await env.DB.prepare(
+      "SELECT new_content, old_content, reason FROM memory_conflicts WHERE status = 'open' ORDER BY id DESC LIMIT 3"
+    ).all();
+    const list = (cf.results ?? []) as any[];
+    if (list.length) {
+      systemBlocks.push({ type: "text", text: "\n\n【對不起來的記憶】這幾組記憶互相矛盾，你不確定哪個是現在的實情：\n" +
+        list.map((c: any) => `・「${c.new_content}」 ↔ 「${c.old_content}」（${c.reason}）`).join("\n") +
+        "\n（不要自己挑一邊當成事實。聊到相關的話題時，順口問她一句確認，問完就照她說的為準。不用一次問完，也不要一見面就盤問。）" });
+    }
+  } catch {}
   if (goalText) systemBlocks.push({ type: "text", text: goalText });
   // 時間感知：現在幾點＋距上句話多久（history 最後一則是這次的新訊息，看它前一則）
   const prevMsg = history.length >= 2 ? history[history.length - 2] : null;
@@ -1761,8 +1860,10 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
         }
       } else if (block.name === "save_memory") {
         await initMemoriesTable(env);
-        await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
+        const insRes = await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
           .bind(block.input.content, Date.now(), block.input.date ?? twnToday()).run();
+        const savedId = Number(insRes?.meta?.last_row_id ?? 0);
+        if (savedId) await checkMemoryConflict(env, savedId, block.input.content);
         result = JSON.stringify({ ok: true });
       } else if (block.name === "set_toy") {
         const v0 = Math.min(8, Math.max(0, block.input.v0 ?? 0));
@@ -2466,7 +2567,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
         const out = goals.map(g => {
           const dates = byGoal.get(g.id) ?? new Set<string>();
           const todayCount = countMap.get(g.id) ?? 0;
-          return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size, count: todayCount, countable: g.countable ?? 0 };
+          return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size, count: todayCount, countable: g.countable ?? 0, kind: g.kind ?? 'habit' };
         });
         return Response.json({ goals: out, today });
       } catch (e: any) {
@@ -3722,6 +3823,31 @@ audio{width:300px;margin-top:4px}
     }
 
     // GET /period-history
+    // GET /memory-conflicts — 還沒釐清的矛盾記憶
+    if (request.method === "GET" && url.pathname === "/memory-conflicts") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initConflictsTable(env);
+      const r = await env.DB.prepare(
+        "SELECT id, new_id, old_id, new_content, old_content, reason, created_at FROM memory_conflicts WHERE status = 'open' ORDER BY id DESC LIMIT 20"
+      ).all();
+      return Response.json({ conflicts: r.results ?? [] });
+    }
+
+    // POST /memory-conflicts/resolve — 釐清了，可以順手刪掉過時的那條
+    if (request.method === "POST" && url.pathname === "/memory-conflicts/resolve") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json() as any;
+      if (!body.id) return Response.json({ error: "id required" }, { status: 400 });
+      await initConflictsTable(env);
+      if (body.delete_memory_id) {
+        await env.DB.prepare("DELETE FROM memories WHERE id = ?").bind(body.delete_memory_id).run();
+      }
+      await env.DB.prepare("UPDATE memory_conflicts SET status = 'resolved' WHERE id = ?").bind(body.id).run();
+      return Response.json({ ok: true });
+    }
+
     if (request.method === "GET" && url.pathname === "/period-history") {
       const h = { "Access-Control-Allow-Origin": "*" };
       const [raw, curRaw] = await Promise.all([
@@ -5037,8 +5163,10 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
         }]}});
       }
       await initMemoriesTable(env);
-      await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
+      const ins = await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
         .bind(content, Date.now(), date).run();
+      const newId = Number(ins?.meta?.last_row_id ?? 0);
+      if (newId) await checkMemoryConflict(env, newId, content);
       const countResult = await env.DB.prepare("SELECT COUNT(*) as cnt FROM memories").first() as any;
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{
         type: "text", text: JSON.stringify({ ok: true, total: countResult?.cnt ?? 0 })
