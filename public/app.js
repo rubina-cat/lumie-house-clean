@@ -540,7 +540,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 通知「回他」按鈕：直接跳 chat tab 並 focus 輸入框
   if (params.get('reply') === '1') {
     switchTab('chat');
-    setTimeout(() => document.getElementById('input')?.focus(), 400);
+    setTimeout(() => { replyToLastAssistant(); document.getElementById('input')?.focus(); }, 400);
     history.replaceState({}, '', '/chat-ui.html');
   }
 
@@ -564,6 +564,11 @@ document.addEventListener('DOMContentLoaded', () => {
         new Audio(e.data.audioUrl).play().catch(() => {});
       }
       if (e.data?.type === 'focus-input') {
+        document.getElementById('input')?.focus();
+      }
+      if (e.data?.type === 'reply-to-last') {
+        switchTab('chat');
+        replyToLastAssistant();
         document.getElementById('input')?.focus();
       }
     });
@@ -739,6 +744,40 @@ function _showCacheToast(usage) {
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 4000);
 }
 
+// ── 從推播進來時，標出她正在回哪一句 ──────────────────
+let _quotedMsgId = null;
+
+function replyToLastAssistant() {
+  const last = [...chatMsgs].reverse().find(m => m.role === 'assistant' && m.content);
+  if (!last) return;
+  _quotedMsgId = last.id;
+  const box = document.getElementById('replyQuote');
+  const txt = document.getElementById('replyQuoteText');
+  if (!box || !txt) return;
+  const plain = String(last.content).replace(/<silent[^>]*><\/silent>/g, '').trim();
+  txt.textContent = plain.length > 40 ? plain.slice(0, 40) + '…' : plain;
+  box.hidden = false;
+  scrollToQuoted();
+}
+
+function clearReplyQuote() {
+  _quotedMsgId = null;
+  const box = document.getElementById('replyQuote');
+  if (box) box.hidden = true;
+}
+
+function scrollToQuoted() {
+  if (!_quotedMsgId) return;
+  const el = document.querySelector(`.msg-wrap[data-id="${_quotedMsgId}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const bubble = el.querySelector('.msg');
+  if (!bubble) return;
+  bubble.classList.remove('msg-flash');
+  void bubble.offsetWidth;
+  bubble.classList.add('msg-flash');
+}
+
 function _msgTime(ts) {
   if (!ts) return '';
   const d = new Date(ts);
@@ -889,6 +928,7 @@ async function send() {
   chatSending = true;
   input.value = '';
   input.style.height = 'auto';
+  clearReplyQuote();
   document.getElementById('sendBtn').disabled = true;
 
   const typingEl = _addTyping();

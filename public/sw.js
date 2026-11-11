@@ -69,12 +69,11 @@ self.addEventListener('notificationclick', event => {
       return clients.openWindow('/chat-ui.html?autoplay=' + encodeURIComponent(playUrl));
     }
 
+    // 不管是點通知本體還是「回他」，都當成要回他剛說的那句，帶上引用的脈絡
     if (chatClient) {
-      if (action === 'reply') chatClient.postMessage({ type: 'focus-input' });
+      chatClient.postMessage({ type: 'reply-to-last' });
       return chatClient.focus();
     }
-
-    if (action === 'reply') return clients.openWindow('/chat-ui.html?reply=1');
-    return clients.openWindow(playUrl ? '/player' : '/chat-ui.html');
+    return clients.openWindow('/chat-ui.html?reply=1');
   })());
 });
