@@ -1287,6 +1287,34 @@ function _plantImg(g, cls) {
   return `<img class="${cls}" src="/garden/plant-${_plantStageNum(g)}.png" alt="">`;
 }
 
+function renderBedtime(items) {
+  const card = document.getElementById('bedtimeCard');
+  const box = document.getElementById('bedtimeList');
+  if (!card || !box) return;
+  if (!items.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const done = items.filter(i => i.checked).length;
+  const sub = document.getElementById('bedtimeSub');
+  if (sub) sub.textContent = done === items.length ? '都做完了，晚安' : `${done}/${items.length}`;
+  box.innerHTML = items.map(i => `
+    <button class="bedtime-item${i.checked ? ' done' : ''}" onclick="toggleBedtime(${i.id})">
+      <span class="bedtime-check">${i.checked ? '✓' : ''}</span>
+      <span class="bedtime-icon">${i.icon || '🌙'}</span>
+      <span class="bedtime-title">${escHtml(i.title)}</span>
+    </button>`).join('');
+}
+
+async function toggleBedtime(id) {
+  try {
+    await fetch(BASE + '/goals/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ id, date: _todayTWN() })
+    });
+  } catch {}
+  await loadGoals();
+}
+
 async function loadGoals() {
   const list = document.getElementById('goalsList');
   if (!list) return;
@@ -1294,8 +1322,11 @@ async function loadGoals() {
     const r = await fetch(BASE + '/goals?date=' + _todayTWN(), { headers: { Authorization: `Bearer ${TOKEN}` } });
     if (!r.ok) throw new Error();
     const d = await r.json();
-    const goals = d.goals || [];
+    const all = d.goals || [];
+    // 睡前儀式跟長期習慣共用打卡機制，但分開顯示：習慣在這張清單和陽台花園，儀式在首頁小卡
+    const goals = all.filter(g => (g.kind || 'habit') !== 'bedtime');
     _goalsCache = goals;
+    renderBedtime(all.filter(g => g.kind === 'bedtime'));
     if (!goals.length) { list.innerHTML = '<div class="dates-empty">還沒有一起養的習慣，＋一個？</div>'; return; }
     list.innerHTML = goals.map(g => {
       const streak = g.streak > 1 ? `<span class="goal-streak">🔥 ${g.streak} 天</span>` : (g.total > 0 ? `<span class="goal-streak dim">共 ${g.total} 次</span>` : '');

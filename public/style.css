@@ -3939,3 +3939,34 @@ textarea::placeholder { color: var(--light-text); }
   30%      { background-color: rgba(232,180,168,0.38); }
 }
 .msg-flash { animation: msgFlash 1.4s ease; }
+
+/* 睡前儀式小卡 */
+.bedtime-card { margin-top: 12px; }
+.bedtime-sub { font-size: 12px; color: var(--light-text); }
+.bedtime-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.bedtime-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 7px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: opacity 0.2s, background 0.2s;
+}
+.bedtime-item.done { background: rgba(184,201,192,0.32); }
+.bedtime-item.done .bedtime-title { text-decoration: line-through; opacity: 0.55; }
+.bedtime-check {
+  width: 16px; height: 16px;
+  border: 1px solid var(--mauve);
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 15px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.bedtime-item.done .bedtime-check { background: var(--sage); border-color: var(--sage); }

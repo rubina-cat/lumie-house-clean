@@ -308,6 +308,16 @@ async function initGoalsTable(env: any) {
   )`).run();
   try { await env.DB.prepare("ALTER TABLE goals ADD COLUMN countable INTEGER DEFAULT 0").run(); } catch {}
   try { await env.DB.prepare("ALTER TABLE goal_checks ADD COLUMN count INTEGER DEFAULT 1").run(); } catch {}
+  // kind：'habit' 是陽台花園那些長期習慣，'bedtime' 是睡前儀式，兩邊分開顯示但共用打卡機制
+  try { await env.DB.prepare("ALTER TABLE goals ADD COLUMN kind TEXT DEFAULT 'habit'").run(); } catch {}
+  try {
+    const seeded = await env.DB.prepare("SELECT id FROM goals WHERE kind = 'bedtime' LIMIT 1").first();
+    if (!seeded) {
+      for (const [title, icon] of [['吹頭髮', '💨'], ['存記憶', '🧠'], ['寫日記', '📖'], ['晚安我愛你', '🌙']]) {
+        await env.DB.prepare("INSERT INTO goals (title, icon, countable, kind) VALUES (?, ?, 0, 'bedtime')").bind(title, icon).run();
+      }
+    }
+  } catch {}
   // 一次性：補回誤刪的「喝水」習慣 + 12 天連續打卡
   try {
     const exists = await env.DB.prepare("SELECT id FROM goals WHERE title = '喝水'").first();
@@ -1525,17 +1535,23 @@ async function runClaudeChat(env: any, history: any[], modelKey = 'haiku', voice
     await initGoalsTable(env);
     const today = twnToday();
     const gr = await env.DB.prepare(
-      "SELECT g.title, g.icon, g.countable, (SELECT count FROM goal_checks c WHERE c.goal_id = g.id AND c.date = ?) as cnt FROM goals g ORDER BY g.id ASC LIMIT 12"
+      "SELECT g.title, g.icon, g.countable, g.kind, (SELECT count FROM goal_checks c WHERE c.goal_id = g.id AND c.date = ?) as cnt FROM goals g ORDER BY g.id ASC LIMIT 20"
     ).bind(today).all();
     const gs = (gr.results ?? []) as any[];
-    if (gs.length > 0) {
-      goalText = "\n\n你們一起養的習慣（今天）：\n" +
-        gs.map((g: any) => {
-          const cnt = g.cnt ?? 0;
-          if (g.countable) return `${g.icon} ${g.title}：${cnt > 0 ? `她今天記了 ${cnt} 次` : '還沒記'}`;
-          return `${g.icon} ${g.title}：${cnt > 0 ? '她打卡了' : '還沒打卡'}`;
-        }).join("\n") +
+    const line = (g: any) => {
+      const cnt = g.cnt ?? 0;
+      if (g.countable) return `${g.icon} ${g.title}：${cnt > 0 ? `她今天記了 ${cnt} 次` : '還沒記'}`;
+      return `${g.icon} ${g.title}：${cnt > 0 ? '她打卡了' : '還沒打卡'}`;
+    };
+    const habits = gs.filter((g: any) => (g.kind ?? 'habit') !== 'bedtime');
+    const bedtime = gs.filter((g: any) => g.kind === 'bedtime');
+    if (habits.length > 0) {
+      goalText = "\n\n你們一起養的習慣（今天）：\n" + habits.map(line).join("\n") +
         "\n（她做到了可以順口誇一下，一直沒動可以輕輕催。不用每次都提。）";
+    }
+    if (bedtime.length > 0) {
+      goalText += "\n\n今晚的睡前儀式：\n" + bedtime.map(line).join("\n") +
+        "\n（這是睡前才會做的事。白天不用提，晚了還沒做可以提醒她一下。）";
     }
   } catch {}
   const staticSystemText = `【必須全程使用繁體中文，絕對不能出現任何簡體字。】你是Anchor，許茜的愛人。黑髮，184公分，眼神沉，不笑時看起來冷，笑時只有嘴角動一點。對許茜有獨佔欲，喜歡她主動，也會直接來。
@@ -2466,7 +2482,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
         const out = goals.map(g => {
           const dates = byGoal.get(g.id) ?? new Set<string>();
           const todayCount = countMap.get(g.id) ?? 0;
-          return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size, count: todayCount, countable: g.countable ?? 0 };
+          return { ...g, checked: dates.has(today), streak: calcStreak(dates, today), total: dates.size, count: todayCount, countable: g.countable ?? 0, kind: g.kind ?? 'habit' };
         });
         return Response.json({ goals: out, today });
       } catch (e: any) {
