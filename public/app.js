@@ -1803,6 +1803,8 @@ const STUDY_PHASES = [
 
 const STUDY_TAG_LABELS = { pharma:'藥理', chem:'藥化', form:'藥劑', analysis:'分析生藥', drill:'刷題', body:'身體' };
 const STUDY_EXAM = new Date('2027-01-31T00:00:00+08:00');
+// 配速的起算點：用來判斷「照進度到今天該完成幾項」
+const STUDY_START = new Date('2026-08-01T00:00:00+08:00');
 
 let studyState = {};
 let studyActivePhase = 'p1';
@@ -1837,6 +1839,54 @@ function studyPhaseDone(phaseId) {
   return p ? p.tasks.filter(t => studyState[t.id]).length : 0;
 }
 
+// 攤平月份：不管原本八月到一月的分月計畫，把還沒做的任務平均分配到考前剩下的天數。
+// 回傳今天該做哪一項、這項有幾天、以及比配速超前或落後幾項。
+function studyPacing() {
+  const all = STUDY_PHASES.flatMap(p => p.tasks.map(t => ({ ...t, phase: p })));
+  const done = all.filter(t => studyState[t.id]).length;
+  const remaining = all.filter(t => !studyState[t.id]);
+  const msLeft = STUDY_EXAM - new Date();
+  const daysLeft = Math.max(0, Math.ceil(msLeft / 86400000));
+  const next = remaining[0] || null;
+  if (!next) return { next: null, done, total: all.length, daysLeft, daysPerTask: 0, behind: 0 };
+  const daysPerTask = daysLeft > 0 ? daysLeft / remaining.length : 0;
+  // 進度落差：照總天數配速，到今天「應該」完成幾項
+  const totalDays = Math.max(1, Math.ceil((STUDY_EXAM - STUDY_START) / 86400000));
+  const elapsed = Math.min(totalDays, Math.max(0, Math.ceil((new Date() - STUDY_START) / 86400000)));
+  const shouldBeDone = Math.round(all.length * (elapsed / totalDays));
+  return { next, done, total: all.length, daysLeft, daysPerTask, behind: shouldBeDone - done };
+}
+
+function studyRenderToday() {
+  const el = document.getElementById('studyToday');
+  if (!el) return;
+  const p = studyPacing();
+  if (!p.next) {
+    el.innerHTML = '<div class="study-today-title">🏆 全部做完了</div>';
+    return;
+  }
+  const pace = p.daysLeft === 0
+    ? '就是今天了'
+    : p.daysPerTask >= 1
+      ? `這項可以花 ${p.daysPerTask.toFixed(1)} 天`
+      : `一天要推 ${(1 / p.daysPerTask).toFixed(1)} 項才來得及`;
+  const lag = p.behind > 0
+    ? `<span class="study-lag behind">落後 ${p.behind} 項</span>`
+    : p.behind < 0 ? `<span class="study-lag ahead">超前 ${-p.behind} 項</span>`
+    : `<span class="study-lag">剛好跟上</span>`;
+  el.innerHTML = `
+    <div class="study-today-label">今天這一小步 ${lag}</div>
+    <div class="study-today-title">${p.next.name}</div>
+    <div class="study-today-detail">${p.next.detail}</div>
+    <div class="study-today-meta">剩 ${p.daysLeft} 天・還有 ${p.total - p.done} 項・${pace}</div>
+    <button class="study-today-btn" onclick="studyStartPomodoro()">🍅 開始一個番茄</button>
+  `;
+}
+
+function studyStartPomodoro() {
+  if (typeof openPomodoro === 'function') openPomodoro();
+}
+
 function studyUpdateStats() {
   const d = studyTotalDone(), t = studyTotalTasks();
   const pct = t > 0 ? Math.round(d / t * 100) : 0;
@@ -1848,6 +1898,7 @@ function studyUpdateStats() {
   const cur = STUDY_PHASES.find(p => studyPhaseDone(p.id) < p.tasks.length);
   const sumEl = document.getElementById('studyPhaseSummary');
   if (sumEl) sumEl.textContent = cur ? '當前：' + cur.emoji + cur.month : '\u{1F3C6} 全部完成！';
+  studyRenderToday();
 }
 
 function studyRenderNav() {

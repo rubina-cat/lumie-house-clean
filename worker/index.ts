@@ -5338,15 +5338,19 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
     }
 
     if (toolName === "check_study") {
-      const STUDY_PLAN = [
-        { w: "W1", tasks: ["w1a","w1b","w1c","w1d","w1e","w1f"] },
-        { w: "W2", tasks: ["w2a","w2b","w2c","w2d","w2e"] },
-        { w: "W3", tasks: ["w3a","w3b","w3c","w3d"] },
-        { w: "W4", tasks: ["w4a","w4b","w4c","w4d"] },
-        { w: "W5", tasks: ["w5a","w5b","w5c","w5d"] },
-        { w: "W6", tasks: ["w6a","w6b","w6c","w6d"] },
-        { w: "W6.5", tasks: ["w7a","w7b","w7c","w7d"] },
+      // 前端 STUDY_PHASES 的任務 id 是 p1a–p6h，共六階段各八項。
+      // 舊版這裡寫的是 w1a–w7d 那套已經作廢的週計畫，跟實際存的狀態對不起來，
+      // 所以不管她做了多少，done 永遠算成 0，考試日也還停在已經過掉的 2026/7/18。
+      const PHASES = [
+        { id: 'p1', label: '八月 重啟引擎' },
+        { id: 'p2', label: '九月 藥理精讀' },
+        { id: 'p3', label: '十月 藥劑＋生藥劑' },
+        { id: 'p4', label: '十一月 分析＋生藥＋中藥' },
+        { id: 'p5', label: '十二月 考古題月' },
+        { id: 'p6', label: '一月 衝刺' },
       ];
+      const letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const taskIds = (p: string) => letters.map(l => p + l);
       const [spRaw, todayRaw] = await Promise.all([
         env.PHONE_STATE.get("study_progress"),
         env.PHONE_STATE.get("pomodoro_today")
@@ -5355,18 +5359,24 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
       const todayData = todayRaw ? JSON.parse(todayRaw) : null;
       const now = Date.now();
       const todayStr = new Date(now + 8 * 3600000).toISOString().split('T')[0];
-      const exam = new Date('2026-07-18T00:00:00+08:00').getTime();
+      const exam = new Date('2027-01-31T00:00:00+08:00').getTime();
       const daysLeft = Math.max(0, Math.ceil((exam - now) / 86400000));
-      const allIds = STUDY_PLAN.flatMap(w => w.tasks);
+      const allIds = PHASES.flatMap(p => taskIds(p.id));
       const total = allIds.length;
       const done = allIds.filter(id => spState[id]).length;
       const pct = total ? Math.round(done / total * 100) : 0;
-      const weekLines = STUDY_PLAN.map(w => {
-        const wDone = w.tasks.filter(id => spState[id]).length;
-        return `${w.w} ${wDone}/${w.tasks.length}`;
+      const remaining = total - done;
+      const phaseLines = PHASES.map(p => {
+        const ids = taskIds(p.id);
+        return `${p.label} ${ids.filter(id => spState[id]).length}/${ids.length}`;
       }).join('　');
+      // 攤平月份看配速：剩下的項目平均分到剩下的天數
+      const perTask = remaining > 0 && daysLeft > 0 ? (daysLeft / remaining).toFixed(1) : null;
+      const nextId = allIds.find(id => !spState[id]) || null;
       const todayCount = todayData?.date === todayStr ? (todayData.count ?? 0) : 0;
-      const text = `距 2026/7/18 考試：${daysLeft} 天\n總進度：${done}/${total}（${pct}%）\n各週：${weekLines}\n今日番茄：${todayCount} 個`;
+      const text = `距 2027/1/31 考試：${daysLeft} 天\n總進度：${done}/${total}（${pct}%）\n各階段：${phaseLines}\n`
+        + (nextId ? `下一項：${nextId}${perTask ? `（平均每項可以花 ${perTask} 天）` : ''}\n` : '全部做完了\n')
+        + `今日番茄：${todayCount} 個`;
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
     }
 
