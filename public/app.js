@@ -201,14 +201,13 @@ function renderEyeNow(latest, ageMin, sleep) {
   const time = (latest.hour != null && latest.minute != null)
     ? String(latest.hour).padStart(2,'0') + ':' + String(latest.minute).padStart(2,'0')
     : '—';
-  const charging = latest.charging === true ? ' ⚡' : '';
   const screenLabel = latest.screenOn === true ? '亮著' : latest.screenOn === false ? '熄了' : '—';
   const loc = latest.placeLabel || '—';
   const stale = ageMin != null && ageMin > 120;
   el.innerHTML = `
     ${stale ? '<div class="eye-stale">⚠ 斷線中・資料停在 ' + _agoText(ageMin) + '</div>' : ''}    <div class="eye-now-row">
       <span class="eye-now-label">電量</span>
-      <span class="eye-now-value big">${latest.batteryPercent ?? '—'}%${charging}</span>
+      <span class="eye-now-value big">${latest.batteryPercent ?? '—'}%</span>
     </div>
     <div class="eye-now-row">
       <span class="eye-now-label">時間</span>
