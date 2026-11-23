@@ -745,22 +745,25 @@
     <iframe id="filePreviewFrame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" style="width:100%;flex:1;border:none;background:#fff"></iframe>
   </div>
 
-  <!-- 釣魚 🎣 -->
-  <div class="page" id="fishing">
-    <div class="fish-wrap">
-      <div class="fish-header">
-        <span class="fish-title">🎣 Anchor 的釣場</span>
-        <span class="fish-bar" id="fishBar">載入中…</span>
+  <!-- 塔羅 🔮 -->
+  <div class="page" id="tarot">
+    <div class="tarot-wrap">
+      <div class="tarot-head">
+        <span class="tarot-title">🔮 抽一張</span>
+        <button class="tarot-hist-btn" onclick="toggleTarotHistory()">紀錄</button>
       </div>
-      <div class="fish-stats" id="fishStats"></div>
-      <div class="fish-log" id="fishOutput"></div>
-      <div class="fish-actions">
-        <button onclick="anchorDo('cast 3')">🎣 讓他釣一輪</button>
-        <button onclick="anchorDo('sell all')">💰 賣魚</button>
-        <button onclick="anchorDo('status')">📊 狀態</button>
-        <button onclick="anchorDo('inventory')">🎒 魚簍</button>
-        <button onclick="refreshFishing()">🔄 刷新</button>
+
+      <div id="tarotDrawArea">
+        <input class="tarot-q" id="tarotQuestion" maxlength="60" placeholder="想問什麼？（可以空著）">
+        <div class="tarot-spreads">
+          <button class="tarot-spread-btn" onclick="drawTarot('single')">抽一張</button>
+          <button class="tarot-spread-btn" onclick="drawTarot('three')">三張牌陣</button>
+        </div>
       </div>
+
+      <div class="tarot-cards" id="tarotCards"></div>
+      <div id="tarotReading"></div>
+      <div class="tarot-history" id="tarotHistory" hidden></div>
     </div>
   </div>
 
@@ -829,9 +832,9 @@
     <span class="nav-icon">👁️</span>
     <span class="nav-dark-text">眼睛</span>
   </button>
-  <button class="nav-item" onclick="switchTab('fishing')" id="nav-fishing">
-    <span class="nav-icon">🎣</span>
-    <span class="nav-dark-text">釣魚</span>
+  <button class="nav-item" onclick="switchTab('tarot')" id="nav-tarot">
+    <span class="nav-icon">🔮</span>
+    <span class="nav-dark-text">塔羅</span>
   </button>
 </nav>
 

@@ -153,7 +153,7 @@ function switchTab(tabId) {
   if (tabId === 'toy') loadEye();
   if (tabId === 'study') loadStudy();
   if (tabId === 'period') loadPeriod();
-  if (tabId === 'fishing') loadFishing();
+  if (tabId === 'tarot') loadTarotHistory();
   if (tabId === 'chat' && !historyLoaded) {
     loadChatHistory();
   }
@@ -2314,102 +2314,86 @@ function previewChatPhoto(input) {
   }
 }
 
-// ── 釣魚 🎣 ────────────────────────────────────────────────────────────────
-let _fishBusy = false;
+// ── 塔羅 🔮 ────────────────────────────────────────────────────────────────
+let _tarotBusy = false;
 
-async function loadFishing() {
-  await refreshFishing();
+function _tarotCardEl(c, delay) {
+  const keys = (c.keywords || []).map(k => `<span class="t-key">${escHtml(k)}</span>`).join('');
+  return `<div class="tcard${c.reversed ? ' rev' : ''} flip" style="animation-delay:${delay}ms">
+    <div class="t-top"><span class="t-num">${escHtml(c.num)}</span><span class="t-arcana">${escHtml(c.suitLabel || '')}</span></div>
+    <div class="t-glyph">${c.glyph}</div>
+    <div class="t-name">${escHtml(c.name)}</div>
+    <div class="t-en">${escHtml(c.en)}</div>
+    <span class="t-ori">${c.reversed ? '逆位' : '正位'}</span>
+    <div class="t-keys">${keys}</div>
+  </div>`;
 }
 
-async function refreshFishing() {
-  const bar = document.getElementById('fishBar');
-  const stats = document.getElementById('fishStats');
-  const out = document.getElementById('fishOutput');
+async function drawTarot(spread) {
+  if (_tarotBusy) return;
+  _tarotBusy = true;
+  const cardsEl = document.getElementById('tarotCards');
+  const readEl = document.getElementById('tarotReading');
+  const question = document.getElementById('tarotQuestion').value.trim();
+  document.getElementById('tarotHistory').hidden = true;
+  cardsEl.innerHTML = '<div class="tarot-shuffling">洗牌中…</div>';
+  readEl.innerHTML = '';
   try {
-    const [stateRes, logRes] = await Promise.all([
-      fetch(`${BASE}/fishing/state?who=anchor`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
-      fetch(`${BASE}/fishing/log?who=anchor`, { headers: { Authorization: `Bearer ${TOKEN}` } }),
-    ]);
-    const { state } = await stateRes.json();
-    const { log } = await logRes.json();
-
-    if (!state) {
-      bar.textContent = '尚無存檔';
-      stats.innerHTML = '<div class="fish-hint">Anchor 還沒開局，等他心情好了就去釣了。</div>';
-      out.innerHTML = '';
-      return;
-    }
-
-    // 狀態欄
-    const loc = FISH_LOC[state.location_id] || state.location_id || '';
-    const sea = SEASON_TC[state.season_id] || state.season_id || '';
-    const pts = state.points ?? 0;
-    const caught = Object.keys(state.encyclopedia || {}).length;
-    const total = 81;
-    bar.textContent = `${pts}點 · ${loc} · ${sea} · ${caught}/${total}種`;
-
-    // 統計卡片
-    const baitInv = state.bait_inventory || {};
-    const worms = baitInv.basic_worm ?? 0;
-    const lures = Object.entries(baitInv).filter(([k]) => k !== 'basic_worm').reduce((s, [, v]) => s + Number(v), 0);
-    const bagFish = (state.catch_inventory || []).length;
-    const round = state.turn ?? 0;
-    stats.innerHTML = `
-      <div class="fish-card">
-        <span>📍 ${loc}</span>
-        <span>🌸 ${sea}</span>
-        <span>💎 ${pts}點</span>
-        <span>🐠 圖鑑 ${caught}/${total}</span>
-        <span>🪣 魚簍 ${bagFish}條</span>
-        <span>🪱 蚯蚓 ${worms} · 假餌 ${lures}</span>
-        <span>🔁 回合 ${round}</span>
-      </div>`;
-
-    // 日誌
-    if (!log || log.length === 0) {
-      out.innerHTML = '<div class="fish-hint">還沒有記錄。</div>';
-    } else {
-      out.innerHTML = log.slice().reverse().map(entry => {
-        const t = new Date(entry.ts);
-        const hm = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
-        const lines = (entry.output || '').split('\n')
-          .filter(l => l.trim() && !l.startsWith('📊 '))
-          .slice(0, 6)
-          .map(l => `<div class="fish-log-line">${escHtml(l)}</div>`)
-          .join('');
-        return `<div class="fish-entry">
-          <div class="fish-entry-meta">${hm} <span class="fish-cmd-label">${escHtml(entry.cmd)}</span></div>
-          ${lines}
-        </div>`;
-      }).join('');
-      out.scrollTop = 0;
-    }
-  } catch (e) {
-    bar.textContent = '❌ 讀取失敗';
-    stats.innerHTML = `<div class="fish-hint">錯誤：${e.message}</div>`;
-  }
-}
-
-async function anchorDo(cmd) {
-  if (_fishBusy) return;
-  _fishBusy = true;
-  const bar = document.getElementById('fishBar');
-  const prevBar = bar.textContent;
-  bar.textContent = '⏳ Anchor 在釣…';
-  try {
-    const res = await fetch(`${BASE}/fishing/cmd`, {
+    const r = await fetch(BASE + '/tarot/draw', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify({ line: cmd }),
+      body: JSON.stringify({ spread, question })
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await refreshFishing();
+    const d = await r.json();
+    if (!d.cards) throw new Error(d.error || '抽牌失敗');
+    const pos = d.cards.length === 3 ? ['過去', '現在', '未來'] : [];
+    cardsEl.innerHTML = d.cards.map((c, i) =>
+      (pos[i] ? `<div class="t-pos">${pos[i]}</div>` : '') + _tarotCardEl(c, i * 220)
+    ).join('');
+    // 牌翻完才去要解讀，不然動畫會被等待卡住
+    readEl.innerHTML = '<div class="tarot-thinking"><span></span><span></span><span></span></div>';
+    const rr = await fetch(BASE + '/tarot/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ draw_id: d.draw_id, model: currentModel })
+    });
+    const rd = await rr.json();
+    readEl.innerHTML = rd.reading
+      ? `<div class="tarot-read"><div class="tarot-read-av">⚓</div><div class="tarot-read-body">${escHtml(rd.reading).replace(/\n/g, '<br>')}
+          <button class="tarot-ask-btn" onclick="switchTab('chat')">接著問他 →</button></div></div>`
+      : '<div class="tarot-shuffling">他沒說話。</div>';
   } catch (e) {
-    bar.textContent = prevBar;
-    const stats = document.getElementById('fishStats');
-    stats.innerHTML = `<div class="fish-hint">❌ ${e.message}</div>` + stats.innerHTML;
-  } finally {
-    _fishBusy = false;
+    cardsEl.innerHTML = `<div class="tarot-shuffling">${escHtml(e.message || '出了點問題')}</div>`;
+    readEl.innerHTML = '';
+  }
+  _tarotBusy = false;
+}
+
+function toggleTarotHistory() {
+  const h = document.getElementById('tarotHistory');
+  h.hidden = !h.hidden;
+  if (!h.hidden) loadTarotHistory();
+}
+
+async function loadTarotHistory() {
+  const h = document.getElementById('tarotHistory');
+  if (!h || h.hidden) return;
+  try {
+    const r = await fetch(BASE + '/tarot/history', { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const d = await r.json();
+    const draws = d.draws || [];
+    if (!draws.length) { h.innerHTML = '<div class="tarot-shuffling">還沒抽過。</div>'; return; }
+    h.innerHTML = draws.map(dr => {
+      const names = (dr.cards || []).map(c => `${c.name}${c.reversed ? '逆' : ''}`).join('・');
+      const t = _msgTime(dr.ts);
+      return `<div class="tarot-hist-item">
+        <div class="tarot-hist-top"><span>${escHtml(names)}</span><span class="tarot-hist-ts">${t}</span></div>
+        ${dr.question ? `<div class="tarot-hist-q">問：${escHtml(dr.question)}</div>` : ''}
+        ${dr.reading ? `<div class="tarot-hist-r">${escHtml(dr.reading)}</div>` : ''}
+      </div>`;
+    }).join('');
+  } catch {
+    h.innerHTML = '<div class="tarot-shuffling">讀不到紀錄。</div>';
   }
 }
 
@@ -2970,13 +2954,6 @@ async function monthlyRender() {
   }
 }
 
-// ── 釣魚地點中文名 ────────────────────────────────
-const FISH_LOC = {
-  moonlit_pond: '月光池塘', reed_river: '蘆葦河', mangrove_shoal: '紅樹林淺灘',
-  whispering_mire: '耳語沼澤', starry_delta: '星河三角洲', sunken_ruins: '沉沒遺跡',
-  geyser_falls: '間歇泉瀑布', crystal_cave: '水晶洞', abyssal_trench: '深淵海溝',
-  floating_lake: '浮空之湖', lava_spring: '熔岩溫泉',
-};
 const SEASON_TC = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
 
 // ── Anchor 的房間 🚪 ─────────────────────────────
@@ -3052,10 +3029,7 @@ async function openRoom() {
     const d = await r.json();
     let html = '';
     const actId = d.activity?.id || null;
-    if (d.fishing) {
-      _setRoomArt(null, 'fishing');
-      document.getElementById('roomAmbient').textContent = '湖邊夜風很輕，浮標一動不動。';
-    } else if (actId && ACT_ART_MAP[actId]) {
+    if (actId && ACT_ART_MAP[actId]) {
       _setRoomArt(null, null, actId);
       document.getElementById('roomAmbient').textContent = _roomAmbientLine();
     } else if (d.mood && d.mood.id) {
@@ -3069,12 +3043,6 @@ async function openRoom() {
     }
     if (d.activity && d.activity.label) {
       html += `<div class="room-status-line">💭 ${escHtml(d.activity.label)}</div>`;
-    }
-    if (d.fishing) {
-      const locName = FISH_LOC[d.fishing.location] || d.fishing.location || '某處';
-      html += `<div class="room-status-line">🎣 在${escHtml(locName)}釣魚 · 圖鑑 ${d.fishing.caught} 種 · ${d.fishing.points} 點</div>`;
-    } else {
-      html += '<div class="room-status-line">🎣 釣竿靠在牆邊</div>';
     }
     if (d.lastChatTs) {
       html += `<div class="room-status-line">上次說話是${_roomRelTime(d.lastChatTs)}</div>`;
