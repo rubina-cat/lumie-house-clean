@@ -1534,7 +1534,7 @@ async function extractFileBlock(reply: string, env: any): Promise<{ clean: strin
   return { clean, file_url: `/media/${key}`, file_name: rawName };
 }
 
-async function runClaudeChat(env: any, history: any[], modelKey = 'haiku', voiceEmotion?: string): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
+async function runClaudeChat(env: any, history: any[], modelKey = 'haiku', voiceEmotion?: string, opts?: { noThinking?: boolean; maxTokens?: number }): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
   const MODEL_MAP: Record<string, string> = {
     haiku:    'claude-haiku-4-5',
     sonnet:   'claude-sonnet-4-6',
@@ -1760,8 +1760,10 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     const cc = cm.content;
     msgs[ci] = { ...cm, content: typeof cc === 'string' ? [{ type: "text", text: cc, cache_control: { type: "ephemeral" } }] : cc };
   }
-  const usesThinking = modelKey !== 'haiku';
-  const maxTok = modelKey === 'haiku' ? 1000 : modelKey === 'sonnet' ? 8000 : 16000;
+  // 短而且只要語感的呼叫（例如塔羅解牌）可以關掉 thinking：那段推理對四句話沒有幫助，
+  // 但在 Sonnet／Opus 上會是主要的等待來源。
+  const usesThinking = modelKey !== 'haiku' && !opts?.noThinking;
+  const maxTok = opts?.maxTokens ?? (modelKey === 'haiku' ? 1000 : modelKey === 'sonnet' ? 8000 : 16000);
   const totalUsage = { model: modelId, input_tokens: 0, output_tokens: 0, cache_creation_tokens: 0, cache_read_tokens: 0 };
   const call = async (m: any[]) => {
     const headers: Record<string, string> = {
@@ -3851,7 +3853,7 @@ audio{width:300px;margin-top:4px}
       const msgs = await getChatMsgs(env, sessionId);
       const now = Date.now();
       msgs.push({ id: `u_t${now}`, role: 'user', content: prompt, ts: now });
-      const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, body.model || 'haiku');
+      const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, body.model || 'haiku', undefined, { noThinking: true, maxTokens: 600 });
       ctx.waitUntil(logUsage(env, usage));
       const reading = stripSilentTags(rawReply).trim();
       msgs.push({ id: `a_t${now + 1}`, role: 'assistant', content: reading, thinking, ts: now + 1 });
