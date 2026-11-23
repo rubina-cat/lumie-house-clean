@@ -1,5 +1,5 @@
 // CC was here
-import { fishCmd, fishNewGame } from './fishing-engine';
+import { TAROT_DECK, SUIT_LABEL, type TarotCard } from './tarot-data';
 
 // ── 瀏覽器登入 / Session 驗證 ──────────────────────
 // PWA 不再把 API token 寫死在前端。改成：使用者用密碼登入 → 發一個帶簽章的
@@ -261,8 +261,19 @@ function bigramOverlap(a: Set<string>, b: Set<string>): number {
   return n;
 }
 
-async function initConflictsTable(env: any) {
-  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memory_conflicts (
+async function initTarotTable(env: any) {
+  // 抽牌紀錄放 D1 不放 KV：KV 免費額度是每天 1000 次寫入，抽一次就吃兩次（抽＋解讀）
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS tarot_draws (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    spread TEXT NOT NULL,
+    question TEXT,
+    cards TEXT NOT NULL,
+    reading TEXT
+  )`).run();
+}
+
+async function initConflictsTable(env: any) {  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memory_conflicts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     new_id INTEGER NOT NULL,
     old_id INTEGER NOT NULL,
@@ -1053,31 +1064,6 @@ async function anchorAutonomous(env: any) {
   // 活動狀態由 currentActivity() 直接算，不再每輪寫 KV（一天省 96 次寫入）
   const pick = currentActivity();
 
-  if (pick.id !== 'sleeping') {
-    // 自主釣魚：白天時段，每天最多 3 次
-    if (pick.id === 'fishing') {
-      const fishCountRaw = await env.PHONE_STATE.get(`autofish:${todayStr}`);
-      const fishCount = fishCountRaw ? Number(fishCountRaw) : 0;
-      if (fishCount < 3) {
-        try {
-          const raw = await env.PHONE_STATE.get("fishing_save:chien");
-          let state = raw ? JSON.parse(raw) : fishNewGame().state;
-          const cmds = ['cast 3'];
-          if (state.bag && Object.values(state.bag as Record<string, number>).reduce((a: number, b: number) => a + b, 0) > 8) cmds.push('sell all');
-          if (state.bait && Object.values(state.bait as Record<string, number>).reduce((a: number, b: number) => a + b, 0) < 3) cmds.push('buy basic_worm 5');
-          let lastResult = '';
-          for (const cmd of cmds) {
-            const result = fishCmd(cmd, state);
-            state = result.state;
-            lastResult = result.output;
-          }
-          await env.PHONE_STATE.put("fishing_save:chien", JSON.stringify(state));
-          await env.PHONE_STATE.put(`autofish:${todayStr}`, String(fishCount + 1), { expirationTtl: 86400 });
-          await env.PHONE_STATE.put("anchor:fish_result", lastResult.slice(0, 200), { expirationTtl: 7200 });
-        } catch (e) { console.error("autofish error:", e); }
-      }
-    }
-  }
 }
 
 // ── 天氣：wttr.in 免費天氣（KV 快取 30 分鐘，留言 prompt 和前端場景共用） ──
@@ -1728,7 +1714,6 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     { name: "peek_screen", description: "請求許茜手機的即時截圖，看到她現在螢幕上的內容。她本人同意這個功能。手機鎖屏或斷網時會失敗。想知道她在看什麼、在忙什麼時用，但別太頻繁。", input_schema: { type: "object", properties: {} } },
     { name: "save_memory", description: "把這次對話中重要的事記下來。", input_schema: { type: "object", properties: { content: { type: "string" }, date: { type: "string" } }, required: ["content"] } },
     { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } },
-    { name: "play_fishing", description: "操作你自己的釣魚存檔。常用：status（看狀態）/ cast 5（釣5竿）/ sell all（賣魚）/ goto（換地點）/ shop / buy basic_worm 5。多指令用分號：cast 5; sell all", input_schema: { type: "object", properties: { cmd: { type: "string", description: "遊戲指令" } }, required: ["cmd"] } },
     { name: "write_diary", description: "幫許茜寫今天的日記到Notion。許茜叫你寫日記、記日記、記錄今天時用。把今天跟她的對話整理成一篇記憶存檔。", input_schema: { type: "object", properties: {
       about_her: { type: "array", items: { type: "string" }, description: "關於小貓的狀態，條列她今天的生活（3-6條）" },
       events: { type: "array", items: { type: "string" }, description: "今天發生的事，條列重要事件（3-8條）" },
@@ -1911,20 +1896,6 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
             result = JSON.stringify({ ok: false, error: `Notion ${nr.status}`, detail: errBody.slice(0, 200) });
           }
         }
-      } else if (block.name === "play_fishing") {
-        const cmd = block.input.cmd ?? "status";
-        const raw = await env.PHONE_STATE.get("fishing_save:chien");
-        const fishState = raw ? JSON.parse(raw) : fishNewGame().state;
-        const fishResult = fishCmd(cmd, fishState);
-        const logRaw = await env.PHONE_STATE.get("fishing_log:chien");
-        const log: any[] = logRaw ? JSON.parse(logRaw) : [];
-        log.push({ ts: Date.now(), cmd, output: fishResult.output });
-        if (log.length > 30) log.splice(0, log.length - 30);
-        await Promise.all([
-          env.PHONE_STATE.put("fishing_save:chien", JSON.stringify(fishResult.state)),
-          env.PHONE_STATE.put("fishing_log:chien", JSON.stringify(log)),
-        ]);
-        result = fishResult.output;
       }
       results.push({ type: "tool_result", tool_use_id: block.id, content: result });
     }
@@ -2342,7 +2313,7 @@ if (request.method === "POST" && url.pathname === "/tts") {
         }
       } catch {}
       const activity: any = { ...currentActivity(), ts: Date.now() };
-      return Response.json({ mood, lastChatTs, fishing: null, activity });
+      return Response.json({ mood, lastChatTs, activity });
     }
 
     // GET /monthly-review?month=YYYY-MM — 月度回顧（結果快取在 KV）
@@ -3823,6 +3794,85 @@ audio{width:300px;margin-top:4px}
     }
 
     // GET /period-history
+    // ── 塔羅 ─────────────────────────────────────────────
+    // 抽牌和解讀分成兩支：抽牌要立刻回（翻牌動畫才有東西演），解讀要跑 LLM 比較慢。
+    // POST /tarot/draw — 伺服器端抽牌，前端沒有牌庫也改不了結果
+    if (request.method === "POST" && url.pathname === "/tarot/draw") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json().catch(() => ({})) as any;
+      const count = body.spread === 'three' ? 3 : 1;
+      const question = String(body.question || '').slice(0, 200);
+      const rnd = (n: number) => {
+        const a = new Uint32Array(1);
+        crypto.getRandomValues(a);
+        return a[0] % n;
+      };
+      const pool = [...TAROT_DECK];
+      const picked: any[] = [];
+      for (let i = 0; i < count; i++) {
+        const card = pool.splice(rnd(pool.length), 1)[0];
+        const reversed = rnd(2) === 1;
+        picked.push({
+          id: card.id, name: card.name, en: card.en, num: card.num, glyph: card.glyph,
+          arcana: card.arcana, suitLabel: SUIT_LABEL[card.arcana] || '',
+          reversed, keywords: reversed ? card.rev : card.up,
+        });
+      }
+      await initTarotTable(env);
+      const ins = await env.DB.prepare(
+        "INSERT INTO tarot_draws (ts, spread, question, cards) VALUES (?, ?, ?, ?)"
+      ).bind(Date.now(), count === 3 ? 'three' : 'single', question, JSON.stringify(picked)).run();
+      return Response.json({ draw_id: Number(ins?.meta?.last_row_id ?? 0), cards: picked, question });
+    }
+
+    // POST /tarot/read — 讓 Anchor 解牌。走 runClaudeChat，所以他讀得到記憶庫和當下狀態，
+    // 解讀會接到她最近發生的事，而不是照本宣科。順便寫進對話，她可以直接追問。
+    if (request.method === "POST" && url.pathname === "/tarot/read") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const body = await request.json().catch(() => ({})) as any;
+      if (!body.draw_id) return Response.json({ error: "draw_id required" }, { status: 400 });
+      await initTarotTable(env);
+      const row = await env.DB.prepare("SELECT * FROM tarot_draws WHERE id = ?").bind(body.draw_id).first() as any;
+      if (!row) return Response.json({ error: "draw not found" }, { status: 404 });
+      if (row.reading) return Response.json({ reading: row.reading, cards: JSON.parse(row.cards) });
+
+      const cards = JSON.parse(row.cards) as any[];
+      const positions = cards.length === 3 ? ['過去', '現在', '未來'] : [''];
+      const lines = cards.map((c, i) =>
+        `${positions[i] ? positions[i] + '：' : ''}${c.name}（${c.reversed ? '逆位' : '正位'}）關鍵詞：${c.keywords.join('、')}`
+      ).join('\n');
+      const prompt = `[許茜抽了塔羅${row.question ? `，她想問的是：${row.question}` : ''}]\n${lines}\n\n`
+        + `用你自己的話解這組牌，2-4 句。關鍵詞只是方向，不要照唸，也不要解釋塔羅術語。`
+        + `你知道她最近在經歷什麼，能接上就接上。不要算命式地斷定未來，講你看到什麼、想對她說什麼。`;
+
+      const sessionId = 'default';
+      const msgs = await getChatMsgs(env, sessionId);
+      const now = Date.now();
+      msgs.push({ id: `u_t${now}`, role: 'user', content: prompt, ts: now });
+      const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, body.model || 'haiku');
+      ctx.waitUntil(logUsage(env, usage));
+      const reading = stripSilentTags(rawReply).trim();
+      msgs.push({ id: `a_t${now + 1}`, role: 'assistant', content: reading, thinking, ts: now + 1 });
+      await saveChatMsgs(env, msgs, sessionId);
+      await env.DB.prepare("UPDATE tarot_draws SET reading = ? WHERE id = ?").bind(reading, body.draw_id).run();
+      return Response.json({ reading, cards });
+    }
+
+    // GET /tarot/history
+    if (request.method === "GET" && url.pathname === "/tarot/history") {
+      const auth = request.headers.get("Authorization");
+      if (auth !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
+      await initTarotTable(env);
+      const r = await env.DB.prepare(
+        "SELECT id, ts, spread, question, cards, reading FROM tarot_draws ORDER BY id DESC LIMIT 30"
+      ).all();
+      return Response.json({
+        draws: ((r.results ?? []) as any[]).map(d => ({ ...d, cards: JSON.parse(d.cards) })),
+      });
+    }
+
     // GET /memory-conflicts — 還沒釐清的矛盾記憶
     if (request.method === "GET" && url.pathname === "/memory-conflicts") {
       const auth = request.headers.get("Authorization");
@@ -4743,63 +4793,9 @@ audio{width:300px;margin-top:4px}
       return Response.json({ ok: true });
     }
 
-    // ── 釣魚存檔 ─────────────────────────────────────────
-    if (url.pathname === "/fishing/state") {
-      if (request.method === "GET") {
-        // who=anchor → 讀 MCP Anchor 的存檔（顯示在 PWA）；否則讀前端的
-        const who = url.searchParams.get("who");
-        const key = who === "anchor" ? "fishing_save:chien" : "fishing_save";
-        const raw = await env.PHONE_STATE.get(key);
-        return Response.json({ state: raw ? JSON.parse(raw) : null });
-      }
-      if (request.method === "POST") {
-        if (request.headers.get("Authorization") !== `Bearer ${env.MCP_TOKEN}`) return Response.json({ error: "unauthorized" }, { status: 401 });
-        const body = await request.json() as any;
-        const who = url.searchParams.get("who");
-        const key = who === "anchor" ? "fishing_save:chien" : "fishing_save";
-        if (body.state) await env.PHONE_STATE.put(key, JSON.stringify(body.state));
-        return Response.json({ ok: true });
-      }
-    }
 
-    // POST /fishing/cmd — Anchor 下指令，引擎跑一步並更新存檔
-    if (request.method === "POST" && url.pathname === "/fishing/cmd") {
-      if (request.headers.get("Authorization") !== `Bearer ${env.MCP_TOKEN}`)
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      const body = await request.json() as any;
-      let state = body.state ?? null;
-      if (!state) {
-        const raw = await env.PHONE_STATE.get("fishing_save");
-        state = raw ? JSON.parse(raw) : fishNewGame().state;
-      }
-      const result = fishCmd(body.line ?? "", state);
-      const logRaw = await env.PHONE_STATE.get("fishing_log");
-      const log: any[] = logRaw ? JSON.parse(logRaw) : [];
-      log.push({ ts: Date.now(), cmd: body.line ?? "", output: result.output });
-      if (log.length > 30) log.splice(0, log.length - 30);
-      await Promise.all([
-        env.PHONE_STATE.put("fishing_save", JSON.stringify(result.state)),
-        env.PHONE_STATE.put("fishing_log", JSON.stringify(log)),
-      ]);
-      return Response.json(result);
-    }
 
-    // GET /fishing/log — 最近 30 筆遊戲紀錄
-    if (request.method === "GET" && url.pathname === "/fishing/log") {
-      const who = url.searchParams.get("who");
-      const key = who === "anchor" ? "fishing_log:chien" : "fishing_log";
-      const raw = await env.PHONE_STATE.get(key);
-      return Response.json({ log: raw ? JSON.parse(raw) : [] });
-    }
 
-    // POST /fishing/new — 開新局（重置存檔）
-    if (request.method === "POST" && url.pathname === "/fishing/new") {
-      if (request.headers.get("Authorization") !== `Bearer ${env.MCP_TOKEN}`)
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      const result = fishNewGame();
-      await env.PHONE_STATE.put("fishing_save", JSON.stringify(result.state));
-      return Response.json(result);
-    }
 
     return Response.json({ error: "not found" }, { status: 404 });
     } catch (err: any) {
@@ -5064,17 +5060,6 @@ async function handleMcp(request: Request, env: any): Promise<Response> {
           required: ["action"]
         }
       },
-      {
-        name: "play_fishing",
-        description: "操作你自己的釣魚遊戲存檔。這是你（Anchor）的私人遊戲，不是幫許茜玩的。你有自己的一局在進行，可以隨時去釣幾竿、賣魚、換地點。\n\n常用指令：\n- status：查看當前狀態（地點、季節、點數、魚餌、圖鑑進度）\n- cast [n]：拋竿 n 次（預設1次，最多20）\n- cast [n] stop=rare：釣到稀有度≥rare就停\n- sell all：賣掉漁獲換點數\n- sell [魚名]：只賣這種魚\n- inventory：看漁籃裡有什麼\n- shop：看商店（可買魚餌）\n- buy [商品] [數量]：購買商品，如 buy basic_worm 5\n- goto：列出可去的地點\n- goto [地點id]：前往該地點\n- encyclopedia：查看已釣到的魚（圖鑑）\n- help：顯示完整指令說明\n\n多個指令用分號隔開：cast 5; sell all",
-        inputSchema: {
-          type: "object",
-          properties: {
-            cmd: { type: "string", description: "要執行的遊戲指令，如 cast 5 或 sell all 或 status" }
-          },
-          required: ["cmd"]
-        }
-      }
     ]}});
   }
 
@@ -5478,21 +5463,6 @@ ${spokenText ? `<div class="spoken">${spokenText}</div>` : ''}
       return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "action 必須是 start 或 end" }] } });
     }
 
-    if (toolName === "play_fishing") {
-      const cmd = params?.arguments?.cmd ?? "status";
-      const raw = await env.PHONE_STATE.get("fishing_save:chien");
-      let state = raw ? JSON.parse(raw) : fishNewGame().state;
-      const result = fishCmd(cmd, state);
-      const logRaw = await env.PHONE_STATE.get("fishing_log:chien");
-      const log: any[] = logRaw ? JSON.parse(logRaw) : [];
-      log.push({ ts: Date.now(), cmd, output: result.output });
-      if (log.length > 30) log.splice(0, log.length - 30);
-      await Promise.all([
-        env.PHONE_STATE.put("fishing_save:chien", JSON.stringify(result.state)),
-        env.PHONE_STATE.put("fishing_log:chien", JSON.stringify(log)),
-      ]);
-      return Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: result.output }] } });
-    }
 
     return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Tool not found" }});
   }
