@@ -2,7 +2,7 @@
 // 只用 Node 內建模組。不寫任何對話內容到 log 或硬碟（暫存的 system prompt 用完即刪）。
 import http from "node:http";
 import { spawn, execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, statSync, renameSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -29,7 +29,17 @@ const REQUIRED_FLAGS = ["--print", "--output-format", "--verbose", "--model", "-
 
 if (SECRET.length < 32) fail("config.json 的 sharedSecret 太短（至少 32 字元）");
 
-const log = (...a) => console.log(new Date().toISOString(), ...a);
+// 背景執行時看不到視窗，所以同時寫進 bridge.log（只有狀態和耗時，不含對話內容；超過 200KB 換成 bridge.old.log）
+const LOG_FILE = join(HERE, "bridge.log");
+const log = (...a) => {
+  const line = [new Date().toISOString(), ...a].join(" ");
+  console.log(line);
+  if (process.argv.includes("--mcp-stdio")) return;
+  try {
+    try { if (statSync(LOG_FILE).size > 200_000) renameSync(LOG_FILE, join(HERE, "bridge.old.log")); } catch {}
+    appendFileSync(LOG_FILE, line + "\n", "utf8");
+  } catch {}
+};
 function fail(msg) { console.error(msg); process.exit(1); }
 
 // 安全設定全靠這些參數；版本不支援就拒絕啟動，絕不在沒鎖好的狀態下跑
@@ -145,7 +155,7 @@ const server = http.createServer(async (req, res) => {
   // 每個請求都驗證，包括從本機來的
   if (!secretOk(req.headers["x-pc-secret"])) { res.writeHead(401).end(); return; }
   if (req.method !== "POST" || req.url !== "/chat") { res.writeHead(404).end(); return; }
-  if (busy) { res.writeHead(503).end(); return; }
+  if (busy) { log("busy: still answering the previous message, sent 503 (Worker falls back to API)"); res.writeHead(503).end(); return; }
   busy = true;
   try {
     let raw = "";
@@ -269,9 +279,27 @@ if (process.argv.includes("--mcp-stdio")) {
 } else {
   checkClaudeFlags();
   watchParent();
-  server.listen(PORT, "127.0.0.1", () => {
-    log(`listening on 127.0.0.1:${PORT}`);
+  // 舊的那個沒被關乾淨時（Stop-ScheduledTask 不一定關得到 node），由新的接手：關掉 pid 檔記的舊程式再重試一次
+  const PID_FILE = join(HERE, "bridge.pid");
+  let retried = false;
+  server.on("error", e => {
+    if (e.code !== "EADDRINUSE" || retried) { log(`cannot listen: ${e.message}`); process.exit(1); }
+    retried = true;
+    let old = 0;
+    try { old = Number(readFileSync(PID_FILE, "utf8").trim()); } catch {}
+    if (old && old !== process.pid) {
+      log(`port ${PORT} busy, taking over from previous bridge (pid ${old})`);
+      try { process.kill(old); } catch {}
+    } else {
+      log(`port ${PORT} busy and no previous bridge on record, retrying once`);
+    }
+    setTimeout(() => server.listen(PORT, "127.0.0.1"), 2_000);
+  });
+  server.on("listening", () => {
+    try { writeFileSync(PID_FILE, String(process.pid), "utf8"); } catch {}
+    log(`listening on 127.0.0.1:${PORT} (pid ${process.pid})`);
     if (!publicUrl) startQuickTunnel(); else heartbeat();
     setInterval(heartbeat, HEARTBEAT_MS);
   });
+  server.listen(PORT, "127.0.0.1");
 }
