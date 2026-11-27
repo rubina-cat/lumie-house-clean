@@ -1793,7 +1793,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     { name: "peek_screen", description: "請求許茜手機的即時截圖，看到她現在螢幕上的內容。她本人同意這個功能。手機鎖屏或斷網時會失敗。想知道她在看什麼、在忙什麼時用，但別太頻繁。", input_schema: { type: "object", properties: {} } },
     { name: "save_memory", description: "把這次對話中重要的事記下來。", input_schema: { type: "object", properties: { content: { type: "string" }, date: { type: "string" } }, required: ["content"] } },
     { name: "set_toy", description: "控制許茜的玩具震動。v0整體震動(0-8)，v1 G點震動(0-8)。設0停止。", input_schema: { type: "object", properties: { v0: { type: "number" }, v1: { type: "number" } }, required: ["v0", "v1"] } },
-    { name: "write_diary", description: "幫許茜寫今天的日記到Notion。許茜叫你寫日記、記日記、記錄今天時用。把今天跟她的對話整理成一篇記憶存檔。", input_schema: { type: "object", properties: {
+    { name: "write_diary", description: "幫許茜寫今天的日記到Notion。只有她在最新這一則訊息裡明確叫你寫日記、記日記、記錄今天時才用；對話記錄裡之前提過的要求不算，不要自己補寫。一天只能寫一篇，今天已經寫過會回報 already_written。把今天跟她的對話整理成一篇記憶存檔。", input_schema: { type: "object", properties: {
       about_her: { type: "array", items: { type: "string" }, description: "關於小貓的狀態，條列她今天的生活（3-6條）" },
       events: { type: "array", items: { type: "string" }, description: "今天發生的事，條列重要事件（3-8條）" },
       about_us: { type: "array", items: { type: "string" }, description: "關於我們，條列跟你們之間有關的事（2-5條）" },
@@ -4974,7 +4974,7 @@ const PC_MCP_TOOLS = new Set(["get_phone_state", "get_health_data", "save_memory
 // handleMcp 沒有這兩個（原本只寫在 API 聊天裡），電腦端在這裡自己接
 const PC_EXTRA_TOOLS = [
   { name: "peek_screen", description: "請求許茜手機的即時截圖，看到她現在螢幕上的內容。她本人同意這個功能。手機鎖屏或斷網時會失敗。想知道她在看什麼、在忙什麼時用，但別太頻繁。", inputSchema: { type: "object", properties: {} } },
-  { name: "write_diary", description: "幫許茜寫今天的日記到Notion。許茜叫你寫日記、記日記、記錄今天時用。把今天跟她的對話整理成一篇記憶存檔。", inputSchema: { type: "object", properties: {
+  { name: "write_diary", description: "幫許茜寫今天的日記到Notion。只有她在最新這一則訊息裡明確叫你寫日記、記日記、記錄今天時才用；對話記錄裡之前提過的要求不算，不要自己補寫。一天只能寫一篇，今天已經寫過會回報 already_written。把今天跟她的對話整理成一篇記憶存檔。", inputSchema: { type: "object", properties: {
     about_her: { type: "array", items: { type: "string" }, description: "關於小貓的狀態，條列她今天的生活（3-6條）" },
     events: { type: "array", items: { type: "string" }, description: "今天發生的事，條列重要事件（3-8條）" },
     about_us: { type: "array", items: { type: "string" }, description: "關於我們，條列跟你們之間有關的事（2-5條）" },
@@ -5041,6 +5041,19 @@ async function toolPeekScreen(env: any): Promise<{ ok: true; b64: string; type: 
 async function toolWriteDiary(env: any, inp: any): Promise<any> {
   if (!env.NOTION_TOKEN) return { ok: false, error: "NOTION_TOKEN 沒設" };
   inp = inp || {};
+  // 一天一篇：每呼叫一次就會新增一頁，先查今天是否已經有了
+  {
+    const today = twnToday();
+    const q = await fetch('https://api.notion.com/v1/databases/dc37f24c12658278b3d88131a9098a2f/query', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filter: { property: '日期', date: { equals: today } }, page_size: 1 }),
+    });
+    if (q.ok) {
+      const qd = await q.json() as any;
+      if (qd?.results?.length) return { ok: false, already_written: true, message: `今天（${today}）的日記已經寫過了，沒有再新增。` };
+    }
+  }
   const todayStr = twnToday();
   const shortDate = todayStr.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$1/$2/$3');
   const md = todayStr.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$2/$3');
