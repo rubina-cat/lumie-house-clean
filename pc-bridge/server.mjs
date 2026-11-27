@@ -71,6 +71,8 @@ function buildPrompt(messages) {
 }
 
 let busy = false;
+const children = new Set(); // 還在跑的 claude，程式結束時一起關
+process.on("exit", () => { for (const c of children) { try { c.kill(); } catch {} } });
 
 function runClaude({ model, thinking, system, messages }) {
   return new Promise((resolve, reject) => {
@@ -101,6 +103,8 @@ function runClaude({ model, thinking, system, messages }) {
     mkdirSync(workDir, { recursive: true });
 
     const child = spawn(CLAUDE, args, { cwd: workDir, env, windowsHide: true });
+    children.add(child);
+    child.on("exit", () => children.delete(child));
     const killer = setTimeout(() => child.kill(), RUN_TIMEOUT_MS);
     let buf = "", result = null, errTail = "";
     const thoughts = [];
@@ -248,10 +252,23 @@ function runMcpStdio() {
   });
 }
 
+// 排程啟動的是 conhost，conhost 再開 node；Stop-ScheduledTask 只關得掉 conhost，
+// node 會被留下來繼續佔著 8787。所以 node 自己盯著父程式，父程式不在了就跟著結束
+// （exit 時會一併關掉 cloudflared 和還在跑的 claude）
+function watchParent() {
+  const ppid = process.ppid;
+  if (!ppid || ppid <= 1) return;
+  setInterval(() => {
+    try { process.kill(ppid, 0); }
+    catch (e) { if (e.code === "ESRCH") { log("parent process gone, exiting"); process.exit(0); } }
+  }, 3_000);
+}
+
 if (process.argv.includes("--mcp-stdio")) {
   runMcpStdio();
 } else {
   checkClaudeFlags();
+  watchParent();
   server.listen(PORT, "127.0.0.1", () => {
     log(`listening on 127.0.0.1:${PORT}`);
     if (!publicUrl) startQuickTunnel(); else heartbeat();
