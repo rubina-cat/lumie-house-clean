@@ -4768,10 +4768,10 @@ audio{width:300px;margin-top:4px}
         ctx.waitUntil(logUsage(env, usage));
         const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
         const newId = `a_${Date.now()}`;
-        const newBranch = { id: newId, content: reply, thinking, ts: Date.now() };
+        const newBranch = { id: newId, content: reply, thinking, ts: Date.now(), backend };
         if (!lastMsg.branches) {
           lastMsg.branches = [
-            { id: lastMsg.id, content: lastMsg.content, thinking: lastMsg.thinking || "", ts: lastMsg.ts },
+            { id: lastMsg.id, content: lastMsg.content, thinking: lastMsg.thinking || "", ts: lastMsg.ts, backend: lastMsg.backend },
             newBranch
           ];
         } else {
@@ -4780,6 +4780,7 @@ audio{width:300px;margin-top:4px}
         lastMsg.branch_idx = lastMsg.branches.length - 1;
         lastMsg.content = reply;
         lastMsg.thinking = thinking;
+        lastMsg.backend = backend;
         lastMsg.id = newId;
         if (file_url) { lastMsg.file_url = file_url; lastMsg.file_name = file_name; }
         withoutLast.push(lastMsg);
@@ -4792,7 +4793,7 @@ audio{width:300px;margin-top:4px}
         ctx.waitUntil(logUsage(env, usage));
         const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
         const newId = `a_${Date.now()}`;
-        const aMsg: any = { id: newId, role: "assistant", content: reply, thinking, ts: Date.now() };
+        const aMsg: any = { id: newId, role: "assistant", content: reply, thinking, ts: Date.now(), backend };
         if (file_url) { aMsg.file_url = file_url; aMsg.file_name = file_name; }
         msgs.push(aMsg);
         await saveChatMsgs(env, msgs, sessionId);
@@ -4809,7 +4810,7 @@ audio{width:300px;margin-top:4px}
       ctx.waitUntil(Promise.all([logUsage(env, usage), autoExtractMemories(env, msgs)]));
       const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
       const assistantId = `a_${Date.now() + 1}`;
-      const aMsg: any = { id: assistantId, role: "assistant", content: reply, thinking, ts: Date.now() };
+      const aMsg: any = { id: assistantId, role: "assistant", content: reply, thinking, ts: Date.now(), backend };
       if (file_url) { aMsg.file_url = file_url; aMsg.file_name = file_name; }
       msgs.push(aMsg);
       await saveChatMsgs(env, msgs, sessionId);

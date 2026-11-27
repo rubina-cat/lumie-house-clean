@@ -730,10 +730,12 @@ function _showCacheToast(usage) {
   const cr = usage.cache_read_tokens || 0;
   const cc = usage.cache_creation_tokens || 0;
   const inp = usage.input_tokens || 0;
-  if (!inp && !cr && !cc) return;
+  const viaPc = String(usage.model || '').startsWith('pc:');
+  if (!viaPc && !inp && !cr && !cc) return;
   const pct = inp > 0 ? Math.round(cr / inp * 100) : 0;
   let label = '';
-  if (cr > 0) label = '⚡ cache hit ' + pct + '% (' + cr + ' tokens)';
+  if (viaPc) label = '💻 電腦回覆（Pro 訂閱）';
+  else if (cr > 0) label = '⚡ cache hit ' + pct + '% (' + cr + ' tokens)';
   else if (cc > 0) label = '📦 cache created (' + cc + ' tokens)';
   else label = 'no cache';
   const el = document.createElement('div');
@@ -864,15 +866,19 @@ function buildMsgEl(msg, isLast) {
 
   // 切換分支時內容會換成該分支的，時間也跟著用那一版產生的時間
   let stamp = msg.ts;
+  let backend = msg.backend;
   if (msg.branches && msg.branches.length) {
     const bi = msg.branch_idx ?? (msg.branches.length - 1);
     stamp = msg.branches[bi]?.ts ?? stamp;
+    backend = msg.branches[bi]?.backend;
   }
   const timeStr = _msgTime(stamp);
-  if (timeStr) {
+  const viaPc = msg.role === 'assistant' && backend === 'pc';
+  if (timeStr || viaPc) {
     const t = document.createElement('div');
     t.className = 'msg-time';
-    t.textContent = timeStr;
+    t.textContent = timeStr + (viaPc ? (timeStr ? ' · ' : '') + '💻' : '');
+    if (viaPc) t.title = '這則是電腦上的 Claude Code 回的';
     div.appendChild(t);
   }
 
@@ -1050,6 +1056,7 @@ function switchBranch(msgId, dir) {
   msg.branch_idx = newIdx;
   msg.content = branch.content;
   msg.thinking = branch.thinking || '';
+  msg.backend = branch.backend;
   msg.id = branch.id;
   renderAllMsgs();
 }
