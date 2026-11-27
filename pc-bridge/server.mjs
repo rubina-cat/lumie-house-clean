@@ -79,7 +79,9 @@ function runClaude({ model, thinking, system, messages }) {
     try {
       writeFileSync(join(tmp, "s.txt"), String(system ?? ""), "utf8");
       writeFileSync(join(tmp, "m.json"), JSON.stringify({
-        mcpServers: { anchor: { type: "http", url: `${WORKER_URL}/pc-mcp`, headers: { "X-PC-Secret": SECRET } } },
+        // claude 直連 Worker 的 HTTP MCP 會 InvalidHTTPResponse（實測 2.1.332 on Windows，一個工具都拿不到），
+        // 改由這支程式自己當本機 stdio 轉接，用 Node 的 fetch 轉給 Worker。密鑰也不用寫進這個暫存檔
+        mcpServers: { anchor: { type: "stdio", command: process.execPath, args: [fileURLToPath(import.meta.url), "--mcp-stdio"] } },
       }), "utf8");
     } catch (e) { cleanup(); return reject(e); }
 
@@ -209,9 +211,50 @@ async function heartbeat() {
   } catch (e) { log(`heartbeat failed: ${e.message}`); }
 }
 
-checkClaudeFlags();
-server.listen(PORT, "127.0.0.1", () => {
-  log(`listening on 127.0.0.1:${PORT}`);
-  if (!publicUrl) startQuickTunnel(); else heartbeat();
-  setInterval(heartbeat, HEARTBEAT_MS);
-});
+// ── 本機 MCP 轉接（claude 用 stdio 啟動 `node server.mjs --mcp-stdio`）──
+// 一行一則 JSON-RPC，原樣轉給 Worker 的 /pc-mcp。stdout 只能放 JSON-RPC，所以這裡不能用 log()
+function runMcpStdio() {
+  let buf = "";
+  const send = obj => process.stdout.write(JSON.stringify(obj) + "\n");
+  async function forward(line) {
+    let msg;
+    try { msg = JSON.parse(line); } catch { return; }
+    try {
+      const r = await fetch(`${WORKER_URL}/pc-mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json", "X-PC-Secret": SECRET },
+        body: line,
+        signal: AbortSignal.timeout(90_000),
+      });
+      if (msg.id === undefined || msg.id === null) return; // 通知不用回
+      const text = await r.text();
+      let out;
+      try { out = JSON.parse(text); } catch { out = null; }
+      if (out && out.jsonrpc) send(out);
+      else send({ jsonrpc: "2.0", id: msg.id, error: { code: -32603, message: `Worker HTTP ${r.status}` } });
+    } catch (e) {
+      if (msg.id !== undefined && msg.id !== null) send({ jsonrpc: "2.0", id: msg.id, error: { code: -32603, message: `轉接失敗：${e.message}` } });
+    }
+  }
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", chunk => {
+    buf += chunk;
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (line) forward(line);
+    }
+  });
+}
+
+if (process.argv.includes("--mcp-stdio")) {
+  runMcpStdio();
+} else {
+  checkClaudeFlags();
+  server.listen(PORT, "127.0.0.1", () => {
+    log(`listening on 127.0.0.1:${PORT}`);
+    if (!publicUrl) startQuickTunnel(); else heartbeat();
+    setInterval(heartbeat, HEARTBEAT_MS);
+  });
+}
