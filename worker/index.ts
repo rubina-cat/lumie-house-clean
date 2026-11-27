@@ -4778,11 +4778,18 @@ audio{width:300px;margin-top:4px}
     }
 
     // POST /pc-mcp — 電腦端 claude -p 呼叫工具用（共享密鑰，不需要 MCP_TOKEN）
-    if (request.method === "POST" && url.pathname === "/pc-mcp") {
+    if (url.pathname === "/pc-mcp") {
+      // 不提供 SSE 推播：照 MCP 規範回 405 且不帶內容。之前落到全域 404（帶 JSON 內容），
+      // claude 開 SSE 失敗後，接下來的 tools/list 全部 InvalidHTTPResponse，一個工具都拿不到
+      if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
       if (!(await secretMatches(request.headers.get("X-PC-Secret"), env.PC_SHARED_SECRET))) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
-      return handlePcMcp(request, env);
+      const r = await handlePcMcp(request, env);
+      // 不讓 Cloudflare 壓縮或改寫（claude 內建 fetch 讀壓縮後的回應會出錯）
+      const h = new Headers(r.headers);
+      h.set("Cache-Control", "no-store, no-transform");
+      return new Response(r.body, { status: r.status, headers: h });
     }
 
     // POST /api/chat/edit
