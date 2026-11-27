@@ -1594,9 +1594,11 @@ async function callPC(env: any, pcUrl: string, modelKey: string, systemBlocks: a
     if (!r.ok) { console.error(`PC backend HTTP ${r.status}, falling back to API`); return null; }
     timer = setTimeout(() => ctrl.abort(), PC_REPLY_TIMEOUT_MS);
     const d = await r.json() as any;
-    if (typeof d?.reply !== "string" || !d.reply.trim()) { console.error("PC backend empty reply, falling back to API"); return null; }
+    // claude -p 會模仿訊息開頭的 [月/日 時:分] 時間標記，API 模式不會；這裡拿掉
+    const reply = typeof d?.reply === "string" ? d.reply.replace(/^\s*(\[\d{1,2}\/\d{1,2} \d{1,2}:\d{2}\]\s*)+/, "") : "";
+    if (!reply.trim()) { console.error("PC backend empty reply, falling back to API"); return null; }
     return {
-      reply: d.reply,
+      reply,
       thinking: typeof d.thinking === "string" ? d.thinking : "",
       input_tokens: Number(d.usage?.input_tokens) || 0,
       output_tokens: Number(d.usage?.output_tokens) || 0,
