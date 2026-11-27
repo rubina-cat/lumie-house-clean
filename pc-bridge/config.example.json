@@ -1,0 +1,7 @@
+{
+  "workerUrl": "https://phone-mcp.l760729.workers.dev",
+  "sharedSecret": "（install.ps1 會自動產生）",
+  "port": 8787,
+  "claudePath": "C:\\Users\\User\\.local\\bin\\claude.exe",
+  "cloudflaredPath": "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe"
+}

@@ -8,3 +8,5 @@ velvet_log.txt
 config.yaml
 .wrangler/
 user_id.json
+pc-bridge/config.json
+pc-bridge/work/

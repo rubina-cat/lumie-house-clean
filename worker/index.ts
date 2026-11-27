@@ -1512,7 +1512,8 @@ async function logUsage(env: any, usage: { model: string; input_tokens: number; 
     const m = usage.model;
     const inRate  = m.includes('opus') ? 5e-6 : m.includes('sonnet') ? 3e-6 : 1e-6;
     const outRate = m.includes('opus') ? 25e-6 : m.includes('sonnet') ? 15e-6 : 5e-6;
-    const cost = usage.input_tokens * inRate + usage.output_tokens * outRate
+    // pc: 開頭是電腦訂閱額度，沒花 API 錢；token 照記，之後可以算省了多少
+    const cost = m.startsWith('pc:') ? 0 : usage.input_tokens * inRate + usage.output_tokens * outRate
       + usage.cache_creation_tokens * inRate * 1.25 + usage.cache_read_tokens * inRate * 0.1;
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS usage_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, model TEXT NOT NULL, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_creation_tokens INTEGER DEFAULT 0, cache_read_tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0)").run();
     await env.DB.prepare(
@@ -1534,7 +1535,81 @@ async function extractFileBlock(reply: string, env: any): Promise<{ clean: strin
   return { clean, file_url: `/media/${key}`, file_name: rawName };
 }
 
-async function runClaudeChat(env: any, history: any[], modelKey = 'haiku', voiceEmotion?: string, opts?: { noThinking?: boolean; maxTokens?: number }): Promise<{ reply: string; thinking: string; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
+// 電腦開著時，對話改走電腦上的 claude -p（Pro 訂閱）；電腦沒心跳或出錯就退回 API
+const PC_HEARTBEAT_FRESH_MS = 120_000;
+// 只限制「電腦接起來」的時間（收到回應標頭），不限制生成本身——claude -p 回完整一句常常超過 5 秒
+const PC_CONNECT_TIMEOUT_MS = 5_000;
+const PC_REPLY_TIMEOUT_MS = 180_000;
+
+async function initPcHeartbeatTable(env: any) {
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS pc_heartbeat (id INTEGER PRIMARY KEY CHECK (id = 1), last_seen INTEGER NOT NULL, url TEXT NOT NULL)").run();
+}
+
+// 快速通道每次開機網址都會變，由心跳回報；只認 trycloudflare 或手動設定的固定網址，密鑰外洩也導不走對話
+function validPcUrl(env: any, u: unknown): string | null {
+  if (typeof u !== "string") return null;
+  const url = u.replace(/\/$/, "");
+  if (/^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(url)) return url;
+  if (env.PC_TUNNEL_URL && url === String(env.PC_TUNNEL_URL).replace(/\/$/, "")) return url;
+  return null;
+}
+
+async function secretMatches(given: string | null, expected: string): Promise<boolean> {
+  if (!given || !expected) return false;
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(given)),
+    crypto.subtle.digest("SHA-256", enc.encode(expected)),
+  ]);
+  return (crypto.subtle as any).timingSafeEqual(a, b);
+}
+
+async function pcOnlineUrl(env: any): Promise<string | null> {
+  if (!env.PC_SHARED_SECRET) return null;
+  try {
+    await initPcHeartbeatTable(env);
+    const row = await env.DB.prepare("SELECT last_seen, url FROM pc_heartbeat WHERE id = 1").first() as any;
+    if (!row || Date.now() - Number(row.last_seen) >= PC_HEARTBEAT_FRESH_MS) return null;
+    return validPcUrl(env, row.url);
+  } catch { return null; }
+}
+
+async function callPC(env: any, pcUrl: string, modelKey: string, systemBlocks: any[], msgs: any[], withThinking: boolean): Promise<{ reply: string; thinking: string; input_tokens: number; output_tokens: number } | null> {
+  const stripCache = (c: any) => Array.isArray(c) ? c.map(({ cache_control, ...b }: any) => b) : c;
+  const ctrl = new AbortController();
+  let timer = setTimeout(() => ctrl.abort(), PC_CONNECT_TIMEOUT_MS);
+  try {
+    const r = await fetch(pcUrl + "/chat", {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { "Content-Type": "application/json", "X-PC-Secret": env.PC_SHARED_SECRET },
+      body: JSON.stringify({
+        model: modelKey,
+        thinking: withThinking,
+        system: systemBlocks.map((b: any) => b.text).join(""),
+        messages: msgs.map((m: any) => ({ role: m.role, content: stripCache(m.content) })),
+      }),
+    });
+    clearTimeout(timer);
+    if (!r.ok) { console.error(`PC backend HTTP ${r.status}, falling back to API`); return null; }
+    timer = setTimeout(() => ctrl.abort(), PC_REPLY_TIMEOUT_MS);
+    const d = await r.json() as any;
+    if (typeof d?.reply !== "string" || !d.reply.trim()) { console.error("PC backend empty reply, falling back to API"); return null; }
+    return {
+      reply: d.reply,
+      thinking: typeof d.thinking === "string" ? d.thinking : "",
+      input_tokens: Number(d.usage?.input_tokens) || 0,
+      output_tokens: Number(d.usage?.output_tokens) || 0,
+    };
+  } catch (e: any) {
+    console.error("PC backend failed, falling back to API:", e?.message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runClaudeChat(env: any, history: any[], modelKey = 'haiku', voiceEmotion?: string, opts?: { noThinking?: boolean; maxTokens?: number; pc?: boolean }): Promise<{ reply: string; thinking: string; backend: 'pc' | 'api'; usage: { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number } }> {
   const MODEL_MAP: Record<string, string> = {
     haiku:    'claude-haiku-4-5',
     sonnet:   'claude-sonnet-4-6',
@@ -1786,6 +1861,13 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
       throw new Error(`Anthropic ${r.status}: ${errText.slice(0, 200)}`);
     }
   };
+  const pcUrl = opts?.pc ? await pcOnlineUrl(env) : null;
+  if (pcUrl) {
+    const pc = await callPC(env, pcUrl, modelKey, systemBlocks, msgs, usesThinking);
+    if (pc) {
+      return { reply: pc.reply, thinking: pc.thinking, backend: 'pc', usage: { ...totalUsage, model: `pc:${modelId}`, input_tokens: pc.input_tokens, output_tokens: pc.output_tokens } };
+    }
+  }
   let data = await call(msgs).catch((e: any) => ({ content: [{ type: "text", text: `（暫時無法回應：${e.message}）` }], stop_reason: "end_turn", usage: null }));
   if (data.usage) { totalUsage.input_tokens += data.usage.input_tokens || 0; totalUsage.output_tokens += data.usage.output_tokens || 0; totalUsage.cache_creation_tokens += data.usage.cache_creation_input_tokens || 0; totalUsage.cache_read_tokens += data.usage.cache_read_input_tokens || 0; }
   for (let i = 0; i < 3 && data.stop_reason === "tool_use"; i++) {
@@ -1907,7 +1989,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   }
   const reply = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") || "（沒有回應）";
   const thinking = usesThinking ? (data.content || []).filter((b: any) => b.type === "thinking").map((b: any) => b.thinking).join("\n") : "";
-  return { reply, thinking, usage: totalUsage };
+  return { reply, thinking, backend: 'api', usage: totalUsage };
 }
 
 export default {
@@ -4682,7 +4764,7 @@ audio{width:300px;margin-top:4px}
         if (lastIdx === undefined) return Response.json({ error: "no assistant message" }, { status: 400 });
         const lastMsg = { ...msgs[lastIdx] };
         const withoutLast = msgs.slice(0, lastIdx);
-        const { reply: rawReply, thinking, usage } = await runClaudeChat(env, withoutLast, modelKey);
+        const { reply: rawReply, thinking, usage, backend } = await runClaudeChat(env, withoutLast, modelKey, undefined, { pc: true });
         ctx.waitUntil(logUsage(env, usage));
         const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
         const newId = `a_${Date.now()}`;
@@ -4702,11 +4784,11 @@ audio{width:300px;margin-top:4px}
         if (file_url) { lastMsg.file_url = file_url; lastMsg.file_name = file_name; }
         withoutLast.push(lastMsg);
         await saveChatMsgs(env, withoutLast, sessionId);
-        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name, usage });
+        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name, usage, backend });
       }
 
       if (body.edit_regen) {
-        const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, modelKey);
+        const { reply: rawReply, thinking, usage, backend } = await runClaudeChat(env, msgs, modelKey, undefined, { pc: true });
         ctx.waitUntil(logUsage(env, usage));
         const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
         const newId = `a_${Date.now()}`;
@@ -4714,7 +4796,7 @@ audio{width:300px;margin-top:4px}
         if (file_url) { aMsg.file_url = file_url; aMsg.file_name = file_name; }
         msgs.push(aMsg);
         await saveChatMsgs(env, msgs, sessionId);
-        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name, usage });
+        return Response.json({ reply, reply_id: newId, thinking, file_url, file_name, usage, backend });
       }
 
       // Normal send
@@ -4723,7 +4805,7 @@ audio{width:300px;margin-top:4px}
       const userId = `u_${Date.now()}`;
       msgs.push({ id: userId, role: "user", content, ts: Date.now() });
       const voiceEmotion = (body.voice_emotion || "").trim() || undefined;
-      const { reply: rawReply, thinking, usage } = await runClaudeChat(env, msgs, modelKey, voiceEmotion);
+      const { reply: rawReply, thinking, usage, backend } = await runClaudeChat(env, msgs, modelKey, voiceEmotion, { pc: true });
       ctx.waitUntil(Promise.all([logUsage(env, usage), autoExtractMemories(env, msgs)]));
       const { clean: reply, file_url, file_name } = await extractFileBlock(rawReply, env);
       const assistantId = `a_${Date.now() + 1}`;
@@ -4738,7 +4820,29 @@ audio{width:300px;margin-top:4px}
           if (lpRaw) { const lp = JSON.parse(lpRaw); if (!lp.reply) { lp.reply = content.slice(0, 100); await env.PHONE_STATE.put("impulse:last", JSON.stringify(lp)); } }
         } catch {}
       }
-      return Response.json({ reply, reply_id: assistantId, thinking, file_url, file_name, usage });
+      return Response.json({ reply, reply_id: assistantId, thinking, file_url, file_name, usage, backend });
+    }
+
+    // POST /pc-heartbeat — 電腦每 60 秒報到一次，2 分鐘內有報到才會把對話轉過去
+    if (request.method === "POST" && url.pathname === "/pc-heartbeat") {
+      if (!(await secretMatches(request.headers.get("X-PC-Secret"), env.PC_SHARED_SECRET))) {
+        return Response.json({ error: "unauthorized" }, { status: 401 });
+      }
+      const hb = await request.json().catch(() => ({})) as any;
+      const pcUrl = validPcUrl(env, hb.url);
+      if (!pcUrl) return Response.json({ error: "invalid url" }, { status: 400 });
+      await initPcHeartbeatTable(env);
+      await env.DB.prepare("INSERT INTO pc_heartbeat (id, last_seen, url) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen, url = excluded.url")
+        .bind(Date.now(), pcUrl).run();
+      return Response.json({ ok: true });
+    }
+
+    // POST /pc-mcp — 電腦端 claude -p 呼叫工具用（共享密鑰，不需要 MCP_TOKEN）
+    if (request.method === "POST" && url.pathname === "/pc-mcp") {
+      if (!(await secretMatches(request.headers.get("X-PC-Secret"), env.PC_SHARED_SECRET))) {
+        return Response.json({ error: "unauthorized" }, { status: 401 });
+      }
+      return handlePcMcp(request, env);
     }
 
     // POST /api/chat/edit
@@ -4916,6 +5020,25 @@ async function sendLine(token: string, userId: string, message: string): Promise
     }),
   });
   return { ok: res.ok, status: res.status };
+}
+
+// 電腦端 claude -p 專用的 MCP 入口：用共享密鑰驗證，只開跟 PWA 聊天相同的工具（不給傳 Line、語音等）
+const PC_MCP_TOOLS = new Set(["get_phone_state", "get_health_data", "save_memory", "set_toy"]);
+async function handlePcMcp(request: Request, env: any): Promise<Response> {
+  const text = await request.text();
+  let body: any;
+  try { body = JSON.parse(text); } catch {
+    return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, { status: 400 });
+  }
+  if (body.id === undefined) return new Response(null, { status: 202 });
+  if (body.method === "tools/call" && !PC_MCP_TOOLS.has(body.params?.name)) {
+    return Response.json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: "Tool not available" } });
+  }
+  const resp = await handleMcp(new Request(request.url, { method: "POST", headers: { "Content-Type": "application/json" }, body: text }), env);
+  if (body.method !== "tools/list") return resp;
+  const data = await resp.json() as any;
+  if (Array.isArray(data?.result?.tools)) data.result.tools = data.result.tools.filter((t: any) => PC_MCP_TOOLS.has(t.name));
+  return Response.json(data);
 }
 
 async function handleMcp(request: Request, env: any): Promise<Response> {
