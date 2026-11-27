@@ -146,9 +146,15 @@ const server = http.createServer(async (req, res) => {
     req.setEncoding("utf8");
     for await (const c of req) { raw += c; if (raw.length > 5_000_000) throw new Error("body too large"); }
     const body = JSON.parse(raw);
-    // 先送出標頭，讓 Worker 知道電腦接起來了（它只等 5 秒），回覆內容生成完再送
-    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-    res.flushHeaders();
+    // Worker 只等 5 秒「接起來」。Cloudflare 通道會把 JSON 整份收完才轉送（實測首位元組要等到生成完），
+    // 所以改用不會被緩衝的 event-stream，並立刻送出空白、之後每 3 秒再送一個；JSON 開頭的空白不影響解析
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    });
+    res.write(" ");
+    const keepalive = setInterval(() => res.write(" "), 3_000);
     const started = Date.now();
     try {
       const out = await runClaude(body);
@@ -157,6 +163,8 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       log(`claude failed: ${e.message}`);
       res.end(JSON.stringify({ error: "claude failed" }));
+    } finally {
+      clearInterval(keepalive);
     }
   } catch (e) {
     log(`bad request: ${e.message}`);

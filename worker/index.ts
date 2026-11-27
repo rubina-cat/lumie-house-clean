@@ -1538,7 +1538,10 @@ async function extractFileBlock(reply: string, env: any): Promise<{ clean: strin
 // 電腦開著時，對話改走電腦上的 claude -p（Pro 訂閱）；電腦沒心跳或出錯就退回 API
 const PC_HEARTBEAT_FRESH_MS = 120_000;
 // 只限制「電腦接起來」的時間（收到回應標頭），不限制生成本身——claude -p 回完整一句常常超過 5 秒
-const PC_CONNECT_TIMEOUT_MS = 5_000;
+const PC_CONNECT_TIMEOUT_MS = 8_000;
+
+// 模型有時會模仿每則訊息開頭的 [月/日 時:分] 時間標記；存檔和組 prompt 前都拿掉，免得越疊越多
+const stripEchoedStamps = (s: string) => s.replace(/^\s*(\[\d{1,2}\/\d{1,2} \d{1,2}:\d{2}\]\s*)+/, "");
 const PC_REPLY_TIMEOUT_MS = 180_000;
 
 async function initPcHeartbeatTable(env: any) {
@@ -1594,8 +1597,7 @@ async function callPC(env: any, pcUrl: string, modelKey: string, systemBlocks: a
     if (!r.ok) { console.error(`PC backend HTTP ${r.status}, falling back to API`); return null; }
     timer = setTimeout(() => ctrl.abort(), PC_REPLY_TIMEOUT_MS);
     const d = await r.json() as any;
-    // claude -p 會模仿訊息開頭的 [月/日 時:分] 時間標記，API 模式不會；這裡拿掉
-    const reply = typeof d?.reply === "string" ? d.reply.replace(/^\s*(\[\d{1,2}\/\d{1,2} \d{1,2}:\d{2}\]\s*)+/, "") : "";
+    const reply = typeof d?.reply === "string" ? stripEchoedStamps(d.reply) : "";
     if (!reply.trim()) { console.error("PC backend empty reply, falling back to API"); return null; }
     return {
       reply,
@@ -1814,7 +1816,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   };
   let msgs = trimmed.map((m: any) => {
     const tag = stampOf(m.ts);
-    const c = m.content;
+    const c = m.role === 'assistant' && typeof m.content === 'string' ? stripEchoedStamps(m.content) : m.content;
     if (!tag) return { role: m.role as string, content: c };
     return {
       role: m.role as string,
@@ -1989,7 +1991,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
     data = await call(msgs);
     if (data.usage) { totalUsage.input_tokens += data.usage.input_tokens || 0; totalUsage.output_tokens += data.usage.output_tokens || 0; totalUsage.cache_creation_tokens += data.usage.cache_creation_input_tokens || 0; totalUsage.cache_read_tokens += data.usage.cache_read_input_tokens || 0; }
   }
-  const reply = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n") || "（沒有回應）";
+  const reply = stripEchoedStamps((data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n")) || "（沒有回應）";
   const thinking = usesThinking ? (data.content || []).filter((b: any) => b.type === "thinking").map((b: any) => b.thinking).join("\n") : "";
   return { reply, thinking, backend: 'api', usage: totalUsage };
 }

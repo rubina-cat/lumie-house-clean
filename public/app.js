@@ -812,7 +812,8 @@ function buildMsgEl(msg, isLast) {
     if (msg.content) {
       const ct = document.createElement('div');
       ct.className = 'msg-content';
-      ct.innerHTML = parseMoodlet(msg.content);
+      // 舊回覆裡可能帶著模型模仿的 [月/日 時:分] 標記，顯示時藏起來
+      ct.innerHTML = parseMoodlet(String(msg.content).replace(/^\s*(\[\d{1,2}\/\d{1,2} \d{1,2}:\d{2}\]\s*)+/, ''));
       div.appendChild(ct);
     }
     if (msg.file_url) {
