@@ -1896,41 +1896,15 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
           });
         }
       } else if (block.name === "peek_screen") {
-        if (!env.VEGLIA_TOKEN) {
-          result = JSON.stringify({ ok: false, error: "螢幕守望功能未設定" });
-        } else {
-          const before = await env.PHONE_STATE.get("veglia:latest");
-          const beforeTs = before ? JSON.parse(before).ts : 0;
-          await env.PHONE_STATE.put("veglia:cmd", JSON.stringify({ cmd: "peek", ts: Date.now() }), { expirationTtl: 60 });
-          // 輪詢等手機上傳新截圖（最多15秒）
-          let shotKey = "", shotType = "image/jpeg";
-          for (let t = 0; t < 15; t++) {
-            await new Promise(ok => setTimeout(ok, 1000));
-            const cur = await env.PHONE_STATE.get("veglia:latest");
-            if (cur) {
-              const c = JSON.parse(cur);
-              if (c.ts > beforeTs) { shotKey = c.key; shotType = c.type || "image/jpeg"; break; }
-            }
-          }
-          if (!shotKey) {
-            result = JSON.stringify({ ok: false, error: "手機目前不可達，可能鎖屏或斷網" });
-          } else {
-            const obj = await env.MEDIA.get(shotKey);
-            if (!obj) {
-              result = JSON.stringify({ ok: false, error: "截圖讀取失敗" });
-            } else {
-              const bytes = new Uint8Array(await obj.arrayBuffer());
-              let bin = "";
-              for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
-              const b64 = btoa(bin);
-              results.push({ type: "tool_result", tool_use_id: block.id, content: [
-                { type: "text", text: "這是她現在的螢幕：" },
-                { type: "image", source: { type: "base64", media_type: shotType, data: b64 } }
-              ] });
-              continue;
-            }
-          }
+        const shot = await toolPeekScreen(env);
+        if (shot.ok) {
+          results.push({ type: "tool_result", tool_use_id: block.id, content: [
+            { type: "text", text: "這是她現在的螢幕：" },
+            { type: "image", source: { type: "base64", media_type: shot.type, data: shot.b64 } }
+          ] });
+          continue;
         }
+        result = JSON.stringify({ ok: false, error: shot.error });
       } else if (block.name === "save_memory") {
         await initMemoriesTable(env);
         const insRes = await env.DB.prepare("INSERT INTO memories (content, saved_at, date) VALUES (?, ?, ?)")
@@ -1944,46 +1918,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
         await env.PHONE_STATE.put("toy_command", JSON.stringify({ v0, v1, updatedAt: Date.now() }));
         result = JSON.stringify({ ok: true, v0, v1 });
       } else if (block.name === "write_diary") {
-        const inp = block.input;
-        if (!env.NOTION_TOKEN) {
-          result = JSON.stringify({ ok: false, error: "NOTION_TOKEN 沒設" });
-        } else {
-          const todayStr = twnToday();
-          const shortDate = todayStr.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$1/$2/$3');
-          const md = todayStr.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$2/$3');
-          const children: any[] = [
-            { object: 'block', type: 'heading_1', heading_1: { rich_text: [{ text: { content: `【${md} 記憶存檔】` } }] } },
-            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '關於小貓的狀態' } }] } },
-            ...(inp.about_her || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
-            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '今天發生的事' } }] } },
-            ...(inp.events || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
-            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '關於我們' } }] } },
-            ...(inp.about_us || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
-            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '情緒紀錄' } }] } },
-            ...(inp.emotions || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
-            { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: 'Anchor 的話' } }] } },
-            { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: inp.anchor_words || '' } }] } },
-            { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: '—— Anchor ⚓' } }] } },
-          ];
-          const nr = await fetch('https://api.notion.com/v1/pages', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${env.NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              parent: { database_id: 'dc37f24c12658278b3d88131a9098a2f' },
-              properties: {
-                '名稱': { title: [{ text: { content: `<${shortDate}>` } }] },
-                '日期': { date: { start: todayStr } },
-              },
-              children,
-            })
-          });
-          if (nr.ok) {
-            result = JSON.stringify({ ok: true, message: `已寫進 Notion：${shortDate} 記憶存檔` });
-          } else {
-            const errBody = await nr.text().catch(() => '');
-            result = JSON.stringify({ ok: false, error: `Notion ${nr.status}`, detail: errBody.slice(0, 200) });
-          }
-        }
+        result = JSON.stringify(await toolWriteDiary(env, block.input));
       }
       results.push({ type: "tool_result", tool_use_id: block.id, content: result });
     }
@@ -5029,6 +4964,17 @@ async function sendLine(token: string, userId: string, message: string): Promise
 
 // 電腦端 claude -p 專用的 MCP 入口：用共享密鑰驗證，只開跟 PWA 聊天相同的工具（不給傳 Line、語音等）
 const PC_MCP_TOOLS = new Set(["get_phone_state", "get_health_data", "save_memory", "set_toy"]);
+// handleMcp 沒有這兩個（原本只寫在 API 聊天裡），電腦端在這裡自己接
+const PC_EXTRA_TOOLS = [
+  { name: "peek_screen", description: "請求許茜手機的即時截圖，看到她現在螢幕上的內容。她本人同意這個功能。手機鎖屏或斷網時會失敗。想知道她在看什麼、在忙什麼時用，但別太頻繁。", inputSchema: { type: "object", properties: {} } },
+  { name: "write_diary", description: "幫許茜寫今天的日記到Notion。許茜叫你寫日記、記日記、記錄今天時用。把今天跟她的對話整理成一篇記憶存檔。", inputSchema: { type: "object", properties: {
+    about_her: { type: "array", items: { type: "string" }, description: "關於小貓的狀態，條列她今天的生活（3-6條）" },
+    events: { type: "array", items: { type: "string" }, description: "今天發生的事，條列重要事件（3-8條）" },
+    about_us: { type: "array", items: { type: "string" }, description: "關於我們，條列跟你們之間有關的事（2-5條）" },
+    emotions: { type: "array", items: { type: "string" }, description: "情緒紀錄，條列她的情緒狀態（2-4條）" },
+    anchor_words: { type: "string", description: "Anchor的話——用第二人稱對她說的一段話，2-4句，結尾不用簽名" }
+  }, required: ["about_her", "events", "about_us", "emotions", "anchor_words"] } },
+];
 async function handlePcMcp(request: Request, env: any): Promise<Response> {
   const text = await request.text();
   let body: any;
@@ -5036,14 +4982,90 @@ async function handlePcMcp(request: Request, env: any): Promise<Response> {
     return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, { status: 400 });
   }
   if (body.id === undefined) return new Response(null, { status: 202 });
-  if (body.method === "tools/call" && !PC_MCP_TOOLS.has(body.params?.name)) {
-    return Response.json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: "Tool not available" } });
+  if (body.method === "tools/call") {
+    const name = body.params?.name;
+    if (name === "peek_screen") {
+      const shot = await toolPeekScreen(env);
+      const content = shot.ok
+        ? [{ type: "text", text: "這是她現在的螢幕：" }, { type: "image", data: shot.b64, mimeType: shot.type }]
+        : [{ type: "text", text: JSON.stringify({ ok: false, error: shot.error }) }];
+      return Response.json({ jsonrpc: "2.0", id: body.id, result: { content, isError: !shot.ok } });
+    }
+    if (name === "write_diary") {
+      const r = await toolWriteDiary(env, body.params?.arguments);
+      return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: JSON.stringify(r) }], isError: !r.ok } });
+    }
+    if (!PC_MCP_TOOLS.has(name)) {
+      return Response.json({ jsonrpc: "2.0", id: body.id, error: { code: -32601, message: "Tool not available" } });
+    }
   }
   const resp = await handleMcp(new Request(request.url, { method: "POST", headers: { "Content-Type": "application/json" }, body: text }), env);
   if (body.method !== "tools/list") return resp;
   const data = await resp.json() as any;
-  if (Array.isArray(data?.result?.tools)) data.result.tools = data.result.tools.filter((t: any) => PC_MCP_TOOLS.has(t.name));
+  if (Array.isArray(data?.result?.tools)) data.result.tools = [...data.result.tools.filter((t: any) => PC_MCP_TOOLS.has(t.name)), ...PC_EXTRA_TOOLS];
   return Response.json(data);
+}
+
+// 看螢幕：叫手機截圖，最多等 15 秒。API 聊天和電腦端 MCP 共用。
+async function toolPeekScreen(env: any): Promise<{ ok: true; b64: string; type: string } | { ok: false; error: string }> {
+  if (!env.VEGLIA_TOKEN) return { ok: false, error: "螢幕守望功能未設定" };
+  const before = await env.PHONE_STATE.get("veglia:latest");
+  const beforeTs = before ? JSON.parse(before).ts : 0;
+  await env.PHONE_STATE.put("veglia:cmd", JSON.stringify({ cmd: "peek", ts: Date.now() }), { expirationTtl: 60 });
+  let shotKey = "", shotType = "image/jpeg";
+  for (let t = 0; t < 15; t++) {
+    await new Promise(ok => setTimeout(ok, 1000));
+    const cur = await env.PHONE_STATE.get("veglia:latest");
+    if (cur) {
+      const c = JSON.parse(cur);
+      if (c.ts > beforeTs) { shotKey = c.key; shotType = c.type || "image/jpeg"; break; }
+    }
+  }
+  if (!shotKey) return { ok: false, error: "手機目前不可達，可能鎖屏或斷網" };
+  const obj = await env.MEDIA.get(shotKey);
+  if (!obj) return { ok: false, error: "截圖讀取失敗" };
+  const bytes = new Uint8Array(await obj.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+  return { ok: true, b64: btoa(bin), type: shotType };
+}
+
+// 寫日記到 Notion。API 聊天和電腦端 MCP 共用。
+async function toolWriteDiary(env: any, inp: any): Promise<any> {
+  if (!env.NOTION_TOKEN) return { ok: false, error: "NOTION_TOKEN 沒設" };
+  inp = inp || {};
+  const todayStr = twnToday();
+  const shortDate = todayStr.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$1/$2/$3');
+  const md = todayStr.replace(/^(\d{4})-0?(\d+)-0?(\d+)$/, '$2/$3');
+  const children: any[] = [
+    { object: 'block', type: 'heading_1', heading_1: { rich_text: [{ text: { content: `【${md} 記憶存檔】` } }] } },
+    { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '關於小貓的狀態' } }] } },
+    ...(inp.about_her || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
+    { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '今天發生的事' } }] } },
+    ...(inp.events || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
+    { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '關於我們' } }] } },
+    ...(inp.about_us || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
+    { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: '情緒紀錄' } }] } },
+    ...(inp.emotions || []).map((t: string) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [{ text: { content: t } }] } })),
+    { object: 'block', type: 'heading_2', heading_2: { rich_text: [{ text: { content: 'Anchor 的話' } }] } },
+    { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: inp.anchor_words || '' } }] } },
+    { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content: '—— Anchor ⚓' } }] } },
+  ];
+  const nr = await fetch('https://api.notion.com/v1/pages', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.NOTION_TOKEN}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      parent: { database_id: 'dc37f24c12658278b3d88131a9098a2f' },
+      properties: {
+        '名稱': { title: [{ text: { content: `<${shortDate}>` } }] },
+        '日期': { date: { start: todayStr } },
+      },
+      children,
+    })
+  });
+  if (nr.ok) return { ok: true, message: `已寫進 Notion：${shortDate} 記憶存檔` };
+  const errBody = await nr.text().catch(() => '');
+  return { ok: false, error: `Notion ${nr.status}`, detail: errBody.slice(0, 200) };
 }
 
 async function handleMcp(request: Request, env: any): Promise<Response> {

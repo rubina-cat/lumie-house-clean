@@ -23,7 +23,7 @@ const RUN_TIMEOUT_MS = 170_000; // Worker 最多等 180 秒
 // 訂閱不用另外付費，PWA 選 Haiku 時也升級成 Sonnet
 const MODEL_ALIAS = { haiku: "sonnet", sonnet: "sonnet", sonnet5: "sonnet", opus46: "opus", opus: "opus" };
 // 只開跟 API 模式相同的工具；其他 MCP 工具（傳 Line、語音…）一律不給
-const ALLOWED_TOOLS = ["get_phone_state", "get_health_data", "save_memory", "set_toy"].map(t => `mcp__anchor__${t}`);
+const ALLOWED_TOOLS = ["get_phone_state", "get_health_data", "save_memory", "set_toy", "peek_screen", "write_diary"].map(t => `mcp__anchor__${t}`);
 // --system-prompt-file 沒列在 --help 主清單裡（2.1.332 已實測可用），不放進這個檢查
 const REQUIRED_FLAGS = ["--print", "--output-format", "--verbose", "--model", "--tools", "--allowedTools", "--mcp-config", "--strict-mcp-config", "--no-session-persistence"];
 
