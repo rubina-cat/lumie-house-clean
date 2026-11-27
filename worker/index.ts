@@ -1578,7 +1578,10 @@ async function pcOnlineUrl(env: any): Promise<string | null> {
 }
 
 async function callPC(env: any, pcUrl: string, modelKey: string, systemBlocks: any[], msgs: any[], withThinking: boolean): Promise<{ reply: string; thinking: string; input_tokens: number; output_tokens: number } | null> {
-  const stripCache = (c: any) => Array.isArray(c) ? c.map(({ cache_control, ...b }: any) => b) : c;
+  // 電腦端只吃文字（圖片本來就只顯示成一行提示），先在這裡換掉，免得長歷史裡的圖片把請求撐過電腦端的 5MB 上限
+  const stripCache = (c: any) => Array.isArray(c)
+    ? c.map(({ cache_control, ...b }: any) => b?.type === "image" ? { type: "text", text: "[她傳了一張圖片]" } : b)
+    : c;
   const ctrl = new AbortController();
   let timer = setTimeout(() => ctrl.abort(), PC_CONNECT_TIMEOUT_MS);
   try {
@@ -1804,35 +1807,42 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   // 裁剪歷史：只送最近 N 則給 API（完整記錄仍保留在 KV），避免 token 太多導致 Cloudflare 超時
   const msgLimit = modelKey === 'haiku' ? 40 : modelKey === 'sonnet' || modelKey === 'sonnet5' ? 30 : 20;
   const trimmed = history.length > msgLimit ? history.slice(-msgLimit) : history;
-  // 每則訊息掛上自己的時間。原本只有系統提示裡有一個基準時間，Anchor 只知道順序、
-  // 看不到每句話之間隔了多久。時間一定要用絕對值（訊息自己的 ts），不能寫「5 分鐘前」——
-  // 相對時間每輪都會變，下面那段 cache_control 的前綴就再也命不中快取。
-  const stampOf = (ts: any) => {
-    if (!ts) return '';
-    const d = new Date(Number(ts) + 8 * 3600000);
-    if (isNaN(d.getTime())) return '';
-    const p = (n: number) => String(n).padStart(2, '0');
-    return `[${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}] `;
-  };
-  let msgs = trimmed.map((m: any) => {
-    const tag = stampOf(m.ts);
-    const c = m.role === 'assistant' && typeof m.content === 'string' ? stripEchoedStamps(m.content) : m.content;
-    if (!tag) return { role: m.role as string, content: c };
-    return {
-      role: m.role as string,
-      content: typeof c === 'string' ? tag + c : Array.isArray(c) ? [{ type: 'text', text: tag.trim() }, ...c] : c,
+  const prepMsgs = (list: any[]) => {
+    // 每則訊息掛上自己的時間。原本只有系統提示裡有一個基準時間，Anchor 只知道順序、
+    // 看不到每句話之間隔了多久。時間一定要用絕對值（訊息自己的 ts），不能寫「5 分鐘前」——
+    // 相對時間每輪都會變，下面那段 cache_control 的前綴就再也命不中快取。
+    const stampOf = (ts: any) => {
+      if (!ts) return '';
+      const d = new Date(Number(ts) + 8 * 3600000);
+      if (isNaN(d.getTime())) return '';
+      const p = (n: number) => String(n).padStart(2, '0');
+      return `[${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}] `;
     };
-  });
-  if (msgs.length > 0 && msgs[0].role === 'assistant') msgs = msgs.slice(1);
-  // 時間也貼在最新一句話旁（只進 API 呼叫，不存記錄）——小模型容易被記錄裡的舊時間錨定，就近提醒最有效
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role !== 'user') continue;
-    const note = `\n\n[系統：${timeNote}。${recentCallNote}]`;
-    const c: any = msgs[i].content;
-    if (typeof c === 'string') msgs[i] = { ...msgs[i], content: c + note };
-    else if (Array.isArray(c)) msgs[i] = { ...msgs[i], content: [...c, { type: 'text', text: note }] };
-    break;
-  }
+    let out = list.map((m: any) => {
+      const tag = stampOf(m.ts);
+      const c = m.role === 'assistant' && typeof m.content === 'string' ? stripEchoedStamps(m.content) : m.content;
+      if (!tag) return { role: m.role as string, content: c };
+      return {
+        role: m.role as string,
+        content: typeof c === 'string' ? tag + c : Array.isArray(c) ? [{ type: 'text', text: tag.trim() }, ...c] : c,
+      };
+    });
+    if (out.length > 0 && out[0].role === 'assistant') out = out.slice(1);
+    // 時間也貼在最新一句話旁（只進 API 呼叫，不存記錄）——小模型容易被記錄裡的舊時間錨定，就近提醒最有效
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].role !== 'user') continue;
+      const note = `\n\n[系統：${timeNote}。${recentCallNote}]`;
+      const c: any = out[i].content;
+      if (typeof c === 'string') out[i] = { ...out[i], content: c + note };
+      else if (Array.isArray(c)) out[i] = { ...out[i], content: [...c, { type: 'text', text: note }] };
+      break;
+    }
+    return out;
+  };
+  let msgs = prepMsgs(trimmed);
+  // 電腦端走訂閱，不用省 token：多給一些歷史，前面聊過的事才接得上（API 維持上面的 msgLimit）
+  const PC_MSG_LIMIT = 80;
+  const pcMsgs = opts?.pc ? prepMsgs(history.length > PC_MSG_LIMIT ? history.slice(-PC_MSG_LIMIT) : history) : msgs;
   if (msgs.length >= 4) {
     const ci = msgs.length - 2;
     const cm = msgs[ci];
@@ -1867,7 +1877,7 @@ heart_rate="偏快" response_delay="在想怎麼回你" focus_level="高" breath
   };
   const pcUrl = opts?.pc ? await pcOnlineUrl(env) : null;
   if (pcUrl) {
-    const pc = await callPC(env, pcUrl, modelKey, systemBlocks, msgs, usesThinking);
+    const pc = await callPC(env, pcUrl, modelKey, systemBlocks, pcMsgs, usesThinking);
     if (pc) {
       return { reply: pc.reply, thinking: pc.thinking, backend: 'pc', usage: { ...totalUsage, model: `pc:${modelId}`, input_tokens: pc.input_tokens, output_tokens: pc.output_tokens } };
     }
@@ -4970,7 +4980,7 @@ async function sendLine(token: string, userId: string, message: string): Promise
 }
 
 // 電腦端 claude -p 專用的 MCP 入口：用共享密鑰驗證，只開跟 PWA 聊天相同的工具（不給傳 Line、語音等）
-const PC_MCP_TOOLS = new Set(["get_phone_state", "get_health_data", "save_memory", "set_toy"]);
+const PC_MCP_TOOLS = new Set(["get_phone_state", "get_health_data", "save_memory", "get_memories", "set_toy"]);
 // handleMcp 沒有這兩個（原本只寫在 API 聊天裡），電腦端在這裡自己接
 const PC_EXTRA_TOOLS = [
   { name: "peek_screen", description: "請求許茜手機的即時截圖，看到她現在螢幕上的內容。她本人同意這個功能。手機鎖屏或斷網時會失敗。想知道她在看什麼、在忙什麼時用，但別太頻繁。", inputSchema: { type: "object", properties: {} } },
